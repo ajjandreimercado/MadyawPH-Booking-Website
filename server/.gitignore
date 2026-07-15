@@ -1,0 +1,23 @@
+# ─── Server-level .gitignore ──────────────────────────────────────────────────
+# This file is a safety net in case the server/ directory is ever pushed as a
+# standalone repository or sub-module. The root .gitignore already excludes
+# these, but having them here ensures double-coverage.
+
+# ─── Environment files (SECRETS — NEVER commit) ───────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Build output ─────────────────────────────────────────────────────────────
+dist/
+*.tsbuildinfo
+
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+*.log.*
+
+# ─── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store

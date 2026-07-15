@@ -1,0 +1,1 @@
+export const madyawLogoUrl = new URL('../../madyaw logo.jpg', import.meta.url).href;

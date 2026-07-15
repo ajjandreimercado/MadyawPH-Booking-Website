@@ -1,0 +1,24 @@
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+build/
+dist/
+server/dist/
+coverage/
+
+# ─── OS / editor artifacts ────────────────────────────────────────────────────
+.DS_Store
+*.log
+*.log.*
+
+# ─── Environment files (SECRETS) ──────────────────────────────────────────────
+# ALL .env variants are excluded by default.
+# Only the sanitised .env.example templates are allowed in source control.
+.env
+.env.*
+!.env.example
+!server/.env.example
+
+# ─── TypeScript cache ─────────────────────────────────────────────────────────
+*.tsbuildinfo

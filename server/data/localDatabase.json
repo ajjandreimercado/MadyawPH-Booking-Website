@@ -1,0 +1,238 @@
+{
+  "hotels": [
+    {
+      "_id": "hotel-1",
+      "name": "Madyaw Beach Resort",
+      "location": "Boracay, Philippines",
+      "contact_number": "+63 917 123 4567",
+      "access_username": "admin",
+      "access_password": "password",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    }
+  ],
+  "roomCategories": [
+    {
+      "_id": "category-1",
+      "hotel_id": "hotel-1",
+      "name": "Beachfront Villa",
+      "description": "Spacious villa with direct beach access and sea views.",
+      "default_price": 5200,
+      "image_url": "/hero/room1.jpg",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "category-2",
+      "hotel_id": "hotel-1",
+      "name": "Garden Suite",
+      "description": "Quiet suite with garden views, perfect for families.",
+      "default_price": 3500,
+      "image_url": "/hero/room2.jpg",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "category-3",
+      "hotel_id": "hotel-1",
+      "name": "City Escape",
+      "description": "Cozy room with smart amenities near local attractions.",
+      "default_price": 2800,
+      "image_url": "/hero/room3.jpg",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    }
+  ],
+  "properties": [
+    {
+      "_id": "room-1",
+      "hotel_id": "hotel-1",
+      "hotel_name": "Madyaw Beach Resort",
+      "hotel_location": "Boracay, Philippines",
+      "category_id": "category-1",
+      "category_name": "Beachfront Villa",
+      "display_name": "Sunset Suite",
+      "room_number": "101",
+      "room_type": "villa-retreat",
+      "price_per_night": 5200,
+      "status": "available",
+      "amenities": [
+        "Wi-Fi",
+        "Air Conditioning",
+        "Breakfast Included",
+        "Sea View"
+      ],
+      "image_url": "/hero/room1.jpg",
+      "description": "A bright villa suite with direct beach access, luxury amenities, and amazing sunset views.",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "room-2",
+      "hotel_id": "hotel-1",
+      "hotel_name": "Madyaw Beach Resort",
+      "hotel_location": "Boracay, Philippines",
+      "category_id": "category-1",
+      "category_name": "Beachfront Villa",
+      "display_name": "Coral Villa",
+      "room_number": "102",
+      "room_type": "villa-retreat",
+      "price_per_night": 4800,
+      "status": "available",
+      "amenities": [
+        "Wi-Fi",
+        "Air Conditioning",
+        "Private Balcony",
+        "Breakfast Included"
+      ],
+      "image_url": "/hero/room2.jpg",
+      "description": "Comfortable beachfront villa perfect for couples and honeymooners.",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "room-3",
+      "hotel_id": "hotel-1",
+      "hotel_name": "Madyaw Beach Resort",
+      "hotel_location": "Boracay, Philippines",
+      "category_id": "category-2",
+      "category_name": "Garden Suite",
+      "display_name": "Palm Garden",
+      "room_number": "201",
+      "room_type": "family-suite",
+      "price_per_night": 3500,
+      "status": "available",
+      "amenities": [
+        "Wi-Fi",
+        "Kitchenette",
+        "Garden View",
+        "Family Friendly"
+      ],
+      "image_url": "/hero/room3.jpg",
+      "description": "A family-friendly suite set beside lush gardens with easy beach access.",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "room-4",
+      "hotel_id": "hotel-1",
+      "hotel_name": "Madyaw Beach Resort",
+      "hotel_location": "Boracay, Philippines",
+      "category_id": "category-2",
+      "category_name": "Garden Suite",
+      "display_name": "Coconut Garden",
+      "room_number": "202",
+      "room_type": "family-suite",
+      "price_per_night": 3400,
+      "status": "maintenance",
+      "amenities": [
+        "Wi-Fi",
+        "Garden View",
+        "Breakfast Included"
+      ],
+      "image_url": "/hero/room1.jpg",
+      "description": "A serene garden suite with comfortable living space and a calm atmosphere.",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "_id": "room-5",
+      "hotel_id": "hotel-1",
+      "hotel_name": "Madyaw Beach Resort",
+      "hotel_location": "Boracay, Philippines",
+      "category_id": "category-3",
+      "category_name": "City Escape",
+      "display_name": "Island Breeze",
+      "room_number": "301",
+      "room_type": "standard-room",
+      "price_per_night": 2800,
+      "status": "available",
+      "amenities": [
+        "Wi-Fi",
+        "Air Conditioning",
+        "Breakfast Included"
+      ],
+      "image_url": "/hero/room2.jpg",
+      "description": "A smart room with city charm and easy access to local restaurants.",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    }
+  ],
+  "users": [
+    {
+      "_id": "user-guest-1",
+      "name": "Guest User",
+      "email": "guest@example.com",
+      "password": "$2a$10$AAw55s7s5YGv8pgLJQBCL.i83gBWH9KbgAYR98Zp0P.hw1K7zaiGO",
+      "role": "guest",
+      "authProvider": "local",
+      "favorites": [
+        "room-1"
+      ],
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    },
+    {
+      "name": "ajmercado",
+      "email": "wlakoyros@gmail.com",
+      "password": "$2a$10$sv9aibRurMZvkBpTL4UDCOCzCOblcQYRY1b7YP1LF5DOcBMEu8rEG",
+      "role": "guest",
+      "_id": "589b062a-3158-424f-b91a-b7e1ebb0f6a8",
+      "createdAt": "2026-06-04T07:47:50.508Z",
+      "updatedAt": "2026-06-04T07:49:20.156Z",
+      "googleSub": "113390632675981762663",
+      "authProvider": "google"
+    }
+  ],
+  "bookings": [
+    {
+      "_id": "booking-1",
+      "booking_reference": "BR-1700000000000",
+      "hotel_id": "hotel-1",
+      "room_id": "room-1",
+      "propertyId": "room-1",
+      "propertyName": "Sunset Suite",
+      "guestName": "Guest User",
+      "guestEmail": "guest@example.com",
+      "guest_phone": "+63 912 000 0000",
+      "checkInDate": "2025-03-01",
+      "checkOutDate": "2025-03-05",
+      "adults": 2,
+      "children": 0,
+      "infants": 0,
+      "roomType": "villa-retreat",
+      "paymentMethod": "credit-card",
+      "source": "web",
+      "booking_type": "request_to_book",
+      "nights": 4,
+      "guestCount": 2,
+      "roomRate": 5200,
+      "serviceFee": 520,
+      "totalPrice": 22800,
+      "total_amount": 22800,
+      "discount_amount": 0,
+      "status": "requested",
+      "requestedAt": "2025-01-01T08:00:00.000Z",
+      "expiresAt": "2025-01-01T08:01:30.000Z",
+      "createdAt": "2025-01-01T08:00:00.000Z",
+      "updatedAt": "2025-01-01T08:00:00.000Z"
+    }
+  ],
+  "reviews": [
+    {
+      "_id": "review-1",
+      "hotel_id": "hotel-1",
+      "booking_id": "booking-1",
+      "room_id": "room-1",
+      "guest_name": "Guest User",
+      "propertyId": "room-1",
+      "authorName": "Guest User",
+      "rating": 5,
+      "title": "Amazing stay",
+      "comment": "The beachfront view was stunning and the service was excellent.",
+      "submitted_at": "2025-01-02T09:00:00.000Z",
+      "createdAt": "2025-01-02T09:00:00.000Z",
+      "updatedAt": "2025-01-02T09:00:00.000Z"
+    }
+  ]
+}

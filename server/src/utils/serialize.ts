@@ -1,0 +1,163 @@
+type AnyDocument = { _id: unknown; [key: string]: unknown };
+
+function toId(value: unknown) {
+  return String(value);
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item));
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item));
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+export function serializeProperty(property: AnyDocument) {
+  const source = property as AnyDocument;
+  const hotelId = source.hotel_id ?? source.hotelId;
+  const categoryId = source.category_id ?? source.categoryId;
+  const name = source.display_name ?? source.name ?? source.category_name ?? source.categoryName;
+  const location = source.hotel_location ?? source.location ?? source.hotel_name ?? source.category_name ?? source.categoryName;
+  const roomNumber = source.room_number ?? source.roomNumber ?? source.distance;
+  const roomStatus = source.status ?? source.roomStatus;
+
+  return {
+    id: toId(property._id),
+    _id: toId(property._id),
+    hotelId: hotelId ? toId(hotelId) : undefined,
+    categoryId: categoryId ? toId(categoryId) : undefined,
+    name: name ? String(name) : '',
+    location: location ? String(location) : '',
+    distance: roomNumber ? String(roomNumber) : '',
+    rating: Number(source.rating ?? source.average_rating ?? 4.8),
+    reviews: Number(source.reviews ?? source.review_count ?? 0),
+    price: Number(source.price_per_night ?? source.price ?? 0),
+    image: String(source.image_url ?? source.image ?? ''),
+    amenities: toStringArray(source.amenities),
+    type: String(source.room_type ?? source.type ?? ''),
+    featured: roomStatus ? String(roomStatus) === 'available' : Boolean(source.featured),
+    roomNumber: roomNumber ? String(roomNumber) : undefined,
+    roomStatus: roomStatus ? String(roomStatus) : undefined,
+    description: source.description ? String(source.description) : undefined,
+    categoryName: source.category_name ? String(source.category_name) : source.categoryName ? String(source.categoryName) : undefined,
+    currentGuestName: source.current_guest_name ? String(source.current_guest_name) : source.currentGuestName ? String(source.currentGuestName) : undefined,
+    currentCheckIn: source.current_check_in ? String(source.current_check_in) : source.currentCheckIn ? String(source.currentCheckIn) : undefined,
+    currentCheckOut: source.current_check_out ? String(source.current_check_out) : source.currentCheckOut ? String(source.currentCheckOut) : undefined,
+    hotelName: source.hotel_name ? String(source.hotel_name) : source.hotelName ? String(source.hotelName) : undefined,
+    hotelLocation: source.hotel_location ? String(source.hotel_location) : source.hotelLocation ? String(source.hotelLocation) : undefined,
+  };
+}
+
+export function serializeHotel(hotel: AnyDocument) {
+  return {
+    id: toId(hotel._id),
+    _id: toId(hotel._id),
+    name: hotel.name,
+    location: hotel.location,
+    contactNumber: hotel.contact_number,
+    imageUrl: hotel.image_url ? String(hotel.image_url) : undefined,
+  };
+}
+
+export function serializeRoomCategory(category: AnyDocument) {
+  const source = category as AnyDocument;
+  const hotelId = source.hotel_id ?? source.hotelId;
+
+  return {
+    id: toId(category._id),
+    _id: toId(category._id),
+    hotelId: hotelId ? toId(hotelId) : '',
+    name: String(source.name ?? ''),
+    description: String(source.description ?? ''),
+    defaultPrice: Number(source.default_price ?? source.defaultPrice ?? 0),
+    imageUrl: String(source.image_url ?? source.imageUrl ?? ''),
+  };
+}
+
+export function serializeUser(user: AnyDocument) {
+  // IMPORTANT: Use an explicit allowlist — never spread the whole document.
+  // This prevents password, lockout fields, and googleSub from leaking into API responses.
+  return {
+    id: toId(user._id),
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    partner: user.partner,
+    // favorites can be exposed to the owner (auth context uses this for wishlist)
+    favorites: Array.isArray(user.favorites) ? user.favorites : [],
+    // avatar is the Google profile picture URL — safe to expose to the owner
+    avatar: user.avatar ? String(user.avatar) : undefined,
+  };
+}
+
+
+export function serializeBooking(booking: AnyDocument) {
+  return {
+    id: toId(booking._id),
+    bookingReference: booking.booking_reference,
+    hotelId: booking.hotel_id ? toId(booking.hotel_id) : undefined,
+    roomId: booking.room_id ? toId(booking.room_id) : undefined,
+    propertyId: booking.propertyId,
+    propertyName: booking.propertyName,
+    guestName: booking.guestName,
+    guestEmail: booking.guestEmail,
+    guestPhone: booking.guest_phone,
+    checkInDate: booking.checkInDate,
+    checkOutDate: booking.checkOutDate,
+    checkInTime: booking.check_in_time,
+    checkOutTime: booking.check_out_time,
+    adults: booking.adults,
+    children: booking.children,
+    infants: booking.infants,
+    roomType: booking.roomType,
+    paymentMethod: booking.paymentMethod,
+    source: booking.source,
+    bookingType: booking.booking_type,
+    nights: booking.nights,
+    guestCount: booking.guestCount,
+    roomRate: booking.roomRate,
+    serviceFee: booking.serviceFee,
+    totalAmount: booking.total_amount ?? booking.totalPrice,
+    discountAmount: booking.discount_amount,
+    discountReason: booking.discount_reason,
+    status: booking.status,
+    requestedAt: booking.requestedAt,
+    expiresAt: booking.expiresAt,
+    totalPrice: booking.totalPrice,
+    checkInAt: booking.check_in_at,
+    checkOutAt: booking.check_out_at,
+    paymentStatus: booking.payment_status,
+    confirmationSentAt: booking.confirmationSentAt ? new Date(booking.confirmationSentAt as string | number | Date).toISOString() : null,
+    confirmationSendStatus: booking.confirmationSendStatus ?? 'none',
+    confirmationSendError: booking.confirmationSendError ?? '',
+  };
+}
+
+export function serializeReview(review: AnyDocument) {
+  return {
+    id: toId(review._id),
+    hotelId: review.hotel_id ? toId(review.hotel_id) : undefined,
+    bookingId: review.booking_id ? toId(review.booking_id) : undefined,
+    roomId: review.room_id ? toId(review.room_id) : undefined,
+    guestName: review.guest_name,
+    propertyId: review.propertyId,
+    authorName: review.authorName,
+    rating: review.rating,
+    title: review.title,
+    comment: review.comment,
+    submittedAt: review.submitted_at,
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt,
+  };
+}

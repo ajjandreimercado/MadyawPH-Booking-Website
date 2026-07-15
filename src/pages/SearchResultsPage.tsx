@@ -1,0 +1,477 @@
+import { useEffect, useState } from 'react';
+import { useScroll } from '../hooks/useScroll';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  Search, SlidersHorizontal, MapPin, Star, ChevronDown,
+  Wifi, Utensils, Dumbbell, Waves, ParkingCircle, Wine,
+  Grid3X3, List, X, ChevronLeft, ChevronRight,
+} from 'lucide-react';
+import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
+import StarRating from '../components/ui/StarRating';
+import { format } from 'date-fns';
+
+const SORT_OPTIONS = [
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'price', label: 'Lowest Price' },
+  { value: 'rating', label: 'Highest Rating' },
+  { value: 'popular', label: 'Most Popular' },
+];
+
+const AMENITY_ICONS: Record<string, any> = {
+  'wifi': Wifi,
+  'restaurant': Utensils,
+  'gym': Dumbbell,
+  'pool': Waves,
+  'parking': ParkingCircle,
+  'bar': Wine,
+};
+
+function formatLabel(value: string) {
+  return value.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 'grid' | 'list'; onSelect: (hotel: SearchResultHotel) => void }) {
+  const [imgIndex, setImgIndex] = useState(0);
+  const images = [
+    ...(hotel.imageUrl ? [hotel.imageUrl] : []),
+    ...(hotel.images || [])
+  ];
+  const displayImages = images.length > 0 ? images : ['/hero/slide-1.jpg'];
+  const navigate = useNavigate();
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm card-hover overflow-hidden ${view === 'list' ? 'flex gap-0' : ''}`}
+    >
+      {/* Image */}
+      <div className={`relative overflow-hidden group ${view === 'list' ? 'w-64 shrink-0' : 'h-52'}`}>
+        <img
+          src={displayImages[imgIndex]}
+          alt={hotel.name}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }}
+        />
+        {displayImages.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setImgIndex(p => (p - 1 + displayImages.length) % displayImages.length); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setImgIndex(p => (p + 1) % displayImages.length); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </>
+        )}
+        {hotel.availableRooms > 0 ? (
+          <span className="absolute top-3 left-3 px-2 py-1 bg-brand-success/90 text-white text-[10px] font-bold uppercase tracking-wider rounded-full">
+            {hotel.availableRooms} rooms left
+          </span>
+        ) : (
+          <span className="absolute top-3 left-3 px-2 py-1 bg-brand-danger/90 text-white text-[10px] font-bold uppercase tracking-wider rounded-full">
+            Fully booked
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className={`p-5 flex flex-col justify-between flex-1 ${view === 'list' ? 'min-h-[200px]' : ''}`}>
+        <div>
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <h3 className="font-serif font-bold text-lg text-brand-dark leading-snug line-clamp-2">{hotel.name}</h3>
+            {hotel.avgRating > 0 && (
+              <div className="flex items-center gap-1 bg-brand-primary text-white text-sm font-bold px-2 py-1 rounded-lg shrink-0">
+                <Star className="w-3.5 h-3.5 fill-white" />
+                {hotel.avgRating.toFixed(1)}
+              </div>
+            )}
+          </div>
+          <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-3">
+            <MapPin className="w-3.5 h-3.5" />
+            {hotel.location}
+          </p>
+          {hotel.totalReviews > 0 && (
+            <div className="flex items-center gap-2 mb-3">
+              <StarRating rating={hotel.avgRating} size="sm" />
+              <span className="text-xs text-brand-dark/50 font-bold">({hotel.totalReviews} reviews)</span>
+            </div>
+          )}
+          {hotel.roomTypes.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3">
+              {hotel.roomTypes.slice(0, 3).map(rt => (
+                <span key={rt} className="px-2 py-0.5 bg-brand-primary/8 text-brand-primary text-[10px] font-bold uppercase tracking-wider rounded-full border border-brand-primary/15">
+                  {rt.replace(/-/g, ' ')}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-end justify-between gap-3 pt-3 border-t border-brand-primary/8">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/40">Starting from</p>
+            <p className="price-tag">₱{hotel.minPrice.toLocaleString()}<span className="text-xs font-sans font-bold text-brand-dark/50">/night</span></p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(`/hotels/${hotel.id}`)}
+            disabled={hotel.availableRooms === 0}
+            className="btn-primary text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            View Rooms
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+export default function SearchResultsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [showFilters, setShowFilters] = useState(false);
+  const [dynamicRoomTypes, setDynamicRoomTypes] = useState<string[]>([]);
+  const [dynamicAmenities, setDynamicAmenities] = useState<string[]>([]);
+
+  // Filter state (controlled from URL params)
+  const destination = searchParams.get('destination') ?? '';
+  const checkIn = searchParams.get('checkIn') ?? '';
+  const checkOut = searchParams.get('checkOut') ?? '';
+  const guests = searchParams.get('guests') ?? '2';
+  const sort = (searchParams.get('sort') ?? 'recommended') as SearchParams['sort'];
+  const page = parseInt(searchParams.get('page') ?? '1', 10);
+
+  const [localDestination, setLocalDestination] = useState(destination);
+  const [priceMin, setPriceMin] = useState(Number(searchParams.get('priceMin') ?? 0));
+  const [priceMax, setPriceMax] = useState(Number(searchParams.get('priceMax') ?? 0));
+  const [selectedType, setSelectedType] = useState(searchParams.get('type') ?? '');
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>(
+    searchParams.get('amenities') ? searchParams.get('amenities')!.split(',') : []
+  );
+  const [minRating, setMinRating] = useState(Number(searchParams.get('rating') ?? 0));
+  const [freeCancellation, setFreeCancellation] = useState(searchParams.get('freeCancellation') === 'true');
+  const [breakfastIncluded, setBreakfastIncluded] = useState(searchParams.get('breakfastIncluded') === 'true');
+
+  const updateParam = (key: string, value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value);
+      else next.delete(key);
+      next.set('page', '1');
+      return next;
+    });
+  };
+
+  const applyFilters = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (priceMin > 0) next.set('priceMin', String(priceMin)); else next.delete('priceMin');
+      if (priceMax > 0) next.set('priceMax', String(priceMax)); else next.delete('priceMax');
+      if (selectedType) next.set('type', selectedType); else next.delete('type');
+      if (selectedAmenities.length > 0) next.set('amenities', selectedAmenities.join(',')); else next.delete('amenities');
+      if (minRating > 0) next.set('rating', String(minRating)); else next.delete('rating');
+      if (freeCancellation) next.set('freeCancellation', 'true'); else next.delete('freeCancellation');
+      if (breakfastIncluded) next.set('breakfastIncluded', 'true'); else next.delete('breakfastIncluded');
+      next.set('page', '1');
+      return next;
+    });
+    setShowFilters(false);
+  };
+
+  const clearFilters = () => {
+    setPriceMin(0); setPriceMax(0); setSelectedType('');
+    setSelectedAmenities([]); setMinRating(0);
+    setFreeCancellation(false); setBreakfastIncluded(false);
+    setSearchParams(prev => {
+      const next = new URLSearchParams();
+      if (prev.get('destination')) next.set('destination', prev.get('destination')!);
+      if (prev.get('checkIn')) next.set('checkIn', prev.get('checkIn')!);
+      if (prev.get('checkOut')) next.set('checkOut', prev.get('checkOut')!);
+      if (prev.get('guests')) next.set('guests', prev.get('guests')!);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    fetchFilters().then(res => {
+      setDynamicRoomTypes(res.roomTypes);
+      setDynamicAmenities(res.amenities);
+    }).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    setIsLoading(true);
+
+    const params: SearchParams = {
+      destination: searchParams.get('destination') ?? undefined,
+      priceMin: Number(searchParams.get('priceMin')) || undefined,
+      priceMax: Number(searchParams.get('priceMax')) || undefined,
+      type: searchParams.get('type') ?? undefined,
+      amenities: searchParams.get('amenities') ?? undefined,
+      rating: Number(searchParams.get('rating')) || undefined,
+      freeCancellation: searchParams.get('freeCancellation') === 'true' || undefined,
+      breakfastIncluded: searchParams.get('breakfastIncluded') === 'true' || undefined,
+      sort: (searchParams.get('sort') as SearchParams['sort']) ?? 'recommended',
+      page,
+      limit: 12,
+    };
+
+    searchHotels(params).then(result => {
+      if (!isActive) return;
+      setHotels(result.data);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+    }).catch(() => {
+      if (isActive) { setHotels([]); setTotal(0); setTotalPages(0); }
+    }).finally(() => {
+      if (isActive) setIsLoading(false);
+    });
+
+    return () => { isActive = false; };
+  }, [searchParams, page]);
+
+  const activeFilterCount = [
+    priceMin > 0, priceMax > 0, selectedType !== '',
+    selectedAmenities.length > 0, minRating > 0, freeCancellation, breakfastIncluded,
+  ].filter(Boolean).length;
+
+  const scrolled = useScroll(20);
+
+  return (
+    <div className="min-h-screen bg-brand-background">
+      {/* Search Header */}
+      <div className={`sticky z-30 bg-brand-surface border-b border-brand-primary/10 shadow-sm transition-all duration-300 ${scrolled ? 'top-0' : 'top-[88px] sm:top-24'}`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-primary/60" />
+              <input
+                type="text"
+                value={localDestination}
+                onChange={e => setLocalDestination(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && updateParam('destination', localDestination)}
+                placeholder="Search destination…"
+                className="pl-9 pr-4 py-2 w-full rounded-xl border border-brand-primary/20 bg-brand-background text-sm text-brand-dark focus:outline-none focus:border-brand-primary"
+              />
+            </div>
+            {checkIn && checkOut && (
+              <span className="text-xs font-bold text-brand-dark/60 hidden sm:block whitespace-nowrap">
+                {checkIn} → {checkOut} · {guests} guests
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-bold transition-colors ${activeFilterCount > 0 ? 'bg-brand-primary text-white border-brand-primary' : 'border-brand-primary/20 text-brand-dark hover:border-brand-primary/40'}`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              Filters {activeFilterCount > 0 && `(${activeFilterCount})`}
+            </button>
+
+            <div className="relative">
+              <select
+                value={sort}
+                onChange={e => updateParam('sort', e.target.value)}
+                className="appearance-none pl-3 pr-8 py-2 rounded-xl border border-brand-primary/20 text-sm font-bold text-brand-dark bg-brand-cream focus:outline-none"
+              >
+                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-primary/60 pointer-events-none" />
+            </div>
+
+            <div className="flex border border-brand-primary/20 rounded-xl overflow-hidden">
+              <button type="button" onClick={() => setView('grid')} className={`p-2 ${view === 'grid' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
+                <Grid3X3 className="w-4 h-4" />
+              </button>
+              <button type="button" onClick={() => setView('list')} className={`p-2 ${view === 'list' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter Panel */}
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-t border-brand-primary/10 bg-brand-cream"
+            >
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Price Range */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Price per night (₱)</p>
+                  <div className="flex items-center gap-2">
+                    <input type="number" placeholder="Min" value={priceMin || ''} onChange={e => setPriceMin(Number(e.target.value))} className="input-field text-xs py-2 px-3 w-full" />
+                    <span className="text-brand-dark/40 font-bold">–</span>
+                    <input type="number" placeholder="Max" value={priceMax || ''} onChange={e => setPriceMax(Number(e.target.value))} className="input-field text-xs py-2 px-3 w-full" />
+                  </div>
+                </div>
+
+                {/* Room Type */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Room Type</p>
+                  <div className="space-y-2">
+                    {dynamicRoomTypes.map(rt => (
+                      <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="roomType" value={rt} checked={selectedType === rt} onChange={() => setSelectedType(rt)} className="accent-brand-primary" />
+                        <span className="text-sm font-bold text-brand-dark">{formatLabel(rt)}</span>
+                      </label>
+                    ))}
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" name="roomType" value="" checked={selectedType === ''} onChange={() => setSelectedType('')} className="accent-brand-primary" />
+                      <span className="text-sm font-bold text-brand-dark">Any type</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Amenities */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Amenities</p>
+                  <div className="space-y-2">
+                    {dynamicAmenities.map(a => {
+                      const IconComponent = AMENITY_ICONS[a] || Star;
+                      return (
+                        <label key={a} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedAmenities.includes(a)}
+                            onChange={() => setSelectedAmenities(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a])}
+                            className="accent-brand-primary"
+                          />
+                          <IconComponent className="w-3.5 h-3.5 text-brand-primary/60" />
+                          <span className="text-sm font-bold text-brand-dark">{formatLabel(a)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Misc Filters */}
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Min Rating</p>
+                    <div className="flex gap-2">
+                      {[0, 3, 4, 5].map(r => (
+                        <button key={r} type="button" onClick={() => setMinRating(r)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${minRating === r ? 'bg-brand-primary text-white border-brand-primary' : 'border-brand-primary/20 text-brand-dark hover:border-brand-primary/40'}`}>
+                          {r === 0 ? 'Any' : `${r}+`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={freeCancellation} onChange={() => setFreeCancellation(!freeCancellation)} className="accent-brand-primary w-4 h-4" />
+                    <span className="text-sm font-bold text-brand-dark">Free Cancellation</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={breakfastIncluded} onChange={() => setBreakfastIncluded(!breakfastIncluded)} className="accent-brand-primary w-4 h-4" />
+                    <span className="text-sm font-bold text-brand-dark">Breakfast Included</span>
+                  </label>
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={applyFilters} className="btn-primary text-xs flex-1">Apply</button>
+                    <button type="button" onClick={clearFilters} className="btn-outline text-xs flex-1">Clear</button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Results */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-serif font-bold text-brand-dark">
+              {destination ? `Properties in "${destination}"` : 'All Properties'}
+            </h1>
+            {!isLoading && (
+              <p className="text-sm font-bold text-brand-dark/50 mt-1">
+                {total} {total === 1 ? 'property' : 'properties'} found
+              </p>
+            )}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className={`grid gap-5 ${view === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-brand-cream rounded-2xl border border-brand-primary/10 overflow-hidden animate-pulse">
+                <div className="h-48 bg-brand-secondary/15" />
+                <div className="p-5 space-y-3">
+                  <div className="h-5 w-2/3 bg-brand-secondary/15 rounded-full" />
+                  <div className="h-3 w-1/2 bg-brand-secondary/15 rounded-full" />
+                  <div className="h-8 w-1/3 bg-brand-secondary/15 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : hotels.length === 0 ? (
+          <div className="py-20 flex flex-col items-center text-center">
+            <Search className="w-16 h-16 text-brand-primary/20 mb-4" />
+            <h2 className="text-2xl font-serif font-bold text-brand-dark mb-2">No properties found</h2>
+            <p className="text-brand-dark/60 font-bold mb-6">Try adjusting your search or filters</p>
+            <button type="button" onClick={clearFilters} className="btn-outline flex items-center gap-2">
+              <X className="w-4 h-4" /> Clear all filters
+            </button>
+          </div>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            <motion.div layout className={`grid gap-5 ${view === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+              {hotels.map(hotel => (
+                <HotelCard key={hotel.id} hotel={hotel} view={view} onSelect={() => {}} />
+              ))}
+            </motion.div>
+          </AnimatePresence>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-10">
+            <button type="button" disabled={page <= 1} onClick={() => updateParam('page', String(page - 1))}
+              className="p-2 rounded-xl border border-brand-primary/20 text-brand-dark disabled:opacity-40 hover:border-brand-primary transition-colors">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 7) }).map((_, i) => {
+              const p = i + 1;
+              return (
+                <button key={p} type="button" onClick={() => updateParam('page', String(p))}
+                  className={`w-10 h-10 rounded-xl text-sm font-bold border transition-colors ${page === p ? 'bg-brand-primary text-white border-brand-primary' : 'border-brand-primary/20 text-brand-dark hover:border-brand-primary/40'}`}>
+                  {p}
+                </button>
+              );
+            })}
+            <button type="button" disabled={page >= totalPages} onClick={() => updateParam('page', String(page + 1))}
+              className="p-2 rounded-xl border border-brand-primary/20 text-brand-dark disabled:opacity-40 hover:border-brand-primary transition-colors">
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

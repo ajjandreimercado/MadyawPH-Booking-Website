@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Montserrat', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Playfair Display', ui-serif, Georgia, serif;
+
+  --color-brand-dark: #0A192F;
+  --color-brand-primary: #1D4E89;
+  --color-brand-secondary: #00B4D8;
+  --color-brand-hover: #133968;
+  --color-brand-background: #F4F7F9;
+  --color-brand-surface: #FFFFFF;
+  --color-brand-ivory: #F8FAFC;
+  --color-brand-cream: #FFFFFF;
+  --color-brand-success: #16a34a;
+  --color-brand-warning: #D9A05B;
+  --color-brand-danger: #9B2C2C;
+  --color-brand-star: #F59E0B;
+
+  --shadow-md: 0 8px 24px -12px rgba(10, 25, 47, 0.08);
+  --shadow-lg: 0 12px 32px -16px rgba(10, 25, 47, 0.10);
+  --shadow-xl: 0 20px 48px -20px rgba(10, 25, 47, 0.12);
+  --shadow-2xl: 0 32px 80px -24px rgba(10, 25, 47, 0.15);
+  --shadow-luxury: 0 10px 30px -10px rgba(10, 25, 47, 0.06);
+  --shadow-luxury-hover: 0 20px 40px -15px rgba(10, 25, 47, 0.12);
+}
+
+@layer base {
+  body {
+    @apply bg-brand-background text-brand-dark font-sans antialiased selection:bg-brand-primary selection:text-brand-cream;
+  }
+
+  :where(a, button, input, select, textarea):focus-visible {
+    @apply outline-none ring-2 ring-brand-primary ring-offset-2 ring-offset-brand-background;
+  }
+
+  :where(a, button, input, select, textarea):focus:not(:focus-visible) {
+    outline: none;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: var(--color-brand-background); 
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-brand-secondary); 
+    border-radius: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-brand-primary); 
+  }
+
+  /* Custom Date Input Styling */
+  input[type="date"] {
+    position: relative;
+    cursor: pointer;
+  }
+  
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    background: transparent;
+    bottom: 0;
+    color: transparent;
+    cursor: pointer;
+    height: auto;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: auto;
+    z-index: 10;
+  }
+}
+
+@layer utilities {
+  .glassmorphic {
+    @apply bg-brand-surface/80 backdrop-blur-md border-b border-brand-primary/10;
+  }
+}
+
+@layer components {
+  .rating-badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-brand-warning/10 text-brand-warning;
+  }
+
+  .availability-badge-ok {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-brand-success/10 text-brand-success;
+  }
+
+  .availability-badge-full {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-brand-danger/10 text-brand-danger;
+  }
+
+  .price-tag {
+    @apply text-xl font-serif font-bold text-brand-primary;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 bg-brand-primary text-white font-bold text-sm rounded-xl hover:bg-brand-hover transition-all duration-200 active:scale-95 shadow-md;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 border border-brand-primary/30 text-brand-primary font-bold text-sm rounded-xl hover:bg-brand-primary/5 transition-all duration-200 active:scale-95;
+  }
+
+  .section-title {
+    @apply text-2xl font-serif font-bold text-brand-dark;
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-brand-primary/20 bg-brand-background/50 px-4 py-3 text-sm text-brand-dark focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all;
+  }
+
+  .field-label {
+    @apply block text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-2;
+  }
+}
