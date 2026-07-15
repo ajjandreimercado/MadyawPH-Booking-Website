@@ -1,0 +1,49 @@
+services:
+  # ─── Backend: Express API ────────────────────────────────────────────────────
+  - type: web
+    name: madyaw-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # ── Secrets: fill these in the Render dashboard (never commit real values) ──
+      - key: MONGODB_URI
+        sync: false   # Set manually in Render dashboard
+      - key: JWT_SECRET
+        sync: false   # Set manually in Render dashboard
+      - key: CLIENT_ORIGIN
+        sync: false   # Set to your GoDaddy domain: https://www.yourdomain.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false   # Set manually in Render dashboard
+
+  # ─── Frontend: React / Vite Static Site ─────────────────────────────────────
+  - type: web
+    name: madyaw-frontend
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    routes:
+      # SPA fallback — all unknown routes serve index.html (React Router handles them)
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false   # Set to your backend URL: https://madyaw-api.onrender.com/api
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false   # Same Google Client ID as the backend
