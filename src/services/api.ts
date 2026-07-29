@@ -83,15 +83,20 @@ export interface BookingUpdatePayload {
   booking?: BookingDraft & { nights: number; guestCount: number; roomRate: number; serviceFee: number; totalPrice: number };
 }
 
-const DEFAULT_API_URL = '/api';
+const PROD_API_URL = 'https://madyaw-api.onrender.com/api';
+const DEV_API_URL = '/api'; // Vite proxies /api → localhost:5001 in dev
 
 function resolveApiBaseUrl() {
+  // Prefer the explicit env var baked in at build time (set in Render dashboard).
   const viteBaseUrl = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_URL;
-  const legacyBaseUrl = typeof process !== 'undefined'
-    ? (process as { env?: Record<string, string | undefined> }).env?.REACT_APP_API_URL
-    : undefined;
+  if (viteBaseUrl) return viteBaseUrl;
 
-  return viteBaseUrl ?? legacyBaseUrl ?? DEFAULT_API_URL;
+  // In dev (localhost) use the Vite proxy; in any other environment use the real prod API.
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  return isLocalhost ? DEV_API_URL : PROD_API_URL;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

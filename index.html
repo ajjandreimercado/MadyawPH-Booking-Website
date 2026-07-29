@@ -5,13 +5,13 @@
       Content-Security-Policy:
       - script-src includes 'unsafe-inline' for Vite dev mode HMR/module injection.
         For a production hardening step: replace with nonce-based CSP using a build plugin.
-      - connect-src: same-origin API calls go through /api/* (Vite proxy in dev, same domain in prod).
+      - connect-src: API calls go to /api/* (Vite proxy in dev) and madyaw-api.onrender.com in prod.
         http://localhost entries are intentionally removed — never include http:// origins in production.
       - object-src 'none' blocks Flash, Java applets, and similar plugin-based objects.
       - base-uri 'self' prevents base-tag hijacking attacks.
       - form-action 'self' limits form submissions to same origin.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://images.unsplash.com https://lh3.googleusercontent.com data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://images.unsplash.com https://lh3.googleusercontent.com data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://madyaw-api.onrender.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Madyaw Coastal — modern maritime bookings with trusted service and refined stays. Find and book coastal properties with ease." />
@@ -23,4 +23,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
