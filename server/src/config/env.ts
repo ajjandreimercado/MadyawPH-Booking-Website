@@ -19,17 +19,31 @@ export const JWT_SECRET = requireEnv('JWT_SECRET');
 export const JWT_EXPIRES_IN = requireEnv('JWT_EXPIRES_IN');
 export const MONGODB_URI = requireEnv('MONGODB_URI');
 
-// ─── CLIENT_ORIGIN: validate it is a proper URL to catch bad Render env values ──
-const _rawOrigin = requireEnv('CLIENT_ORIGIN');
-try {
-  new URL(_rawOrigin);
-} catch {
-  throw new Error(
-    `[CONFIG] CLIENT_ORIGIN is not a valid URL: "${_rawOrigin}"\n` +
-    '  Set it to your frontend URL e.g. https://madyaw-frontend.onrender.com (no trailing slash)',
-  );
+// ─── CLIENT_ORIGIN(S): supports comma-separated list of allowed origins ─────────
+// Examples:
+//   Single:   https://madyaw.com
+//   Multiple: https://madyaw.com,https://madyaw-frontend.onrender.com
+const _rawOrigins = requireEnv('CLIENT_ORIGIN');
+
+export const CLIENT_ORIGINS: string[] = _rawOrigins
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// Validate each origin is a proper URL to catch bad Render env values early.
+for (const origin of CLIENT_ORIGINS) {
+  try {
+    new URL(origin);
+  } catch {
+    throw new Error(
+      `[CONFIG] CLIENT_ORIGIN contains an invalid URL: "${origin}"\n` +
+      '  Use comma-separated URLs, e.g. https://madyaw.com,https://madyaw-frontend.onrender.com',
+    );
+  }
 }
-export const CLIENT_ORIGIN = _rawOrigin;
+
+// Log allowed origins at startup (safe — no secrets here).
+console.log(`[CONFIG] CORS allowed origins: ${CLIENT_ORIGINS.join(', ')}`);
 
 // GOOGLE_CLIENT_ID is required for the POST /auth/google route.
 // The server still boots without it (to support non-OAuth environments), but

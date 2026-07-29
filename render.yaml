@@ -20,7 +20,7 @@ services:
       - key: JWT_SECRET
         sync: false   # Set manually in Render dashboard
       - key: CLIENT_ORIGIN
-        sync: false   # Set to your GoDaddy domain: https://www.yourdomain.com
+        sync: false   # Comma-separated origins: https://madyaw.com,https://madyaw-frontend.onrender.com
       - key: GOOGLE_CLIENT_ID
         sync: false   # Set manually in Render dashboard
 

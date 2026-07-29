@@ -3,7 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import { CLIENT_ORIGIN } from './config/env';
+import { CLIENT_ORIGINS } from './config/env';
 import authRoutes from './routes/authRoutes';
 import hotelRoutes from './routes/hotelRoutes';
 import bookingRoutes from './routes/bookingRoutes';
@@ -55,9 +55,17 @@ app.use(
 );
 
 // ─── CORS — explicit allowlist, never wildcard ────────────────────────────────
+// CLIENT_ORIGINS is parsed from the comma-separated CLIENT_ORIGIN env var.
+// Example: https://madyaw.com,https://madyaw-frontend.onrender.com
+const allowedOriginSet = new Set(CLIENT_ORIGINS);
 app.use(
   cors({
-    origin: CLIENT_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, Render health checks)
+      if (!origin) return callback(null, true);
+      if (allowedOriginSet.has(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin '${origin}' not in allowlist`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
