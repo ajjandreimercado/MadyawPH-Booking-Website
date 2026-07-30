@@ -99,27 +99,29 @@ async function run() {
     console.log(`\n✅  Rooms updated: ${roomsUpdated} / ${roomDocs.length}`);
 
     // ── Migrate room categories ────────────────────────────────────────────
-    const categories = db.collection('roomcategories');
-    const catDocs = await categories.find({ image_url: { $exists: true } }).toArray();
+    // Collection name is 'room_categories' (explicitly set in mongoModels.ts, not auto-pluralized)
+    const categories = db.collection('room_categories');
+    const catDocs = await categories.find({}).toArray();
     let catsUpdated = 0;
 
     for (const cat of catDocs) {
-      if (isRelativePath(cat.image_url)) {
+      // Add image if missing entirely OR if it's a relative path
+      if (!cat.image_url || isRelativePath(cat.image_url)) {
         const newUrl = pickImage(cat._id, CATEGORY_IMAGES);
         await categories.updateOne({ _id: cat._id }, { $set: { image_url: newUrl } });
         catsUpdated++;
-        console.log(`  Category ${cat.name}: ${cat.image_url} → ${newUrl}`);
+        console.log(`  Category "${cat.name}": → ${newUrl}`);
       }
     }
     console.log(`\n✅  Room categories updated: ${catsUpdated} / ${catDocs.length}`);
 
     // ── Migrate hotels ─────────────────────────────────────────────────────
     const hotels = db.collection('hotels');
-    const hotelDocs = await hotels.find({ image_url: { $exists: true } }).toArray();
+    const hotelDocs = await hotels.find({}).toArray();
     let hotelsUpdated = 0;
 
     for (const hotel of hotelDocs) {
-      if (isRelativePath(hotel.image_url)) {
+      if (!hotel.image_url || isRelativePath(hotel.image_url)) {
         const newUrl = pickImage(hotel._id, HOTEL_IMAGES);
         await hotels.updateOne({ _id: hotel._id }, { $set: { image_url: newUrl } });
         hotelsUpdated++;
