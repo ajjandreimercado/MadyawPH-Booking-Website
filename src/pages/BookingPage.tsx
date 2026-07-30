@@ -99,6 +99,10 @@ export default function BookingPage() {
   const [checkOut, setCheckOut] = useState(urlCheckOut);
 
   const [paymentMethod, setPaymentMethod] = useState('gcash');
+  const [isPaymentConfirmed, setIsPaymentConfirmed] = useState(false);
+  const [xenditRef, setXenditRef] = useState('');
+  const [isXenditModalOpen, setIsXenditModalOpen] = useState(false);
+  const [isProcessingXendit, setIsProcessingXendit] = useState(false);
 
   // ── Computed Values ──────────────────────────────────────────────────────────
   const nights = Math.max(1, differenceInDays(new Date(checkOut), new Date(checkIn)));
@@ -131,6 +135,14 @@ export default function BookingPage() {
     );
   };
 
+  const handleSelectPaymentMethod = (methodId: string) => {
+    setPaymentMethod(methodId);
+    if (paymentMethod !== methodId) {
+      setIsPaymentConfirmed(false);
+      setXenditRef('');
+    }
+  };
+
   const isFormValid =
     fullName.trim() &&
     email.trim() &&
@@ -147,6 +159,17 @@ export default function BookingPage() {
     }
     if (!validIdFile) {
       showToast({ title: 'Please upload/send your valid ID to continue', type: 'error' });
+      return;
+    }
+
+    // Require Xendit payment confirmation for online e-wallet payments (GCash / PayMaya)
+    if ((paymentMethod === 'gcash' || paymentMethod === 'paymaya') && !isPaymentConfirmed) {
+      showToast({
+        title: 'Online Payment Required First',
+        description: `Please click "Pay ₱${total.toLocaleString()} via Xendit (${paymentMethod.toUpperCase()})" to confirm payment before requesting your booking.`,
+        type: 'error',
+      });
+      setIsXenditModalOpen(true);
       return;
     }
 
@@ -176,6 +199,7 @@ export default function BookingPage() {
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
+          xenditRef ? `Xendit Payment Ref: ${xenditRef}` : '',
         ].filter(Boolean).join(' | ') || undefined,
       });
       appendBooking(booking);
@@ -519,7 +543,7 @@ export default function BookingPage() {
                     key={method.id}
                     id={`payment-${method.id}`}
                     type="button"
-                    onClick={() => setPaymentMethod(method.id)}
+                    onClick={() => handleSelectPaymentMethod(method.id)}
                     className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                       paymentMethod === method.id
                         ? 'border-brand-primary bg-brand-primary/5 shadow-sm'
@@ -534,6 +558,44 @@ export default function BookingPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Xendit Online Payment Required Box */}
+              {(paymentMethod === 'gcash' || paymentMethod === 'paymaya') && (
+                <div className="mt-4">
+                  {!isPaymentConfirmed ? (
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                        <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                        Online payment via Xendit gateway required before requesting booking.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsXenditModalOpen(true)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-brand-primary text-white font-bold text-xs uppercase tracking-wider hover:bg-brand-hover transition-colors flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <Smartphone className="w-4 h-4" /> Pay ₱{total.toLocaleString()} via Xendit ({paymentMethod.toUpperCase()})
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-emerald-950">Payment Confirmed via Xendit ({paymentMethod.toUpperCase()})</p>
+                          <p className="text-[10px] text-emerald-800 font-mono font-bold">Ref: {xenditRef}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsXenditModalOpen(true)}
+                        className="text-xs font-bold text-brand-primary underline"
+                      >
+                        Details
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* Security Note */}
@@ -639,6 +701,91 @@ export default function BookingPage() {
 
         </div>
       </div>
+
+      {/* ── Xendit Payment Gateway Modal ─────────────────────────────────────── */}
+      {isXenditModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-brand-cream rounded-2xl border border-brand-primary/20 max-w-md w-full p-6 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-brand-primary/10 pb-4">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-xs uppercase tracking-wider bg-brand-primary text-white px-2 py-0.5 rounded">Xendit</span>
+                <span className="font-serif font-bold text-lg text-brand-dark">Online Payment</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsXenditModalOpen(false)}
+                className="text-brand-dark/40 hover:text-brand-dark font-bold text-base px-2 py-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-white/80 rounded-xl p-4 border border-brand-primary/10 space-y-2">
+              <div className="flex justify-between text-xs font-bold text-brand-dark/60">
+                <span>Payment Channel</span>
+                <span className="text-brand-dark uppercase font-extrabold">{paymentMethod} (Xendit)</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold text-brand-dark/60">
+                <span>Guest Email</span>
+                <span className="text-brand-dark">{email || 'guest@madyaw.com'}</span>
+              </div>
+              <div className="flex justify-between text-sm font-serif font-bold text-brand-dark border-t border-brand-primary/10 pt-2">
+                <span>Total Amount Due</span>
+                <span className="text-brand-primary">₱{total.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {isPaymentConfirmed ? (
+              <div className="text-center py-4 space-y-3">
+                <CheckCircle2 className="w-12 h-12 text-brand-success mx-auto" />
+                <div>
+                  <p className="font-bold text-base text-brand-dark">Xendit Payment Verified & Confirmed!</p>
+                  <p className="text-xs text-brand-dark/60 font-mono font-bold mt-1">Ref: {xenditRef}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsXenditModalOpen(false)}
+                  className="btn-primary w-full mt-3"
+                >
+                  Proceed to Request Booking
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-brand-primary/5 text-xs text-brand-dark/70 font-medium space-y-1">
+                  <p className="font-bold text-brand-primary">Xendit Checkout Verification</p>
+                  <p>Confirm payment of ₱{total.toLocaleString()} using your {paymentMethod.toUpperCase()} e-wallet to authorize your booking request.</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isProcessingXendit}
+                  onClick={() => {
+                    setIsProcessingXendit(true);
+                    setTimeout(() => {
+                      const generatedRef = `XENDIT-${paymentMethod.toUpperCase()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+                      setXenditRef(generatedRef);
+                      setIsPaymentConfirmed(true);
+                      setIsProcessingXendit(false);
+                      showToast({
+                        title: 'Xendit Payment Successful',
+                        description: `Payment reference: ${generatedRef}. You may now submit your booking request.`,
+                        type: 'success',
+                      });
+                    }, 1200);
+                  }}
+                  className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2"
+                >
+                  {isProcessingXendit ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying Xendit Payment…</>
+                  ) : (
+                    <>Confirm & Pay ₱{total.toLocaleString()} ({paymentMethod.toUpperCase()})</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

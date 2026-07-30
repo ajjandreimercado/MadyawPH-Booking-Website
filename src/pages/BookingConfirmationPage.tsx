@@ -75,8 +75,8 @@ export default function BookingConfirmationPage() {
             <CheckCircle2 className="w-12 h-12 text-brand-success" />
           </motion.div>
           <h1 className="text-4xl font-serif font-bold text-brand-dark mb-2">Booking Confirmed!</h1>
-          <p className="text-brand-dark/60 font-bold">
-            A confirmation has been sent to <span className="text-brand-primary">{booking.guestEmail}</span>
+          <p className="text-brand-dark/70 font-medium text-sm mt-1 max-w-md mx-auto leading-relaxed">
+            We have received your reservation request and sent a confirmation details message to your bound email address: <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. The hotel management team will verify your stay details shortly.
           </p>
         </motion.div>
 

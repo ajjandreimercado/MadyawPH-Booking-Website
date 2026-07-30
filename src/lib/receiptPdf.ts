@@ -1,4 +1,4 @@
-﻿import { jsPDF } from "jspdf";
+import { jsPDF } from "jspdf";
 import type { BookingRequest } from "../types";
 
 // ─── Brand colours ─────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
     sg + Math.round((255 - sg) * 0.82),
     sb + Math.round((255 - sb) * 0.82),
   );
-  const bw = doc.getTextWidth(statusLabel) + 10;
+  const bw = doc.getTextWidth(statusLabel) + 12;
   doc.roundedRect(PW / 2 - bw / 2, y, bw, 7.5, 2, 2, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7);
@@ -162,7 +162,7 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   const guests = [
     `${booking.adults ?? 0} adult${(booking.adults ?? 0) !== 1 ? "s" : ""}`,
     (booking.children ?? 0) > 0 ? `${booking.children} child${(booking.children ?? 0) !== 1 ? "ren" : ""}` : null,
-    (booking.infants  ?? 0) > 0 ? `${booking.infants}  infant${(booking.infants ?? 0) !== 1 ? "s" : ""}` : null,
+    (booking.infants  ?? 0) > 0 ? `${booking.infants} infant${(booking.infants ?? 0) !== 1 ? "s" : ""}` : null,
   ].filter(Boolean).join(", ");
   row("Guests", guests);
   y += 5;
@@ -194,28 +194,29 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
 
   // ── Payment summary ───────────────────────────────────────────────────────
   section("Payment Summary");
-  row("Room Rate",       `\u20b1${(booking.roomRate ?? 0).toLocaleString()}`);
+  row("Room Rate",       `PHP ${(booking.roomRate ?? 0).toLocaleString()}`);
   divider();
-  row("Service Fee",     `\u20b1${(booking.serviceFee ?? 0).toLocaleString()}`);
+  row("Service Fee",     `PHP ${(booking.serviceFee ?? 0).toLocaleString()}`);
   if ((booking.discountAmount ?? 0) > 0) {
     divider();
-    row("Discount",      `\u2212\u20b1${(booking.discountAmount ?? 0).toLocaleString()}`);
+    row("Discount",      `-PHP ${(booking.discountAmount ?? 0).toLocaleString()}`);
   }
   divider();
   row("Payment Method", (booking.paymentMethod ?? "—").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
   y += 3;
 
-  // Total row
+  // Total row (Box formatted cleanly without clipping)
+  const totalBoxH = 14;
   setFill(BRAND_PRIMARY);
-  doc.roundedRect(MARGIN, y, CONTENT_W, 12, 2.5, 2.5, "F");
+  doc.roundedRect(MARGIN, y, CONTENT_W, totalBoxH, 2.5, 2.5, "F");
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(9.5);
   setTC("#ffffff");
-  t("TOTAL PAID", MARGIN + 6, y + 8);
+  t("TOTAL PAID", MARGIN + 8, y + 9);
   doc.setFontSize(12);
-  t(`\u20b1${(booking.totalPrice ?? 0).toLocaleString()}`, MARGIN + CONTENT_W - 6, y + 8, { align: "right" });
+  t(`PHP ${(booking.totalPrice ?? 0).toLocaleString()}`, MARGIN + CONTENT_W - 8, y + 9, { align: "right" });
 
-  y += 19;
+  y += totalBoxH + 10;
 
   // ── Footer ────────────────────────────────────────────────────────────────
   setDC(BRAND_LIGHT_LINE);
@@ -229,10 +230,9 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   y += 5;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  t("madyaw.com  \u2022  support@madyaw.com", PW / 2, y, { align: "center" });
+  t("madyaw.com  •  support@madyaw.com", PW / 2, y, { align: "center" });
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const safeName = (booking.propertyName ?? "booking").replace(/[^a-z0-9]/gi, "-").toLowerCase();
   doc.save(`madyaw-receipt-${safeName}-${ref.slice(0, 10).toLowerCase()}.pdf`);
 }
-
