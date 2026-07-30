@@ -362,10 +362,11 @@ authRoutes.post('/google', authWriteLimiter, async (req, res) => {
 
 // ─── POST /logout ──────────────────────────────────────────────────────────────
 authRoutes.post('/logout', requireAuth, (_req, res) => {
+  const isProd = process.env.NODE_ENV === 'production';
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: (process.env.NODE_ENV === 'production' ? 'strict' : 'lax') as 'strict' | 'lax',
+    secure: isProd,
+    sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
     path: '/',
   });
   return res.json({ ok: true });
