@@ -206,8 +206,10 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
 });
 
 // ─── POST / ───────────────────────────────────────────────────────────────────
+// Public: unauthenticated guests submit their own name/email/phone in the form.
+// No session token required — this is a guest booking website with no login.
 
-bookingRoutes.post('/', requireAuth, async (req, res) => {
+bookingRoutes.post('/', async (req, res) => {
   // OWASP A03: strip unexpected fields — only pick known booking fields
   const body = pickFields(req.body, [
     'propertyId',
