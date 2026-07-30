@@ -3,44 +3,10 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
 import { motion, AnimatePresence } from 'motion/react';
 import { madyawLogoUrl } from '../../lib/branding';
-import { useAuth } from '../../contexts/AuthContext';
-import { useToast } from '../ui/ToastProvider';
 import SafeLink from '../ui/SafeLink';
 
 export default function RootLayout() {
   const location = useLocation();
-  const { user, logout, verifyToken } = useAuth();
-  const { showToast } = useToast();
-
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    let isActive = true;
-
-    const checkSession = async () => {
-      const isValid = await verifyToken();
-
-      if (!isActive || !user || isValid) {
-        return;
-      }
-
-      logout();
-      showToast({ title: 'Your session has expired. Please sign in again.', type: 'info' });
-    };
-
-    void checkSession();
-
-    const intervalId = window.setInterval(() => {
-      void checkSession();
-    }, 60_000);
-
-    return () => {
-      isActive = false;
-      window.clearInterval(intervalId);
-    };
-  }, [location.pathname, location.search, logout, showToast, user, verifyToken]);
 
   // Scroll behavior: scroll to top on route change, or to anchor if hash is present
   useEffect(() => {
@@ -55,7 +21,7 @@ export default function RootLayout() {
             return;
           }
         } catch {
-          // Ignore invalid selector syntax (e.g. Google OAuth callback hashes)
+          // Ignore invalid selector syntax
         }
       }
 
@@ -112,10 +78,9 @@ export default function RootLayout() {
             <div className="col-span-1">
               <h3 className="font-serif font-bold text-lg text-brand-secondary mb-4">Discover</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Destinations</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Exclusive Offers</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Travel Guides</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Partner With Us</SafeLink></li>
+                <li><SafeLink href="/destinations" className="hover:text-brand-secondary transition-colors">Destinations</SafeLink></li>
+                <li><SafeLink href="/experiences" className="hover:text-brand-secondary transition-colors">Experiences</SafeLink></li>
+                <li><SafeLink href="/club" className="hover:text-brand-secondary transition-colors">The Club</SafeLink></li>
               </ul>
             </div>
 
@@ -137,9 +102,9 @@ export default function RootLayout() {
                 Subscribe to unlock secret deals and curated travel inspiration.
               </p>
               <form className="flex rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-secondary/50">
-                <input 
-                  type="email" 
-                  placeholder="Your email address" 
+                <input
+                  type="email"
+                  placeholder="Your email address"
                   className="bg-brand-primary/20 text-brand-cream text-sm px-4 py-3 w-full border-none outline-none placeholder-brand-cream/30"
                 />
                 <button type="button" className="bg-brand-secondary text-brand-dark px-4 font-bold text-sm hover:bg-brand-secondary/90 transition-colors">
