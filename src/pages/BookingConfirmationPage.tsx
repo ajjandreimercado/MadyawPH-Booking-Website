@@ -161,10 +161,7 @@ export default function BookingConfirmationPage() {
               ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF…</>
               : <><Download className="w-4 h-4" /> Download PDF Receipt</>}
           </button>
-          <Link to="/dashboard/bookings" className="btn-primary flex-1 flex items-center justify-center gap-2">
-            <LayoutDashboard className="w-4 h-4" /> View My Bookings
-          </Link>
-          <Link to="/" className="btn-outline flex-1 flex items-center justify-center gap-2">
+          <Link to="/" className="btn-primary flex-1 flex items-center justify-center gap-2">
             <Home className="w-4 h-4" /> Return Home
           </Link>
         </motion.div>
