@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useScroll } from '../hooks/useScroll';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, XCircle, Calendar, Users, MessageSquareQuote } from 'lucide-react';
+import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, XCircle, Calendar, Users, MessageSquareQuote, Navigation } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import type { Hotel } from '../types';
@@ -9,6 +9,7 @@ import type { HotelDetailCategory } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import StarRating from '../components/ui/StarRating';
 import { format, addDays } from 'date-fns';
+import { buildGoogleMapsDirectionsUrl, getCurrentPosition } from '../lib/nearMe';
 
 // Track recently viewed in localStorage
 function trackRecentlyViewed(hotel: Hotel) {
@@ -27,7 +28,17 @@ const AMENITY_ICONS: Record<string, React.ComponentType<{ className?: string }>>
   'beach-access': Waves, spa: Star, kitchen: Utensils, 'airport-shuttle': MapPin,
 };
 
-function ImageGallery({ images, hotelName }: { images: string[]; hotelName: string }) {
+function ImageGallery({
+  images,
+  hotelName,
+  rating,
+  reviewCount,
+}: {
+  images: string[];
+  hotelName: string;
+  rating?: number;
+  reviewCount?: number;
+}) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [lightbox, setLightbox] = useState(false);
 
@@ -50,6 +61,13 @@ function ImageGallery({ images, hotelName }: { images: string[]; hotelName: stri
           >
             <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
             <div className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/10 transition-colors" />
+            <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-brand-dark/80 backdrop-blur-sm text-white font-bold px-3.5 py-2 rounded-xl shadow-lg">
+              <Star className="w-5 h-5 fill-brand-star text-brand-star" />
+              <span className="text-lg">{rating && rating > 0 ? rating.toFixed(1) : 'New'}</span>
+              {reviewCount != null && reviewCount > 0 && (
+                <span className="text-xs font-bold text-white/70">({reviewCount} reviews)</span>
+              )}
+            </div>
           </div>
           {/* Thumbnails */}
           {images.slice(1, 5).map((img, i) => (
@@ -164,6 +182,7 @@ export default function HotelDetailPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOpeningMaps, setIsOpeningMaps] = useState(false);
 
   // Collect all images across room categories
   const allImages = [
@@ -200,6 +219,41 @@ export default function HotelDetailPage() {
     void load();
     return () => { isActive = false; };
   }, [hotelId]);
+
+  const openDirections = async () => {
+    if (!hotel) return;
+    const destLat = hotel.latitude;
+    const destLng = hotel.longitude;
+    if (typeof destLat !== 'number' || typeof destLng !== 'number') {
+      // Fallback: open Google Maps search by hotel name + address (still free, no API key)
+      const query = encodeURIComponent(`${hotel.name} ${hotel.location}`);
+      window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setIsOpeningMaps(true);
+    try {
+      let originLat: number | undefined;
+      let originLng: number | undefined;
+      try {
+        const position = await getCurrentPosition({ timeout: 8000 });
+        originLat = position.coords.latitude;
+        originLng = position.coords.longitude;
+      } catch {
+        // Guest denied location — still open destination pin
+      }
+      const url = buildGoogleMapsDirectionsUrl({
+        destLat,
+        destLng,
+        originLat,
+        originLng,
+        label: hotel.name,
+      });
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setIsOpeningMaps(false);
+    }
+  };
 
   const handleBook = (cat: HotelDetailCategory, checkIn: string, checkOut: string, guests: number) => {
     const candidateId = cat.firstAvailableRoomId ?? cat.fallbackRoomId;
@@ -252,9 +306,23 @@ export default function HotelDetailPage() {
           <div>
             <h1 className="text-3xl font-serif font-bold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
-              <p className="flex items-center gap-1.5 text-sm font-bold text-brand-dark/60">
-                <MapPin className="w-4 h-4 text-brand-primary" />{hotel.location}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="flex items-center gap-1.5 text-sm font-bold text-brand-dark/60">
+                  <MapPin className="w-4 h-4 text-brand-primary" />{hotel.location}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void openDirections()}
+                  disabled={isOpeningMaps}
+                  title="Open directions in Google Maps"
+                  aria-label="Open directions in Google Maps"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-primary/20 bg-brand-primary/5 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors disabled:opacity-60"
+                >
+                  {isOpeningMaps
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Navigation className="w-4 h-4" />}
+                </button>
+              </div>
               {hotel.contactNumber && (
                 <a href={`tel:${hotel.contactNumber}`} className="flex items-center gap-2 px-3 py-1.5 bg-brand-primary/5 hover:bg-brand-primary/10 rounded-full transition-colors text-sm font-bold text-brand-dark/70 hover:text-brand-primary border border-brand-primary/10">
                   <Phone className="w-3.5 h-3.5 text-brand-primary" />{hotel.contactNumber}
@@ -268,16 +336,43 @@ export default function HotelDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {categories.some(c => c.availableRooms > 0) && (
-              <span className="availability-badge-ok px-3 py-1.5 text-sm">Rooms available</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {categories.some(c => c.availableRooms > 0) ? (
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-success bg-brand-success/15 px-5 py-3.5 shadow-md shadow-brand-success/20">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-success text-white shadow-sm">
+                  <ShieldCheck className="w-6 h-6" />
+                </span>
+                <div>
+                  <p className="text-lg sm:text-xl font-bold text-brand-success leading-tight tracking-tight">
+                    Rooms Available
+                  </p>
+                  <p className="text-xs sm:text-sm font-bold text-brand-success/80">
+                    {categories.reduce((sum, c) => sum + (c.availableRooms > 0 ? c.availableRooms : 0), 0)} ready to book
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-danger/40 bg-brand-danger/10 px-5 py-3.5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-danger text-white">
+                  <XCircle className="w-6 h-6" />
+                </span>
+                <div>
+                  <p className="text-lg sm:text-xl font-bold text-brand-danger leading-tight">Fully Booked</p>
+                  <p className="text-xs sm:text-sm font-bold text-brand-danger/70">No rooms open right now</p>
+                </div>
+              </div>
             )}
           </div>
         </div>
 
         {/* Gallery */}
         <div className="mb-8">
-          <ImageGallery images={allImages} hotelName={hotel.name} />
+          <ImageGallery
+            images={allImages}
+            hotelName={hotel.name}
+            rating={avgRating}
+            reviewCount={reviews.length}
+          />
         </div>
 
         {/* Main content + Sidebar */}
@@ -304,7 +399,15 @@ export default function HotelDetailPage() {
 
             {/* Room Categories */}
             <section className="bg-brand-cream rounded-2xl p-6 border border-brand-primary/10">
-              <h2 className="text-xl font-serif font-bold text-brand-dark mb-4">Available Rooms</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-serif font-bold text-brand-dark">Available Rooms</h2>
+                {categories.some(c => c.availableRooms > 0) && (
+                  <span className="inline-flex items-center gap-2 rounded-xl bg-brand-success text-white text-sm font-bold px-4 py-2 shadow-sm">
+                    <ShieldCheck className="w-4 h-4" />
+                    Rooms Available
+                  </span>
+                )}
+              </div>
               <div className="space-y-4">
                 {categories.length === 0 ? (
                   <p className="text-sm font-bold text-brand-dark/60">No room categories available.</p>
@@ -323,8 +426,12 @@ export default function HotelDetailPage() {
                             {cat.description && <p className="text-sm text-brand-dark/60 mb-3 line-clamp-2">{cat.description}</p>}
                             <div className="flex flex-wrap gap-2 mb-3">
                               {cat.availableRooms > 0
-                                ? <span className="availability-badge-ok">✓ {cat.availableRooms} available</span>
-                                : <span className="availability-badge-full">✗ Fully booked</span>
+                                ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-success text-white text-sm font-bold px-3 py-1.5 shadow-sm">
+                                    ✓ {cat.availableRooms} available
+                                  </span>
+                                )
+                                : <span className="availability-badge-full text-sm px-3 py-1.5">✗ Fully booked</span>
                               }
                               {(cat as any).freeCancellation && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-success/10 text-brand-success">Free cancellation</span>}
                               {(cat as any).breakfastIncluded && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-warning/10 text-brand-warning">🍳 Breakfast included</span>}

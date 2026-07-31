@@ -10,9 +10,13 @@ import {
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
 import StarRating from '../components/ui/StarRating';
 import { format } from 'date-fns';
+import { getCurrentPosition, isNearMeQuery } from '../lib/nearMe';
+import { useToast } from '../components/ui/ToastProvider';
+import { sanitize } from '../utils/sanitize';
 
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Recommended' },
+  { value: 'distance', label: 'Nearest first' },
   { value: 'price', label: 'Lowest Price' },
   { value: 'rating', label: 'Highest Rating' },
   { value: 'popular', label: 'Most Popular' },
@@ -83,6 +87,13 @@ function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 
             Fully booked
           </span>
         )}
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-brand-dark/80 backdrop-blur-sm text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
+          <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star" />
+          {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
+          {hotel.totalReviews > 0 && (
+            <span className="text-[10px] font-bold text-white/70">({hotel.totalReviews})</span>
+          )}
+        </div>
       </div>
 
       {/* Info */}
@@ -90,17 +101,16 @@ function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 
         <div>
           <div className="flex items-start justify-between gap-3 mb-2">
             <h3 className="font-serif font-bold text-lg text-brand-dark leading-snug line-clamp-2">{hotel.name}</h3>
-            {hotel.avgRating > 0 && (
-              <div className="flex items-center gap-1 bg-brand-primary text-white text-sm font-bold px-2 py-1 rounded-lg shrink-0">
-                <Star className="w-3.5 h-3.5 fill-white" />
-                {hotel.avgRating.toFixed(1)}
-              </div>
-            )}
           </div>
-          <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-3">
+          <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-1">
             <MapPin className="w-3.5 h-3.5" />
             {hotel.location}
           </p>
+          {typeof hotel.distanceKm === 'number' && (
+            <p className="text-xs font-bold text-brand-primary mb-3">
+              {hotel.distanceKm < 1 ? `${Math.round(hotel.distanceKm * 1000)} m away` : `${hotel.distanceKm} km away`}
+            </p>
+          )}
           {hotel.totalReviews > 0 && (
             <div className="flex items-center gap-2 mb-3">
               <StarRating rating={hotel.avgRating} size="sm" />
@@ -140,6 +150,7 @@ function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 
 export default function SearchResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
   const [total, setTotal] = useState(0);
@@ -157,6 +168,10 @@ export default function SearchResultsPage() {
   const guests = searchParams.get('guests') ?? '2';
   const sort = (searchParams.get('sort') ?? 'recommended') as SearchParams['sort'];
   const page = parseInt(searchParams.get('page') ?? '1', 10);
+  const nearMe = searchParams.get('near') === '1';
+  const nearLat = searchParams.get('lat');
+  const nearLng = searchParams.get('lng');
+  const radiusKm = Number(searchParams.get('radiusKm') ?? 50) || 50;
 
   const [localDestination, setLocalDestination] = useState(destination);
   const [priceMin, setPriceMin] = useState(Number(searchParams.get('priceMin') ?? 0));
@@ -169,11 +184,53 @@ export default function SearchResultsPage() {
   const [freeCancellation, setFreeCancellation] = useState(searchParams.get('freeCancellation') === 'true');
   const [breakfastIncluded, setBreakfastIncluded] = useState(searchParams.get('breakfastIncluded') === 'true');
 
+  useEffect(() => {
+    setLocalDestination(nearMe ? 'Hotels near me' : destination);
+  }, [nearMe, destination]);
+
   const updateParam = (key: string, value: string) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (value) next.set(key, value);
       else next.delete(key);
+      next.set('page', '1');
+      return next;
+    });
+  };
+
+  const submitDestinationSearch = async () => {
+    const safe = sanitize(localDestination);
+    if (isNearMeQuery(safe)) {
+      try {
+        const position = await getCurrentPosition();
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('destination');
+          next.set('near', '1');
+          next.set('lat', String(position.coords.latitude));
+          next.set('lng', String(position.coords.longitude));
+          next.set('sort', 'distance');
+          next.set('page', '1');
+          return next;
+        });
+        setLocalDestination('Hotels near me');
+      } catch {
+        showToast({
+          title: 'Location needed',
+          description: 'Allow location access to find hotels near you, or type a city name.',
+          type: 'error',
+        });
+      }
+      return;
+    }
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('near');
+      next.delete('lat');
+      next.delete('lng');
+      if (safe) next.set('destination', safe);
+      else next.delete('destination');
       next.set('page', '1');
       return next;
     });
@@ -202,6 +259,10 @@ export default function SearchResultsPage() {
     setSearchParams(prev => {
       const next = new URLSearchParams();
       if (prev.get('destination')) next.set('destination', prev.get('destination')!);
+      if (prev.get('near')) next.set('near', prev.get('near')!);
+      if (prev.get('lat')) next.set('lat', prev.get('lat')!);
+      if (prev.get('lng')) next.set('lng', prev.get('lng')!);
+      if (prev.get('radiusKm')) next.set('radiusKm', prev.get('radiusKm')!);
       if (prev.get('checkIn')) next.set('checkIn', prev.get('checkIn')!);
       if (prev.get('checkOut')) next.set('checkOut', prev.get('checkOut')!);
       if (prev.get('guests')) next.set('guests', prev.get('guests')!);
@@ -221,7 +282,10 @@ export default function SearchResultsPage() {
     setIsLoading(true);
 
     const params: SearchParams = {
-      destination: searchParams.get('destination') ?? undefined,
+      destination: nearMe ? undefined : (searchParams.get('destination') ?? undefined),
+      lat: nearMe && nearLat ? Number(nearLat) : undefined,
+      lng: nearMe && nearLng ? Number(nearLng) : undefined,
+      radiusKm: nearMe ? radiusKm : undefined,
       priceMin: Number(searchParams.get('priceMin')) || undefined,
       priceMax: Number(searchParams.get('priceMax')) || undefined,
       type: searchParams.get('type') ?? undefined,
@@ -229,7 +293,7 @@ export default function SearchResultsPage() {
       rating: Number(searchParams.get('rating')) || undefined,
       freeCancellation: searchParams.get('freeCancellation') === 'true' || undefined,
       breakfastIncluded: searchParams.get('breakfastIncluded') === 'true' || undefined,
-      sort: (searchParams.get('sort') as SearchParams['sort']) ?? 'recommended',
+      sort: nearMe ? 'distance' : ((searchParams.get('sort') as SearchParams['sort']) ?? 'recommended'),
       page,
       limit: 12,
     };
@@ -267,11 +331,14 @@ export default function SearchResultsPage() {
                 type="text"
                 value={localDestination}
                 onChange={e => setLocalDestination(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && updateParam('destination', localDestination)}
-                placeholder="Search destination…"
+                onKeyDown={e => e.key === 'Enter' && void submitDestinationSearch()}
+                placeholder="Search destination or “hotels near me”…"
                 className="pl-9 pr-4 py-2 w-full rounded-xl border border-brand-primary/20 bg-brand-background text-sm text-brand-dark focus:outline-none focus:border-brand-primary"
               />
             </div>
+            {nearMe && (
+              <span className="text-xs font-bold text-brand-primary whitespace-nowrap">Near me · {radiusKm} km</span>
+            )}
             {checkIn && checkOut && (
               <span className="text-xs font-bold text-brand-dark/60 hidden sm:block whitespace-nowrap">
                 {checkIn} → {checkOut} · {guests} guests
@@ -407,11 +474,17 @@ export default function SearchResultsPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-serif font-bold text-brand-dark">
-              {destination ? `Properties in "${destination}"` : 'All Properties'}
+              {nearMe
+                ? 'Hotels near you'
+                : destination
+                  ? `Properties in "${destination}"`
+                  : 'All Properties'}
             </h1>
             {!isLoading && (
               <p className="text-sm font-bold text-brand-dark/50 mt-1">
-                {total} {total === 1 ? 'property' : 'properties'} found
+                {nearMe
+                  ? `${total} ${total === 1 ? 'hotel' : 'hotels'} within ${radiusKm} km · nearest first`
+                  : `${total} ${total === 1 ? 'property' : 'properties'} found`}
               </p>
             )}
           </div>

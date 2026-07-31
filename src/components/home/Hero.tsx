@@ -1,10 +1,12 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Calendar, Users, Search as SearchIcon, ChevronDown, Plus, Minus } from 'lucide-react';
+import { MapPin, Calendar, Users, Search as SearchIcon, ChevronDown, Plus, Minus, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, addDays } from 'date-fns';
 import { trackSearchSubmitted } from '../../lib/analytics';
 import { sanitize } from '../../utils/sanitize';
+import { getCurrentPosition, isNearMeQuery } from '../../lib/nearMe';
+import { useToast } from '../ui/ToastProvider';
 
 interface HeroProps {
   initialDestination?: string;
@@ -24,6 +26,7 @@ const HERO_SLIDES: HeroSlide[] = [
 
 export default function Hero({ initialDestination = '' }: HeroProps) {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [destination, setDestination] = useState<string>(initialDestination);
   const [checkIn, setCheckIn] = useState<string>(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
   const [checkOut, setCheckOut] = useState<string>(format(addDays(new Date(), 3), 'yyyy-MM-dd'));
@@ -33,6 +36,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   const [showGuestPanel, setShowGuestPanel] = useState(false);
   const [activeSlide, setActiveSlide] = useState<number>(0);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
+  const [isLocating, setIsLocating] = useState(false);
   const guestPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,15 +71,38 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const safeDestination = sanitize(destination);
-    trackSearchSubmitted({ destination: safeDestination || 'All destinations', guests: adults + children, rooms });
     const params = new URLSearchParams();
-    if (safeDestination) params.set('destination', safeDestination);
     if (checkIn) params.set('checkIn', checkIn);
     if (checkOut) params.set('checkOut', checkOut);
     params.set('guests', String(adults + children));
     params.set('rooms', String(rooms));
+
+    if (isNearMeQuery(safeDestination)) {
+      setIsLocating(true);
+      try {
+        const position = await getCurrentPosition();
+        params.set('near', '1');
+        params.set('lat', String(position.coords.latitude));
+        params.set('lng', String(position.coords.longitude));
+        params.set('sort', 'distance');
+        trackSearchSubmitted({ destination: 'Near me', guests: adults + children, rooms });
+        navigate(`/search?${params.toString()}`);
+      } catch {
+        showToast({
+          title: 'Location needed',
+          description: 'Allow location access to find hotels near you, or type a city name.',
+          type: 'error',
+        });
+      } finally {
+        setIsLocating(false);
+      }
+      return;
+    }
+
+    trackSearchSubmitted({ destination: safeDestination || 'All destinations', guests: adults + children, rooms });
+    if (safeDestination) params.set('destination', safeDestination);
     navigate(`/search?${params.toString()}`);
   };
 
@@ -161,8 +188,8 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
                   type="text"
                   value={destination}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setDestination(sanitize(e.target.value))}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                  placeholder="Where are you going?"
+                  onKeyDown={e => e.key === 'Enter' && void handleSearch()}
+                  placeholder="Where are you going? or “hotels near me”"
                   className="bg-transparent border-none outline-none text-brand-dark placeholder-brand-dark/35 text-base font-serif italic w-full"
                 />
               </div>
@@ -236,11 +263,12 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             <button
               type="button"
               id="hero-search-btn"
-              onClick={handleSearch}
-              className="w-full xl:w-auto px-10 py-4 bg-brand-primary text-brand-cream rounded-xl font-bold tracking-widest uppercase text-xs flex items-center justify-center gap-2 hover:bg-brand-hover transition-all duration-300 active:scale-95 shadow-lg"
+              onClick={() => void handleSearch()}
+              disabled={isLocating}
+              className="w-full xl:w-auto px-10 py-4 bg-brand-primary text-brand-cream rounded-xl font-bold tracking-widest uppercase text-xs flex items-center justify-center gap-2 hover:bg-brand-hover transition-all duration-300 active:scale-95 shadow-lg disabled:opacity-70"
             >
-              <SearchIcon className="w-4 h-4" />
-              <span>Search</span>
+              {isLocating ? <Loader2 className="w-4 h-4 animate-spin" /> : <SearchIcon className="w-4 h-4" />}
+              <span>{isLocating ? 'Locating…' : 'Search'}</span>
             </button>
           </div>
         </motion.div>

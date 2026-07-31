@@ -27,8 +27,11 @@ export interface Hotel {
   id: string;
   name: string;
   location: string;
+  city?: string;
   contactNumber: string;
   imageUrl?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface RoomCategory {

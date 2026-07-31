@@ -60,13 +60,21 @@ export function serializeProperty(property: AnyDocument) {
 }
 
 export function serializeHotel(hotel: AnyDocument) {
+  const coordinates = hotel.coordinates as { latitude?: unknown; longitude?: unknown } | undefined;
+  const latitude = typeof coordinates?.latitude === 'number' ? coordinates.latitude : Number(coordinates?.latitude);
+  const longitude = typeof coordinates?.longitude === 'number' ? coordinates.longitude : Number(coordinates?.longitude);
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+
   return {
     id: toId(hotel._id),
     _id: toId(hotel._id),
     name: hotel.name,
     location: hotel.location,
+    city: hotel.city ? String(hotel.city) : undefined,
     contactNumber: hotel.contact_number,
     imageUrl: hotel.image_url ? String(hotel.image_url) : undefined,
+    latitude: hasCoords ? latitude : undefined,
+    longitude: hasCoords ? longitude : undefined,
   };
 }
 

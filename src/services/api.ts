@@ -351,8 +351,11 @@ export interface SearchResultHotel {
   id: string;
   name: string;
   location: string;
+  city?: string;
   contactNumber: string;
   imageUrl?: string;
+  latitude?: number;
+  longitude?: number;
   minPrice: number;
   availableRooms: number;
   totalRooms: number;
@@ -360,10 +363,14 @@ export interface SearchResultHotel {
   avgRating: number;
   totalReviews: number;
   roomTypes: string[];
+  distanceKm?: number;
 }
 
 export interface SearchParams {
   destination?: string;
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
   priceMin?: number;
   priceMax?: number;
   type?: string;
@@ -371,7 +378,7 @@ export interface SearchParams {
   rating?: number;
   freeCancellation?: boolean;
   breakfastIncluded?: boolean;
-  sort?: 'recommended' | 'price' | 'rating' | 'popular';
+  sort?: 'recommended' | 'price' | 'rating' | 'popular' | 'distance';
   page?: number;
   limit?: number;
 }
@@ -382,6 +389,8 @@ export async function searchHotels(params: SearchParams = {}): Promise<{
   page: number;
   limit: number;
   totalPages: number;
+  nearMe?: boolean;
+  radiusKm?: number;
 }> {
   const response = await api.get('/hotels/search', { params });
   return response.data;
