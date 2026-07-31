@@ -81,6 +81,10 @@ jest.mock('../data/mongoModels', () => ({
   },
   HotelModel: { find: jest.fn(), findById: jest.fn() },
   RoomCategoryModel: { find: jest.fn(), findById: jest.fn() },
+  ExternalReservationModel: {
+    create: jest.fn().mockResolvedValue({}),
+    updateMany: jest.fn().mockResolvedValue({ acknowledged: true }),
+  },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -202,7 +206,8 @@ describe('POST /api/bookings', () => {
     expect([201, 409]).toContain(res.status);
     if (res.status === 201) {
       expect(MockBookingModel.create).toHaveBeenCalled();
-      const created = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+      const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+      const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
       // Hotel management app expects these shared-DB fields
       expect(created.guest_name).toBe(VALID_PAYLOAD.guestName);
       expect(created.guest_email).toBe(VALID_PAYLOAD.guestEmail);
@@ -215,6 +220,15 @@ describe('POST /api/bookings', () => {
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
       expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
+
+      const { ExternalReservationModel } = jest.requireMock('../data/mongoModels') as {
+        ExternalReservationModel: { create: jest.Mock };
+      };
+      expect(ExternalReservationModel.create).toHaveBeenCalled();
+      const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
+      expect(externalDoc.status).toBe('pending_approval');
+      expect(externalDoc.source).toBe('app-customer');
+      expect(externalDoc.external_reference).toBeTruthy();
     }
   });
 

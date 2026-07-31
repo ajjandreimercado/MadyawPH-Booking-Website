@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import mongoose from 'mongoose';
-import { BookingModel, PropertyModel, UserModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -11,6 +11,7 @@ import { createPaymentCheckout } from '../services/paymentService';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
+import { buildExternalReservationDoc } from '../utils/externalReservation';
 import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -545,6 +546,33 @@ bookingRoutes.post('/', async (req, res) => {
 
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
+  // Hotel app "Online Bookings" is driven by external_reservations (pending_approval),
+  // not by bookings.booking_type alone. Create the queue row linked to this booking.
+  try {
+    const externalDoc = buildExternalReservationDoc({
+      hotelId: String(booking.hotel_id ?? property.hotel_id ?? ''),
+      bookingId: String(booking._id),
+      bookingReference: String(booking.booking_reference),
+      guestName: guestNameResult.value,
+      guestEmail: guestEmailResult.value,
+      guestPhone: guestPhoneResult.value,
+      checkInDate: hotelAppFields.check_in_date,
+      checkOutDate: hotelAppFields.check_out_date,
+      roomId: String(booking.room_id ?? property._id),
+      paymentMethod: paymentMethodResult.value,
+      totalAmount: finalTotalPrice,
+      nights: pricing.nights,
+      adults: adultsResult.value,
+      children: childrenResult.value,
+      now: createdAt,
+    });
+    await ExternalReservationModel.create(externalDoc);
+    console.log(`[MongoDB Action] Collection: external_reservations, Action: create, Success: true, Ref: ${externalDoc.external_reference}`);
+  } catch (externalError) {
+    // Booking already exists — do not fail the guest response; hotel can still open the booking record.
+    console.error('[Bookings] Failed to create external_reservations Online Bookings row:', externalError);
+  }
+
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
     ...serializeBooking(booking as never),
@@ -753,6 +781,23 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
     booking.summary_only = false;
   }
   await booking.save();
+
+  // Keep Online Bookings queue in sync when a website request is cancelled.
+  try {
+    await ExternalReservationModel.updateMany(
+      {
+        $or: [
+          { booking_id: String(booking._id) },
+          { external_reference: booking.booking_reference },
+        ],
+        status: { $in: ['pending_approval', 'approved', 'reserved'] },
+      },
+      { $set: { status: 'rejected', updated_at: new Date() } },
+    );
+  } catch (externalError) {
+    console.error('[Bookings] Failed to sync external_reservations on cancel:', externalError);
+  }
+
   return res.json(serializeBooking(booking.toObject() as never));
 });
 

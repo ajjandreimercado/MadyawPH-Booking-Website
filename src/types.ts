@@ -16,6 +16,8 @@ export interface Property {
   roomNumber?: string;
   roomStatus?: string;
   categoryName?: string;
+  hotelName?: string;
+  hotelLocation?: string;
   currentGuestName?: string;
   currentCheckIn?: string;
   currentCheckOut?: string;

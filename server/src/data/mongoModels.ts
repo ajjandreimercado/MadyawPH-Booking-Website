@@ -147,21 +147,24 @@ const promoCodeSchema = new Schema(
 
 const externalReservationSchema = new Schema(
   {
-    _id: { type: String },
+    // Do not force String _id — hotel app uses ObjectId documents in external_reservations.
     hotel_id: { type: String, required: true, index: true },
-    source: { type: String, required: true },
-    external_reference: { type: String, required: true },
+    source: { type: String, required: true, index: true },
+    external_reference: { type: String, required: true, index: true },
     guest_name: { type: String, required: true },
     guest_email: { type: String, required: true },
     guest_phone: { type: String, required: true },
     check_in_date: { type: Date, required: true },
     check_out_date: { type: Date, required: true },
-    status: { type: String, required: true },
+    status: { type: String, required: true, index: true },
     assigned_room_id: { type: String },
-    booking_id: { type: String },
-    metadata: { type: Mixed, default: {} },
+    booking_id: { type: String, index: true },
+    // Hotel app stores metadata as a JSON string (PHP json_encode).
+    metadata: { type: Schema.Types.Mixed, default: {} },
+    created_at: { type: Date },
+    updated_at: { type: Date },
   },
-  schemaOptions,
+  { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } },
 );
 
 const billingChargeSchema = new Schema(
@@ -422,7 +425,7 @@ export const RoomCategoryModel = model('RoomCategory', roomCategorySchema, 'room
 export const PropertyModel = model('Room', roomSchema); // → 'rooms'
 export const RoomModel = PropertyModel;
 export const BookingModel = model('Booking', bookingSchema); // → 'bookings'
-export const ExternalReservationModel = model('ExternalReservation', externalReservationSchema); // → 'externalreservations'
+export const ExternalReservationModel = model('ExternalReservation', externalReservationSchema, 'external_reservations'); // Atlas / hotel app use snake_case
 export const BillingChargeModel = model('BillingCharge', billingChargeSchema); // → 'billingcharges'
 export const RoomTransferModel = model('RoomTransfer', roomTransferSchema, 'room_transfers'); // Atlas uses 'room_transfers'
 export const CheckoutReminderModel = model('CheckoutReminder', checkoutReminderSchema); // → 'checkoutreminders'

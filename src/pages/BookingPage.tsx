@@ -9,6 +9,7 @@ import { useBookings } from '../contexts/BookingsContext';
 import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, Property } from '../types';
 import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS } from '../lib/bookingFlow';
+import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { format, differenceInDays, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export default function BookingPage() {
 
       const booking = await createBookingRequestApi({
         propertyId,
-        propertyName: (property as any).displayName ?? property.name,
+        propertyName: formatRoomLabel(property),
         guestName: fullName,
         guestEmail: email,
         guestPhone: phone,
@@ -215,14 +216,14 @@ export default function BookingPage() {
     );
   }
 
+  const roomLabel = formatRoomLabel(property);
+
   return (
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-serif font-bold text-brand-dark mb-1">Booking Details</h1>
-          {((property as any).displayName ?? property.name) !== '101' && ((property as any).displayName ?? property.name) !== propertyId && (
-            <p className="text-brand-dark/60 font-bold text-sm">{(property as any).displayName ?? property.name}</p>
-          )}
+          <p className="text-brand-dark/60 font-bold text-sm">{roomLabel}</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 items-start">
@@ -596,7 +597,7 @@ export default function BookingPage() {
             {((property as any).imageUrl ?? property.image) && (
               <img
                 src={(property as any).imageUrl ?? property.image}
-                alt={(property as any).displayName ?? property.name}
+                alt={roomLabel}
                 className="w-full h-36 object-cover rounded-xl"
                 onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }}
               />
@@ -604,13 +605,13 @@ export default function BookingPage() {
 
             <div className="space-y-1">
               <p className="font-serif font-bold text-brand-dark">
-                {((property as any).displayName ?? property.name) === '101' || ((property as any).displayName ?? property.name) === propertyId
-                  ? 'Selected Accommodation'
-                  : ((property as any).displayName ?? property.name)}
+                {roomLabel}
               </p>
-              <p className="text-brand-dark/60 font-bold text-xs capitalize">
-                {((property as any).roomType ?? property.type)?.replace(/-/g, ' ')}
-              </p>
+              {(property.hotelLocation || property.location) && (
+                <p className="text-brand-dark/60 font-bold text-xs">
+                  {property.hotelLocation || property.location}
+                </p>
+              )}
             </div>
 
             <div className="border-t border-brand-primary/8 pt-3 space-y-2">

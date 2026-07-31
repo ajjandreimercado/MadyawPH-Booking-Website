@@ -1,9 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Montserrat', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Playfair Display', ui-serif, Georgia, serif;
+  /* Clean, highly readable sans — coastal/hospitality feel without ornate serif */
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 
   --color-brand-dark: #0A192F;
   --color-brand-primary: #1D4E89;
@@ -115,7 +116,7 @@
   }
 
   .section-title {
-    @apply text-2xl font-serif font-bold text-brand-dark;
+    @apply text-2xl font-sans font-bold tracking-tight text-brand-dark;
   }
 
   .input-field {
