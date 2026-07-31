@@ -62,17 +62,20 @@ function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
         <div className="absolute top-3 right-3 bg-brand-cream/90 backdrop-blur-sm px-2 py-1 rounded-lg shadow-sm">
           <p className="text-xs font-bold text-brand-dark"><span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>{hotel.minPrice?.toLocaleString() || 0}</p>
         </div>
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-brand-dark/80 backdrop-blur-sm text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
+          <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star" />
+          {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
+          {hotel.totalReviews > 0 && (
+            <span className="text-[10px] font-bold text-white/70">({hotel.totalReviews})</span>
+          )}
+        </div>
       </div>
       <div className="p-5">
         <h3 className="font-serif font-bold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
         <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mb-3">
           <MapPin className="w-3.5 h-3.5" />{hotel.location}
         </p>
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1 text-xs font-bold text-brand-dark">
-            <Star className="w-3.5 h-3.5 fill-brand-warning text-brand-warning" />
-            {hotel.avgRating || 'New'} <span className="text-brand-dark/40 font-normal">({hotel.totalReviews || 0})</span>
-          </span>
+        <div className="flex items-center justify-end">
           <button
             type="button"
             onClick={e => { e.stopPropagation(); navigate(`/hotels/${hotel.id}`); }}
