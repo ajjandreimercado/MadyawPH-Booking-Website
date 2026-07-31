@@ -110,11 +110,13 @@ export function serializeBooking(booking: AnyDocument) {
     roomId: booking.room_id ? toId(booking.room_id) : undefined,
     propertyId: booking.propertyId,
     propertyName: booking.propertyName,
-    guestName: booking.guestName,
-    guestEmail: booking.guestEmail,
+    guestName: booking.guestName ?? booking.guest_name,
+    guestEmail: booking.guestEmail ?? booking.guest_email,
     guestPhone: booking.guest_phone,
-    checkInDate: booking.checkInDate,
-    checkOutDate: booking.checkOutDate,
+    checkInDate: booking.checkInDate
+      ?? (booking.check_in_date ? new Date(booking.check_in_date as string | number | Date).toISOString().slice(0, 10) : undefined),
+    checkOutDate: booking.checkOutDate
+      ?? (booking.check_out_date ? new Date(booking.check_out_date as string | number | Date).toISOString().slice(0, 10) : undefined),
     checkInTime: booking.check_in_time,
     checkOutTime: booking.check_out_time,
     adults: booking.adults,

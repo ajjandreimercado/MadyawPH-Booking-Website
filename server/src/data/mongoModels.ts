@@ -71,11 +71,18 @@ const bookingSchema = new Schema(
     propertyId: { type: String, required: true, index: true },
     propertyName: { type: String },
     guestName: { type: String, required: true },
+    // Hotel management app (shared Mongo) also reads snake_case aliases below.
+    guest_name: { type: String },
     // index allows fast lookup of a guest's own bookings
     guestEmail: { type: String, required: true, index: true },
+    guest_email: { type: String },
     guest_phone: { type: String, required: true },
+    // Website API uses camelCase string dates (yyyy-MM-dd).
     checkInDate: { type: String, required: true },
     checkOutDate: { type: String, required: true },
+    // Hotel app schedule/queue reads Date fields (same pattern as external_reservations).
+    check_in_date: { type: Date },
+    check_out_date: { type: Date },
     check_in_time: { type: String, default: '14:00' },
     check_out_time: { type: String, default: '12:00' },
     adults: { type: Number, default: 1 },
@@ -93,7 +100,14 @@ const bookingSchema = new Schema(
     serviceFee: { type: Number, default: 0 },
     source: { type: String, required: true },
     booking_type: { type: String, required: true },
+    // Hotel app source channel (e.g. admin-walk-in, app-customer, website-customer)
+    booking_source: { type: String },
+    billing_mode: { type: String },
+    // Snake_case payment alias (hotel app); website still uses paymentMethod
+    payment_method: { type: String },
     status: { type: String, required: true },
+    // Hotel report/forms require an explicit boolean (missing value fails validation).
+    summary_only: { type: Boolean, default: false },
     discount_type: { type: String, default: '' },
     discount_value: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
@@ -102,6 +116,9 @@ const bookingSchema = new Schema(
     expiresAt: { type: Date },
     check_in_at: { type: Date },
     check_out_at: { type: Date },
+    // Hotel app "Date booked" reads created_at (not only mongoose createdAt)
+    created_at: { type: Date },
+    updated_at: { type: Date },
     special_requests: { type: String, default: '' },
     promo_code: { type: String, default: '' },
     confirmationSentAt: { type: Date, default: null },

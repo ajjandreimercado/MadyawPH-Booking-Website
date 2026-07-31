@@ -10,6 +10,7 @@ import { sendBookingConfirmationNotification } from '../services/notificationSer
 import { createPaymentCheckout } from '../services/paymentService';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
+import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
 import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -31,14 +32,14 @@ const bookingRoutes = Router();
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UserRole = 'guest' | 'partner' | 'admin' | 'staff' | 'super_admin';
-type BookingStatus = 'requested' | 'accepted' | 'declined' | 'paid' | 'confirmed' | 'pending';
+type BookingStatus = 'requested' | 'accepted' | 'declined' | 'paid' | 'confirmed' | 'pending' | 'cancelled';
 
 const ACTIVE_BOOKING_STATUSES = ['requested', 'accepted', 'paid', 'confirmed', 'pending'] as const;
 
 // Allowlists — validated server-side, never taken verbatim from client input (OWASP A03)
 const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'villa-retreat'] as const;
 const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'bank-transfer'] as const;
-const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending'] as const;
+const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending', 'cancelled'] as const;
 
 const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ['confirmed'],
@@ -121,8 +122,15 @@ async function hasBookingOverlap(
       return false;
     }
 
-    const existingStart = new Date(booking.checkInDate);
-    const existingEnd = new Date(booking.checkOutDate);
+    const startRaw = booking.checkInDate ?? booking.check_in_date;
+    const endRaw = booking.checkOutDate ?? booking.check_out_date;
+    if (!startRaw || !endRaw) return false;
+
+    const existingStart = new Date(startRaw as string | Date);
+    const existingEnd = new Date(endRaw as string | Date);
+    if (Number.isNaN(existingStart.getTime()) || Number.isNaN(existingEnd.getTime())) {
+      return false;
+    }
     return requestedStart < existingEnd && requestedEnd > existingStart;
   });
 }
@@ -411,7 +419,17 @@ bookingRoutes.post('/', async (req, res) => {
 
   // Shared MongoDB with the hotel management app:
   // - This website only INSERTS a pending request (never deletes hotel/ops data).
-  // - Room inventory / accept-decline / guest email are owned by the hotel app.
+  // - Dual-write snake_case Date + guest aliases so frontdesk schedule/queue can read them.
+  // - summary_only must be an explicit boolean or hotel reports fail validation.
+  const hotelAppFields = buildHotelAppBookingFields({
+    guestName: guestNameResult.value,
+    guestEmail: guestEmailResult.value,
+    checkInDate: checkInResult.value,
+    checkOutDate: checkOutResult.value,
+    paymentMethod: paymentMethodResult.value,
+    now: createdAt,
+  });
+
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
     hotel_id: String(property.hotel_id ?? ''),
@@ -421,6 +439,7 @@ bookingRoutes.post('/', async (req, res) => {
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
     guest_phone: guestPhoneResult.value,
+    ...hotelAppFields,
     discount_reason: finalDiscountReason,
     discount_amount: resolvedDiscount,
     special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
@@ -433,7 +452,6 @@ bookingRoutes.post('/', async (req, res) => {
     roomType: roomTypeResult.value,
     paymentMethod: paymentMethodResult.value,
     source: 'web',
-    booking_type: 'request_to_book',
     nights: pricing.nights,
     guestCount: pricing.guestCount,
     roomRate: pricing.roomRate,
@@ -566,14 +584,29 @@ bookingRoutes.post('/:bookingId/review-availability', requireAuth, async (req, r
   }
 
   try {
+    const checkInForOverlap = String(
+      booking.checkInDate
+        ?? (booking.check_in_date ? new Date(booking.check_in_date).toISOString().slice(0, 10) : ''),
+    );
+    const checkOutForOverlap = String(
+      booking.checkOutDate
+        ?? (booking.check_out_date ? new Date(booking.check_out_date).toISOString().slice(0, 10) : ''),
+    );
+    if (!checkInForOverlap || !checkOutForOverlap) {
+      return res.status(400).json({ message: 'Booking is missing check-in/check-out dates.' });
+    }
+
     const overlap = await hasBookingOverlap(
       booking.propertyId,
-      booking.checkInDate,
-      booking.checkOutDate,
+      checkInForOverlap,
+      checkOutForOverlap,
       String(booking._id),
     );
 
     booking.status = overlap ? 'declined' : 'accepted';
+    if (typeof booking.summary_only !== 'boolean') {
+      booking.summary_only = false;
+    }
     console.log(`[MongoDB Action] Collection: bookings, Action: save (update status), ID: ${booking._id}, New Status: ${booking.status}`);
     await booking.save();
 
@@ -655,6 +688,11 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
     await sendBookingConfirmationNotification(booking);
   }
 
+  // Heal missing hotel-app required boolean so saves/reports don't fail validation.
+  if (typeof booking.summary_only !== 'boolean') {
+    booking.summary_only = false;
+  }
+
   console.log(`[MongoDB Action] Collection: bookings, Action: save, ID: ${booking._id}`);
   await booking.save();
   return res.json(serializeBooking(booking.toObject() as never));
@@ -697,7 +735,8 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
   const callerRole = (req.auth!.role as UserRole);
   const callerEmail = req.auth!.email.toLowerCase();
   const isStaff = isPrivilegedRole(callerRole);
-  const isOwner = booking.guestEmail?.toLowerCase() === callerEmail;
+  const ownerEmail = String(booking.guestEmail ?? booking.guest_email ?? '').toLowerCase();
+  const isOwner = Boolean(ownerEmail) && ownerEmail === callerEmail;
 
   if (!isStaff && !isOwner) {
     return res.status(403).json({ message: 'Access denied. You may only cancel your own bookings.' });
@@ -708,7 +747,11 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
     return res.status(409).json({ message: `Cannot cancel a booking with status '${booking.status}'.` });
   }
 
-  booking.status = 'declined';
+  // Hotel app lists typically hide `cancelled` (not only `declined`).
+  booking.status = 'cancelled';
+  if (typeof booking.summary_only !== 'boolean') {
+    booking.summary_only = false;
+  }
   await booking.save();
   return res.json(serializeBooking(booking.toObject() as never));
 });
