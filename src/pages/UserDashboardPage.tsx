@@ -40,7 +40,7 @@ function ProfileTab() {
         <div>
           <h2 className="text-2xl font-serif font-bold text-brand-dark">{user?.name}</h2>
           <p className="text-sm font-bold text-brand-dark/60">{user?.email}</p>
-          <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${user?.role === 'partner' ? 'bg-brand-warning/10 text-brand-warning' : 'bg-brand-primary/10 text-brand-primary'}`}>
+          <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${user?.role === 'partner' ? 'bg-brand-warning/10 text-brand-warning' : user?.role === 'admin' || user?.role === 'staff' || user?.role === 'super_admin' ? 'bg-brand-success/10 text-brand-success' : 'bg-brand-primary/10 text-brand-primary'}`}>
             {user?.role ?? 'guest'}
           </span>
         </div>
@@ -116,8 +116,8 @@ export default function UserDashboardPage() {
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-serif font-bold text-brand-dark">Manage Bookings</h1>
-          <p className="text-brand-dark/60 font-bold mt-1">Review, approve, and manage guest reservations</p>
+          <h1 className="text-3xl font-serif font-bold text-brand-dark">My Account</h1>
+          <p className="text-brand-dark/60 font-bold mt-1">Manage your bookings, saved stays, and profile</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">

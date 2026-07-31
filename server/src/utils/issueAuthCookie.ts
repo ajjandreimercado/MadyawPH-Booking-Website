@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { signAuthToken } from './jwt';
+import { signAuthToken, type AuthRole } from './jwt';
 
 const COOKIE_NAME = 'madyaw_token';
 const COOKIE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
@@ -21,7 +21,7 @@ const COOKIE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
  */
 export function issueAuthCookie(
   res: Response,
-  user: { userId: string; email: string; role: 'guest' | 'partner' },
+  user: { userId: string; email: string; role: AuthRole },
 ): string {
   const token = signAuthToken({
     userId: user.userId,

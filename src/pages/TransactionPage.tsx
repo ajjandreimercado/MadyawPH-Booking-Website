@@ -93,6 +93,22 @@ const STATUS_TONES: Record<BookingViewState, { label: string; className: string 
     label: 'Confirmed',
     className: 'bg-emerald-100 text-emerald-900 border-emerald-200',
   },
+  reserved: {
+    label: 'Reserved',
+    className: 'bg-amber-100 text-amber-900 border-amber-200',
+  },
+  booked: {
+    label: 'Booked',
+    className: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    className: 'bg-red-100 text-red-900 border-red-200',
+  },
+  completed: {
+    label: 'Completed',
+    className: 'bg-gray-100 text-gray-700 border-gray-200',
+  },
 };
 
 function renderStatusIcon(status: BookingViewState) {

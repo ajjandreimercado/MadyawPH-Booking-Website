@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getCurrentUser, isAxiosError, loginUser, loginWithGoogleCredential, registerUser, logoutUser } from '../services/api';
 
-export type UserRole = 'guest' | 'partner';
+export type UserRole = 'guest' | 'partner' | 'admin' | 'staff' | 'super_admin';
 
 export interface PartnerProfile {
   portalId: string;
@@ -52,11 +52,16 @@ function isPartnerProfile(value: unknown): value is PartnerProfile {
 }
 
 function normalizeUser(apiUser: { id?: string; _id?: string; email: string; name: string; role?: string; partner?: unknown; avatar?: string }): User {
+  const allowedRoles: UserRole[] = ['guest', 'partner', 'admin', 'staff', 'super_admin'];
+  const role = allowedRoles.includes(apiUser.role as UserRole)
+    ? (apiUser.role as UserRole)
+    : 'guest';
+
   return {
     id: String(apiUser._id ?? apiUser.id ?? apiUser.email),
     email: apiUser.email,
     name: apiUser.name,
-    role: apiUser.role === 'partner' ? 'partner' : 'guest',
+    role,
     partner: isPartnerProfile(apiUser.partner) ? apiUser.partner : undefined,
     avatar: apiUser.avatar ?? undefined,
   };

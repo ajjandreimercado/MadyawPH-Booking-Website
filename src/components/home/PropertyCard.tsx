@@ -1,11 +1,25 @@
 import { motion } from 'motion/react';
-import { Star, MapPin, Heart } from 'lucide-react';
+import { Star, Heart } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { Property } from '../../types';
 import { useToast } from '../ui/ToastProvider';
 import { trackCardViewed } from '../../lib/analytics';
-import { addFavorite, removeFavorite } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
+
+const FAVORITES_KEY = 'madyaw_local_favorites';
+
+function readLocalFavorites(): string[] {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalFavorites(ids: string[]) {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
+}
 
 interface PropertyCardProps {
   property: Property;
@@ -16,8 +30,11 @@ interface PropertyCardProps {
 export default function PropertyCard({ property, index, onViewDetails }: PropertyCardProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const { showToast } = useToast();
-  const { user } = useAuth();
   const hasTrackedView = useRef(false);
+
+  useEffect(() => {
+    setIsFavorite(readLocalFavorites().includes(property.id));
+  }, [property.id]);
 
   useEffect(() => {
     if (hasTrackedView.current) {
@@ -28,26 +45,18 @@ export default function PropertyCard({ property, index, onViewDetails }: Propert
     hasTrackedView.current = true;
   }, [property]);
 
-  const handleFavorite = async (e: MouseEvent<HTMLButtonElement>) => {
+  const handleFavorite = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!user) {
-      showToast({ title: 'Please log in to add favorites', type: 'info' });
+    const current = readLocalFavorites();
+    if (isFavorite) {
+      writeLocalFavorites(current.filter((id) => id !== property.id));
+      setIsFavorite(false);
+      showToast({ title: 'Removed from saved stays', type: 'success' });
       return;
     }
-    
-    try {
-      if (isFavorite) {
-        await removeFavorite(property.id);
-        setIsFavorite(false);
-        showToast({ title: 'Removed from Favorites', type: 'success' });
-      } else {
-        await addFavorite(property.id);
-        setIsFavorite(true);
-        showToast({ title: 'Added to Favorites', type: 'success' });
-      }
-    } catch (error) {
-      showToast({ title: 'Failed to update favorites', type: 'error' });
-    }
+    writeLocalFavorites([...current, property.id]);
+    setIsFavorite(true);
+    showToast({ title: 'Saved on this device', type: 'success' });
   };
 
   return (
@@ -58,15 +67,15 @@ export default function PropertyCard({ property, index, onViewDetails }: Propert
       className="bg-brand-cream rounded-3xl overflow-hidden shadow-md hover:shadow-lg border border-brand-primary/10 group transition-all duration-300 flex flex-col"
     >
       <div className="h-52 bg-brand-dark/10 relative overflow-hidden">
-        <img 
-          src={property.image} 
+        <img
+          src={property.image}
           alt={property.name}
           className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:scale-105 group-hover:opacity-100 transition-all duration-700 ease-out"
         />
         <div className="absolute top-4 right-4 bg-brand-cream/95 backdrop-blur border border-brand-primary/10 px-3 py-1 rounded-full text-[11px] font-sans font-bold text-brand-dark shadow-sm">
           {property.rating} Superb
         </div>
-        <button 
+        <button
           type="button"
           onClick={handleFavorite}
           aria-label={isFavorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`}
@@ -76,7 +85,7 @@ export default function PropertyCard({ property, index, onViewDetails }: Propert
           <Heart className={`w-5 h-5 transition-colors ${isFavorite ? 'fill-brand-primary text-brand-primary' : 'text-brand-dark'}`} />
         </button>
       </div>
-      
+
       <div className="p-6 flex flex-col flex-1">
         <div className="flex justify-between items-start gap-4">
           <h4 className="font-serif text-2xl font-bold text-brand-dark">
@@ -84,7 +93,7 @@ export default function PropertyCard({ property, index, onViewDetails }: Propert
           </h4>
           <div className="text-right">
             <p className="text-xl font-serif font-bold text-brand-primary">
-              ${property.price}
+              ₱{property.price.toLocaleString()}
               <span className="text-xs font-sans font-normal block text-brand-dark/70">per night</span>
             </p>
           </div>
@@ -101,7 +110,7 @@ export default function PropertyCard({ property, index, onViewDetails }: Propert
             <Star className="w-4 h-4 fill-brand-primary text-brand-primary" />
             <span>{property.rating.toFixed(1)}</span>
           </div>
-          <button 
+          <button
             type="button"
             onClick={() => onViewDetails(property)}
             className="px-5 py-2 bg-brand-primary text-brand-cream text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-brand-hover transition-all duration-300 active:scale-95 shadow-sm"

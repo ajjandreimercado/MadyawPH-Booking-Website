@@ -7,6 +7,7 @@ import { authWriteLimiter } from '../middleware/rateLimiters';
 import { serializeUser } from '../utils/serialize';
 import { issueAuthCookie, COOKIE_NAME } from '../utils/issueAuthCookie';
 import { GOOGLE_CLIENT_ID } from '../config/env';
+import { normalizeAuthRole } from '../utils/jwt';
 // OWASP A03: schema-based field stripping and input validators
 import { pickFields, validateString, validateEmail, validateId } from '../utils/validators';
 
@@ -42,7 +43,7 @@ function buildAndIssueSession(
   issueAuthCookie(res, {
     userId: String(user._id),
     email: user.email,
-    role: user.role === 'partner' ? 'partner' : 'guest',
+    role: normalizeAuthRole(user.role),
   });
   return serializeUser(user as never);
 }

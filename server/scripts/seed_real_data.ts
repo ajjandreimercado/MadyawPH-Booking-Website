@@ -4,6 +4,18 @@ import { HotelModel, RoomCategoryModel, PropertyModel } from '../src/data/mongoM
 
 dotenv.config();
 
+/**
+ * Partially destructive for one hotel's rooms/categories.
+ * Refuses to run unless CONFIRM_DESTRUCTIVE_SEED=YES.
+ */
+if (process.env.CONFIRM_DESTRUCTIVE_SEED !== 'YES') {
+  console.error(
+    '[seed_real_data] Aborted. This script deletes room/category docs for a hotel before reseeding.\n' +
+      'Set CONFIRM_DESTRUCTIVE_SEED=YES only if you intentionally want that.',
+  );
+  process.exit(1);
+}
+
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/madyaw';
 
 async function seedRealData() {

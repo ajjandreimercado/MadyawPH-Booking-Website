@@ -36,19 +36,18 @@ export default function Navbar() {
   };
 
   const toggleMenu = (menu: Exclude<ActiveMenu, null>) => {
-    setActiveMenu(prev => (prev === menu ? null : menu));
+    setActiveMenu((prev) => (prev === menu ? null : menu));
   };
 
-  const triggerBaseClass = 'text-[10px] font-bold tracking-widest uppercase transition-colors hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark';
+  const triggerBaseClass =
+    'text-[10px] font-bold tracking-widest uppercase transition-colors hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark';
 
   return (
     <nav
       ref={navRef}
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled && !mobileMenuOpen ? '-translate-y-full' : 'translate-y-0'
-      } ${
-        mobileMenuOpen ? 'bg-brand-dark/95 shadow-md py-5' : 'bg-brand-dark/80 backdrop-blur-md py-6'
-      }`}
+      } ${mobileMenuOpen ? 'bg-brand-dark/95 shadow-md py-5' : 'bg-brand-dark/80 backdrop-blur-md py-6'}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
         <Link
@@ -67,7 +66,7 @@ export default function Navbar() {
           <div
             className="relative py-4"
             onMouseEnter={() => setActiveMenu('destinations')}
-            onMouseLeave={() => setActiveMenu(prev => (prev === 'destinations' ? null : prev))}
+            onMouseLeave={() => setActiveMenu((prev) => (prev === 'destinations' ? null : prev))}
           >
             <button
               type="button"
@@ -89,7 +88,7 @@ export default function Navbar() {
           <div
             className="relative py-4"
             onMouseEnter={() => setActiveMenu('experiences')}
-            onMouseLeave={() => setActiveMenu(prev => (prev === 'experiences' ? null : prev))}
+            onMouseLeave={() => setActiveMenu((prev) => (prev === 'experiences' ? null : prev))}
           >
             <button
               type="button"
@@ -111,7 +110,7 @@ export default function Navbar() {
           <div
             className="relative py-4"
             onMouseEnter={() => setActiveMenu('club')}
-            onMouseLeave={() => setActiveMenu(prev => (prev === 'club' ? null : prev))}
+            onMouseLeave={() => setActiveMenu((prev) => (prev === 'club' ? null : prev))}
           >
             <button
               type="button"
@@ -137,7 +136,7 @@ export default function Navbar() {
           aria-expanded={mobileMenuOpen}
           aria-controls="mobile-menu"
           className="md:hidden p-2 text-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark"
-          onClick={() => setMobileMenuOpen(prev => !prev)}
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
         >
           {mobileMenuOpen ? <X className="w-6 h-6 text-brand-cream" /> : <Menu className="w-6 h-6 text-brand-cream" />}
         </button>

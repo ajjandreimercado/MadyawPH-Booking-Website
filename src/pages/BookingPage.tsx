@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload
+  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, CreditCard, Landmark
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
 import { useBookings } from '../contexts/BookingsContext';
-import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import type { Property } from '../types';
+import type { BookingPaymentMethod, Property } from '../types';
+import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS } from '../lib/bookingFlow';
 import { format, differenceInDays, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -42,17 +42,20 @@ const NATIONALITIES = [
   'Uruguayan', 'Uzbek', 'Venezuelan', 'Vietnamese', 'Yemeni', 'Zambian', 'Zimbabwean',
 ];
 
-// ── Discount Options ──────────────────────────────────────────────────────────
-const DISCOUNT_OPTIONS = [
+const BOOKING_DISCOUNT_OPTIONS = [
   { value: '', label: 'No Discount' },
-  { value: 'pwd', label: 'PWD — 20% off' },
-  { value: 'senior', label: 'Senior Citizen — 20% off' },
+  ...DISCOUNT_OPTIONS.filter((opt) => opt.value !== 'none').map((opt) => ({
+    value: opt.value,
+    label: opt.value === 'pwd' ? 'PWD — 20% off' : 'Senior Citizen — 20% off',
+  })),
 ];
 
-// ── Payment Methods ───────────────────────────────────────────────────────────
-const PAYMENT_METHODS = [
-  { id: 'gcash', label: 'GCash', icon: Smartphone },
-  { id: 'paymaya', label: 'PayMaya', icon: Smartphone },
+const PAYMENT_METHODS: { id: BookingPaymentMethod; label: string; icon: typeof Smartphone }[] = [
+  { id: 'gcash', label: PAYMENT_METHOD_OPTIONS.gcash.label, icon: Smartphone },
+  { id: 'maya', label: PAYMENT_METHOD_OPTIONS.maya.label, icon: Smartphone },
+  { id: 'credit-card', label: PAYMENT_METHOD_OPTIONS['credit-card'].label, icon: CreditCard },
+  { id: 'debit-card', label: PAYMENT_METHOD_OPTIONS['debit-card'].label, icon: CreditCard },
+  { id: 'bank-transfer', label: PAYMENT_METHOD_OPTIONS['bank-transfer'].label, icon: Landmark },
 ];
 
 // ── Food amenities that can be selected as complimentary ──────────────────────
@@ -66,7 +69,6 @@ export default function BookingPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { appendBooking } = useBookings();
-  const { user } = useAuth();
   const { showToast } = useToast();
 
   const urlCheckIn = searchParams.get('checkIn') ?? format(addDays(new Date(), 1), 'yyyy-MM-dd');
@@ -78,8 +80,8 @@ export default function BookingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ── Booking Details ─────────────────────────────────────────────────────────
-  const [fullName, setFullName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
   const [adults, setAdults] = useState(Math.max(1, urlGuests));
@@ -94,21 +96,18 @@ export default function BookingPage() {
   const [selectedComplimentary, setSelectedComplimentary] = useState<string[]>([]);
 
   const [discountType, setDiscountType] = useState('');
+  const [promoCode, setPromoCode] = useState('');
 
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
 
-  const [paymentMethod, setPaymentMethod] = useState('gcash');
-  const [isPaymentConfirmed, setIsPaymentConfirmed] = useState(false);
-  const [xenditRef, setXenditRef] = useState('');
-  const [isXenditModalOpen, setIsXenditModalOpen] = useState(false);
-  const [isProcessingXendit, setIsProcessingXendit] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
 
   // ── Computed Values ──────────────────────────────────────────────────────────
   const nights = Math.max(1, differenceInDays(new Date(checkOut), new Date(checkIn)));
   const roomRate = (property?.price ?? 0) * nights;
   const serviceFee = Math.round(roomRate * 0.12);
-  const discountPct = discountType === 'pwd' || discountType === 'senior' ? 0.20 : 0;
+  const discountPct = discountType === 'pwd' || discountType === 'senior citizen' ? 0.20 : 0;
   const discountAmt = Math.round((roomRate + serviceFee) * discountPct);
   const total = Math.max(0, roomRate + serviceFee - discountAmt);
 
@@ -135,14 +134,6 @@ export default function BookingPage() {
     );
   };
 
-  const handleSelectPaymentMethod = (methodId: string) => {
-    setPaymentMethod(methodId);
-    if (paymentMethod !== methodId) {
-      setIsPaymentConfirmed(false);
-      setXenditRef('');
-    }
-  };
-
   const isFormValid =
     fullName.trim() &&
     email.trim() &&
@@ -162,22 +153,11 @@ export default function BookingPage() {
       return;
     }
 
-    // Require Xendit payment confirmation for online e-wallet payments (GCash / PayMaya)
-    if ((paymentMethod === 'gcash' || paymentMethod === 'paymaya') && !isPaymentConfirmed) {
-      showToast({
-        title: 'Online Payment Required First',
-        description: `Please click "Pay ₱${total.toLocaleString()} via Xendit (${paymentMethod.toUpperCase()})" to confirm payment before requesting your booking.`,
-        type: 'error',
-      });
-      setIsXenditModalOpen(true);
-      return;
-    }
-
     setIsSubmitting(true);
     try {
+      // Must match server allowlist: 'pwd' | 'senior citizen'
       const discountReason =
-        discountType === 'pwd' ? 'PWD Discount (20%)' :
-        discountType === 'senior' ? 'Senior Citizen Discount (20%)' : undefined;
+        discountType === 'pwd' || discountType === 'senior citizen' ? discountType : undefined;
 
       const booking = await createBookingRequestApi({
         propertyId,
@@ -191,21 +171,23 @@ export default function BookingPage() {
         children,
         infants: 0,
         roomType: ((property as any).roomType ?? property.type ?? 'standard-room') as any,
-        paymentMethod: paymentMethod as any,
+        paymentMethod,
         discountAmount: discountAmt,
         discountReason,
+        promoCode: promoCode.trim() || undefined,
         specialRequests: [
           validIdFile ? `Valid ID: ${validIdFile.name}` : '',
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
-          xenditRef ? `Xendit Payment Ref: ${xenditRef}` : '',
+          `Preferred payment: ${paymentMethod}`,
         ].filter(Boolean).join(' | ') || undefined,
       });
       appendBooking(booking);
-      // Append ?email= so unauthenticated guest-checkout users can verify
-      // receipt ownership on the confirmation page without a session cookie.
-      navigate(`/booking/confirm/${booking.id}?email=${encodeURIComponent(email)}`);
+      const receiptToken = (booking as { receiptToken?: string }).receiptToken;
+      const params = new URLSearchParams({ email });
+      if (receiptToken) params.set('token', receiptToken);
+      navigate(`/booking/confirm/${booking.id}?${params.toString()}`);
     } catch (err: any) {
       const serverMessage = err.response?.data?.message || err.message;
       showToast({ title: 'Booking failed', description: serverMessage || 'Please try again.', type: 'error' });
@@ -268,8 +250,7 @@ export default function BookingPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="field-label">
-                      Gmail Address <span className="text-red-400">*</span>
-                      {user && <span className="ml-1 text-[10px] font-normal text-brand-success">(from your account)</span>}
+                      Email Address <span className="text-red-400">*</span>
                     </label>
                     <div className="relative">
                       <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
@@ -277,12 +258,14 @@ export default function BookingPage() {
                         id="booking-email"
                         type="email"
                         value={email}
-                        onChange={e => !user && setEmail(e.target.value)}
-                        readOnly={!!user}
+                        onChange={e => setEmail(e.target.value)}
                         placeholder="yourname@gmail.com"
-                        className={`input-field !pl-10 ${user ? 'bg-brand-background/60 cursor-default select-none' : ''}`}
+                        className="input-field !pl-10"
                       />
                     </div>
+                    <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                      The hotel will use this email to confirm or update your reservation request.
+                    </p>
                   </div>
                   <div>
                     <label className="field-label">Phone Number <span className="text-red-400">*</span></label>
@@ -516,7 +499,7 @@ export default function BookingPage() {
                     onChange={e => setDiscountType(e.target.value)}
                     className="input-field appearance-none pr-9"
                   >
-                    {DISCOUNT_OPTIONS.map(opt => (
+                    {BOOKING_DISCOUNT_OPTIONS.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
@@ -528,6 +511,21 @@ export default function BookingPage() {
                   </p>
                 )}
               </div>
+
+              <div className="mt-4">
+                <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Promo Code</label>
+                <input
+                  id="booking-promo"
+                  type="text"
+                  value={promoCode}
+                  onChange={e => setPromoCode(e.target.value.toUpperCase())}
+                  placeholder="Optional promo code"
+                  className="input-field uppercase"
+                />
+                <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                  If both a PWD/senior discount and a promo apply, the larger discount is used.
+                </p>
+              </div>
             </section>
 
             <div className="h-px bg-brand-primary/8" />
@@ -535,15 +533,18 @@ export default function BookingPage() {
             {/* Section: Payment Method */}
             <section>
               <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Smartphone className="w-4 h-4" /> Payment Method
+                <Smartphone className="w-4 h-4" /> Preferred Payment Method
               </h2>
+              <p className="text-xs text-brand-dark/50 font-bold mb-3">
+                Choose how you prefer to pay after the hotel accepts your request. No payment is collected on this page.
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 {PAYMENT_METHODS.map(method => (
                   <button
                     key={method.id}
                     id={`payment-${method.id}`}
                     type="button"
-                    onClick={() => handleSelectPaymentMethod(method.id)}
+                    onClick={() => setPaymentMethod(method.id)}
                     className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                       paymentMethod === method.id
                         ? 'border-brand-primary bg-brand-primary/5 shadow-sm'
@@ -558,50 +559,19 @@ export default function BookingPage() {
                   </button>
                 ))}
               </div>
-
-              {/* Xendit Online Payment Required Box */}
-              {(paymentMethod === 'gcash' || paymentMethod === 'paymaya') && (
-                <div className="mt-4">
-                  {!isPaymentConfirmed ? (
-                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-                        <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                        Online payment via Xendit gateway required before requesting booking.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsXenditModalOpen(true)}
-                        className="w-full py-2.5 px-4 rounded-xl bg-brand-primary text-white font-bold text-xs uppercase tracking-wider hover:bg-brand-hover transition-colors flex items-center justify-center gap-2 shadow-sm"
-                      >
-                        <Smartphone className="w-4 h-4" /> Pay ₱{total.toLocaleString()} via Xendit ({paymentMethod.toUpperCase()})
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-emerald-950">Payment Confirmed via Xendit ({paymentMethod.toUpperCase()})</p>
-                          <p className="text-[10px] text-emerald-800 font-mono font-bold">Ref: {xenditRef}</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsXenditModalOpen(true)}
-                        className="text-xs font-bold text-brand-primary underline"
-                      >
-                        Details
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
+                <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
+                <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
+                  Online checkout will be available once payment processing is enabled for this property.
+                  For now, your preferred method is saved with the reservation request.
+                </p>
+              </div>
             </section>
 
             {/* Security Note */}
             <div className="flex items-center gap-2 text-xs font-bold text-brand-dark/50 bg-brand-primary/5 rounded-xl p-3">
               <Info className="w-4 h-4 text-brand-primary shrink-0" />
-              Your reservation will be submitted as a request. Once approved by the hotel, a confirmation will be sent to your email or phone.
+              Your stay is submitted as a reservation request. The hotel will review it in their management system and contact you at the email you provide.
             </div>
 
             {/* Submit */}
@@ -682,7 +652,7 @@ export default function BookingPage() {
               {discountAmt > 0 && (
                 <div className="flex justify-between text-sm font-bold text-brand-success">
                   <span>
-                    {discountType === 'pwd' ? 'PWD' : 'Senior'} Discount (20%)
+                    {discountType === 'pwd' ? 'PWD' : 'Senior Citizen'} Discount (20%)
                   </span>
                   <span>−₱{discountAmt.toLocaleString()}</span>
                 </div>
@@ -701,91 +671,6 @@ export default function BookingPage() {
 
         </div>
       </div>
-
-      {/* ── Xendit Payment Gateway Modal ─────────────────────────────────────── */}
-      {isXenditModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-brand-cream rounded-2xl border border-brand-primary/20 max-w-md w-full p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between border-b border-brand-primary/10 pb-4">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs uppercase tracking-wider bg-brand-primary text-white px-2 py-0.5 rounded">Xendit</span>
-                <span className="font-serif font-bold text-lg text-brand-dark">Online Payment</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsXenditModalOpen(false)}
-                className="text-brand-dark/40 hover:text-brand-dark font-bold text-base px-2 py-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-white/80 rounded-xl p-4 border border-brand-primary/10 space-y-2">
-              <div className="flex justify-between text-xs font-bold text-brand-dark/60">
-                <span>Payment Channel</span>
-                <span className="text-brand-dark uppercase font-extrabold">{paymentMethod} (Xendit)</span>
-              </div>
-              <div className="flex justify-between text-xs font-bold text-brand-dark/60">
-                <span>Guest Email</span>
-                <span className="text-brand-dark">{email || 'guest@madyaw.com'}</span>
-              </div>
-              <div className="flex justify-between text-sm font-serif font-bold text-brand-dark border-t border-brand-primary/10 pt-2">
-                <span>Total Amount Due</span>
-                <span className="text-brand-primary">₱{total.toLocaleString()}</span>
-              </div>
-            </div>
-
-            {isPaymentConfirmed ? (
-              <div className="text-center py-4 space-y-3">
-                <CheckCircle2 className="w-12 h-12 text-brand-success mx-auto" />
-                <div>
-                  <p className="font-bold text-base text-brand-dark">Xendit Payment Verified & Confirmed!</p>
-                  <p className="text-xs text-brand-dark/60 font-mono font-bold mt-1">Ref: {xenditRef}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsXenditModalOpen(false)}
-                  className="btn-primary w-full mt-3"
-                >
-                  Proceed to Request Booking
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-3 rounded-xl bg-brand-primary/5 text-xs text-brand-dark/70 font-medium space-y-1">
-                  <p className="font-bold text-brand-primary">Xendit Checkout Verification</p>
-                  <p>Confirm payment of ₱{total.toLocaleString()} using your {paymentMethod.toUpperCase()} e-wallet to authorize your booking request.</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={isProcessingXendit}
-                  onClick={() => {
-                    setIsProcessingXendit(true);
-                    setTimeout(() => {
-                      const generatedRef = `XENDIT-${paymentMethod.toUpperCase()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-                      setXenditRef(generatedRef);
-                      setIsPaymentConfirmed(true);
-                      setIsProcessingXendit(false);
-                      showToast({
-                        title: 'Xendit Payment Successful',
-                        description: `Payment reference: ${generatedRef}. You may now submit your booking request.`,
-                        type: 'success',
-                      });
-                    }, 1200);
-                  }}
-                  className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2"
-                >
-                  {isProcessingXendit ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying Xendit Payment…</>
-                  ) : (
-                    <>Confirm & Pay ₱{total.toLocaleString()} ({paymentMethod.toUpperCase()})</>
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

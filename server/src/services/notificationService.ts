@@ -12,12 +12,63 @@ export interface BookingNotificationTarget {
   save?: () => Promise<unknown>;
 }
 
+interface EmailSendResult {
+  delivered: boolean;
+  provider: 'resend' | 'console';
+  error?: string;
+}
+
+function getResendApiKey() {
+  return (process.env.RESEND_API_KEY ?? '').trim();
+}
+
+function getEmailFrom() {
+  return (process.env.EMAIL_FROM ?? 'Madyaw Bookings <noreply@madyaw.com>').trim();
+}
+
+async function deliverEmail(to: string, subject: string, text: string): Promise<EmailSendResult> {
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
+    console.log(`\n======================================================`);
+    console.log(`[NOTIFICATION CONSOLE FALLBACK] To: ${to}`);
+    console.log(`Subject: ${subject}`);
+    console.log(`Message:\n${text}`);
+    console.log(`======================================================\n`);
+    return { delivered: false, provider: 'console', error: 'RESEND_API_KEY is not configured.' };
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: getEmailFrom(),
+      to: [to],
+      subject,
+      text,
+    }),
+  });
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    return {
+      delivered: false,
+      provider: 'resend',
+      error: `Resend failed (${response.status}): ${bodyText.slice(0, 300)}`,
+    };
+  }
+
+  return { delivered: true, provider: 'resend' };
+}
+
 /**
  * Sends a confirmation message to the guest when the reservation is confirmed.
- * Ensures single dispatch, records timestamp, and handles/records delivery failures.
+ * Uses Resend when RESEND_API_KEY is set; otherwise logs to console and records failure
+ * so the UI never claims an email was delivered without a real provider.
  */
-export async function sendBookingConfirmationNotification(booking: any): Promise<boolean> {
-  // Prevent duplicate confirmation messages if reservation is edited later or already sent
+export async function sendBookingConfirmationNotification(booking: BookingNotificationTarget): Promise<boolean> {
   if (booking.confirmationSendStatus === 'sent' || booking.confirmationSentAt) {
     console.log(`[Notification] Confirmation already sent for booking ${booking._id || booking.booking_reference}. Skipping duplicate send.`);
     return true;
@@ -25,24 +76,33 @@ export async function sendBookingConfirmationNotification(booking: any): Promise
 
   const propertyName = booking.propertyName || 'Our Hotel';
   const checkInDate = booking.checkInDate || 'your check-in date';
-  const guestContact = booking.guestEmail || booking.guest_phone || 'guest';
+  const guestContact = booking.guestEmail || booking.guest_phone || '';
 
   const subject = 'Reservation Confirmed';
   const messageBody = `Thank you for choosing ${propertyName}!\nYour reservation has been successfully confirmed. We look forward to welcoming you on ${checkInDate}. If you have any questions or need assistance before your stay, feel free to contact us. See you soon!`;
 
   try {
-    // Simulate notification failure if email/phone specifically tests failure
     if (String(booking.guestEmail).toLowerCase() === 'fail@notification.test' || String(booking.guest_phone) === 'FAIL') {
       throw new Error('Simulated delivery failure: Unable to reach guest contact method.');
     }
 
-    console.log(`\n======================================================`);
-    console.log(`[SENDING CONFIRMATION MESSAGE] To: ${guestContact}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Message:\n${messageBody}`);
-    console.log(`======================================================\n`);
+    if (!booking.guestEmail) {
+      throw new Error('Guest email is required to send confirmation.');
+    }
 
+    const result = await deliverEmail(booking.guestEmail, subject, messageBody);
     const sentTimestamp = new Date();
+
+    if (!result.delivered) {
+      booking.confirmationSendStatus = 'failed';
+      booking.confirmationSendError = result.error || 'Email provider unavailable.';
+      if (typeof booking.save === 'function') {
+        await booking.save();
+      }
+      console.warn(`[Notification] Not delivered via ${result.provider}: ${result.error}`);
+      return false;
+    }
+
     booking.confirmationSendStatus = 'sent';
     booking.confirmationSentAt = sentTimestamp;
     booking.confirmationSendError = '';
@@ -51,7 +111,7 @@ export async function sendBookingConfirmationNotification(booking: any): Promise
       await booking.save();
     }
 
-    console.log(`[Notification Success] Timestamp logged: ${sentTimestamp.toISOString()} for booking ${booking._id || booking.booking_reference}`);
+    console.log(`[Notification Success] Provider=${result.provider} To=${guestContact} At=${sentTimestamp.toISOString()}`);
     return true;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown delivery failure';

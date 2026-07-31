@@ -9,9 +9,24 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          target: 'ES2022',
+          module: 'CommonJS',
+          esModuleInterop: true,
+          resolveJsonModule: true,
+          strict: false,
+          skipLibCheck: true,
+          types: ['node', 'jest'],
+        },
+        diagnostics: {
+          ignoreCodes: [151002],
+        },
+      },
+    ],
   },
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts', '!src/__tests__/**'],
-  // Increase timeout for async operations in tests
   testTimeout: 30_000,
 };

@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { MapPin, ArrowRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
 import Hero from '../components/home/Hero';
-import AuthModal from '../components/auth/AuthModal';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
-
-type AuthModalLocationState = {
-  openAuthModal?: boolean;
-  authMode?: 'login' | 'register';
-  authEmail?: string;
-  authName?: string;
-};
 
 const DESTINATION_IMAGES: Record<string, string> = {
   'boracay': '/images/boracay.png',
@@ -95,28 +87,12 @@ function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
 }
 
 export default function HomePage() {
-  const location = useLocation();
   const navigate = useNavigate();
-
-  const locationState = location.state as AuthModalLocationState | null;
 
   const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [featuredPromo, setFeaturedPromo] = useState<FeaturedPromo | null>(null);
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>(locationState?.authMode ?? 'login');
-  const [authModalInitialEmail, setAuthModalInitialEmail] = useState(locationState?.authEmail ?? '');
-  const [authModalInitialName, setAuthModalInitialName] = useState(locationState?.authName ?? '');
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(Boolean(locationState?.openAuthModal));
   const [recentlyViewed, setRecentlyViewed] = useState<RecentlyViewedItem[]>([]);
-
-  useEffect(() => {
-    if (locationState?.openAuthModal) {
-      setIsAuthModalOpen(true);
-      setAuthModalMode(locationState.authMode ?? 'login');
-      setAuthModalInitialEmail(locationState.authEmail ?? '');
-      setAuthModalInitialName(locationState.authName ?? '');
-    }
-  }, [locationState]);
 
   useEffect(() => {
     searchHotels({ limit: 4 }).then(res => setHotels(res.data)).catch(() => setHotels([]));
@@ -272,17 +248,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => {
-          setIsAuthModalOpen(false);
-          navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-        }}
-        initialMode={authModalMode}
-        initialEmail={authModalInitialEmail}
-        initialName={authModalInitialName}
-      />
     </div>
   );
 }

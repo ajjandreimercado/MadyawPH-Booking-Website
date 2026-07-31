@@ -29,24 +29,26 @@ function PageLoader() {
   );
 }
 
+/**
+ * Guest booking website only.
+ * Hotel accept/cancel/email lives in the separate hotel management app (shared MongoDB).
+ */
 export default function App() {
   return (
     <Routes>
       <Route element={<RootLayout />}>
-        {/* Core pages */}
         <Route path="/" element={<HomePage />} />
-        <Route path="*" element={<NotFoundPage />} />
 
-        {/* Search & Discovery */}
         <Route path="/search" element={<Suspense fallback={<PageLoader />}><SearchResultsPage /></Suspense>} />
         <Route path="/destinations" element={<Suspense fallback={<PageLoader />}><DestinationsPage /></Suspense>} />
         <Route path="/experiences" element={<Suspense fallback={<PageLoader />}><ExperiencesPage /></Suspense>} />
         <Route path="/club" element={<Suspense fallback={<PageLoader />}><ClubPage /></Suspense>} />
 
-        {/* Property & Booking flow */}
         <Route path="/hotels/:hotelId" element={<Suspense fallback={<PageLoader />}><HotelDetailPage /></Suspense>} />
         <Route path="/booking/:propertyId" element={<Suspense fallback={<PageLoader />}><BookingPage /></Suspense>} />
         <Route path="/booking/confirm/:bookingId" element={<Suspense fallback={<PageLoader />}><BookingConfirmationPage /></Suspense>} />
+
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );

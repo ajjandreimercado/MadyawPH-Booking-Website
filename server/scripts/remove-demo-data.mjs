@@ -4,6 +4,18 @@ import path from 'node:path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
+/**
+ * DESTRUCTIVE demo cleanup. Refuses to run unless CONFIRM_DESTRUCTIVE_CLEANUP=YES.
+ * Do NOT run against shared production data used by the hotel management app.
+ */
+if (process.env.CONFIRM_DESTRUCTIVE_CLEANUP !== 'YES') {
+  console.error(
+    '[remove-demo-data] Aborted. This script deletes matching MongoDB documents.\n' +
+      'Set CONFIRM_DESTRUCTIVE_CLEANUP=YES only if you intentionally want that cleanup.',
+  );
+  process.exit(1);
+}
+
 const MONGODB_URI = process.env.MONGODB_URI;
 const DB_NAME = process.env.DB_NAME;
 

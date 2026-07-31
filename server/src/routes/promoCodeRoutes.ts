@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PromoCodeModel } from '../data/mongoModels';
 import { requireAuth } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
 import { validateString, validateEnum, validateId } from '../utils/validators';
 
 const promoCodeRoutes = Router();
@@ -81,12 +82,7 @@ promoCodeRoutes.get('/featured', async (_req, res) => {
 // ─── GET / ─────────────────────────────────────────────────────────────────────
 // Admin: list all promo codes
 
-promoCodeRoutes.get('/', requireAuth, async (req, res) => {
-  const user = (req as any).auth;
-  const allowedRoles = ['admin', 'super_admin'];
-  if (!user || !allowedRoles.includes(user.role)) {
-    return res.status(403).json({ message: 'Admin access required.' });
-  }
+promoCodeRoutes.get('/', requireAuth, requireRole('admin', 'super_admin'), async (_req, res) => {
   const codes = await PromoCodeModel.find().sort({ createdAt: -1 }).lean();
   return res.json(codes);
 });
@@ -94,13 +90,7 @@ promoCodeRoutes.get('/', requireAuth, async (req, res) => {
 // ─── POST / ────────────────────────────────────────────────────────────────────
 // Admin: create a new promo code
 
-promoCodeRoutes.post('/', requireAuth, async (req, res) => {
-  const user = (req as any).auth;
-  const allowedRoles = ['admin', 'super_admin'];
-  if (!user || !allowedRoles.includes(user.role)) {
-    return res.status(403).json({ message: 'Admin access required.' });
-  }
-
+promoCodeRoutes.post('/', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
   const { code, discount_type, discount_value, min_booking_amount, max_uses, expires_at, description } = req.body;
 
   if (!code || !discount_type || discount_value === undefined) {
@@ -132,13 +122,7 @@ promoCodeRoutes.post('/', requireAuth, async (req, res) => {
 
 // ─── DELETE /:id ───────────────────────────────────────────────────────────────
 
-promoCodeRoutes.delete('/:id', requireAuth, async (req, res) => {
-  const user = (req as any).auth;
-  const allowedRoles = ['admin', 'super_admin'];
-  if (!user || !allowedRoles.includes(user.role)) {
-    return res.status(403).json({ message: 'Admin access required.' });
-  }
-
+promoCodeRoutes.delete('/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
   // OWASP A03: validate ID param length before DB operation
   const idResult = validateId(req.params.id, 'Promo code ID');
   if (!idResult.ok) return res.status(400).json({ message: idResult.message });

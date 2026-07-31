@@ -426,12 +426,19 @@ export async function cancelBooking(bookingId: string): Promise<BookingRequest> 
   return normalizeBookingResponse(response.data);
 }
 
-export async function fetchBookingById(bookingId: string, guestEmail?: string): Promise<BookingRequest> {
+export async function fetchBookingById(
+  bookingId: string,
+  guestEmail?: string,
+  receiptToken?: string,
+): Promise<BookingRequest> {
   const params: Record<string, string> = {};
   // If the caller is not logged in (guest checkout), pass their email so the server can
   // verify ownership without a session cookie (matches the optionalAuth + email-param check).
   if (guestEmail) {
     params.email = guestEmail;
+  }
+  if (receiptToken) {
+    params.token = receiptToken;
   }
   const response = await api.get<BookingRequest>(`/bookings/${encodeURIComponent(bookingId)}/receipt`, { params });
   return normalizeBookingResponse(response.data);
@@ -479,4 +486,54 @@ export async function fetchFeaturedPromo(): Promise<FeaturedPromo | null> {
     console.error('Error fetching featured promo:', error);
     return null;
   }
-}
+}
+
+export interface AdminPromoCode {
+  _id?: string;
+  code: string;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: number;
+  min_booking_amount?: number;
+  max_uses?: number;
+  uses_count?: number;
+  expires_at?: string;
+  is_active?: boolean;
+  description?: string;
+}
+
+export async function fetchAdminPromoCodes(): Promise<AdminPromoCode[]> {
+  const response = await api.get<AdminPromoCode[]>('/promo-codes');
+  return response.data;
+}
+
+export async function createAdminPromoCode(payload: {
+  code: string;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: number;
+  min_booking_amount?: number;
+  max_uses?: number;
+  expires_at?: string;
+  description?: string;
+}): Promise<AdminPromoCode> {
+  const response = await api.post<AdminPromoCode>('/promo-codes', payload);
+  return response.data;
+}
+
+export async function deleteAdminPromoCode(id: string): Promise<void> {
+  await api.delete(`/promo-codes/${encodeURIComponent(id)}`);
+}
+
+export interface PaymentCheckoutResult {
+  enabled: boolean;
+  mode: 'live' | 'unavailable';
+  checkoutUrl?: string;
+  message: string;
+}
+
+export async function createPaymentCheckout(bookingId: string, receiptToken?: string): Promise<PaymentCheckoutResult> {
+  const response = await api.post<PaymentCheckoutResult>(
+    `/bookings/${encodeURIComponent(bookingId)}/payment-checkout`,
+    receiptToken ? { token: receiptToken } : {},
+  );
+  return response.data;
+}

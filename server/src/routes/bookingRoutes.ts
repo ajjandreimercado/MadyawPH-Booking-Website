@@ -1,10 +1,16 @@
 import { Router, type Request } from 'express';
+import mongoose from 'mongoose';
 import { BookingModel, PropertyModel, UserModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter } from '../middleware/rateLimiters';
+import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
 import { sendBookingConfirmationNotification } from '../services/notificationService';
+import { createPaymentCheckout } from '../services/paymentService';
+import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
+import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
+import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
   pickFields,
@@ -34,9 +40,6 @@ const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'vill
 const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'bank-transfer'] as const;
 const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending'] as const;
 
-type RoomType = typeof ROOM_TYPE_VALUES[number];
-type PaymentMethod = typeof PAYMENT_METHOD_VALUES[number];
-
 const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ['confirmed'],
   requested: ['confirmed', 'accepted'],
@@ -44,8 +47,19 @@ const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> 
   paid: ['confirmed'],
 };
 
-function isPrivilegedRole(role: UserRole) {
-  return role === 'admin' || role === 'staff' || role === 'super_admin';
+/** Canonical discount reasons accepted by pricing. Aliases keep older clients working. */
+function normalizeDiscountReason(discountReason: string | undefined): 'pwd' | 'senior citizen' | undefined {
+  const normalized = discountReason?.trim().toLowerCase() ?? '';
+  if (!normalized || normalized === 'none') return undefined;
+  if (normalized === 'pwd' || normalized.includes('pwd')) return 'pwd';
+  if (
+    normalized === 'senior citizen'
+    || normalized === 'senior'
+    || normalized.includes('senior')
+  ) {
+    return 'senior citizen';
+  }
+  return undefined;
 }
 
 function resolveServerDiscount(
@@ -53,10 +67,9 @@ function resolveServerDiscount(
   pricingTotal: number,
   clientDiscountAmount?: number,
 ): number {
-  const normalizedReason = discountReason?.trim().toLowerCase();
-  const allowedReasons = new Set(['pwd', 'senior citizen']);
+  const canonicalReason = normalizeDiscountReason(discountReason);
 
-  if (!normalizedReason || !allowedReasons.has(normalizedReason)) {
+  if (!canonicalReason) {
     return 0;
   }
 
@@ -70,17 +83,30 @@ function resolveServerDiscount(
   return Math.min(serverDiscount, Math.round(requested));
 }
 
+/** Map legacy / display aliases onto the payment-method allowlist. */
+function normalizePaymentMethod(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'paymaya' || normalized === 'pay maya') return 'maya';
+  if (normalized === 'credit card' || normalized === 'creditcard') return 'credit-card';
+  if (normalized === 'debit card' || normalized === 'debitcard') return 'debit-card';
+  if (normalized === 'bank transfer' || normalized === 'banktransfer') return 'bank-transfer';
+  return normalized;
+}
+
 async function hasBookingOverlap(
   propertyId: string,
   checkInDate: string,
   checkOutDate: string,
   excludeBookingId?: string,
+  session?: mongoose.ClientSession | null,
 ) {
   console.log(`[MongoDB Query] Collection: bookings, Query: ${JSON.stringify({ propertyId, status: { $in: ACTIVE_BOOKING_STATUSES } })}`);
-  const bookings = await BookingModel.find({
+  const query = BookingModel.find({
     propertyId,
     status: { $in: ACTIVE_BOOKING_STATUSES },
-  }).lean();
+  });
+  if (session) query.session(session);
+  const bookings = await query.lean();
   console.log(`[MongoDB Results] Collection: bookings, Retrieved: ${bookings.length} documents`);
 
   const requestedStart = new Date(checkInDate);
@@ -99,6 +125,16 @@ async function hasBookingOverlap(
     const existingEnd = new Date(booking.checkOutDate);
     return requestedStart < existingEnd && requestedEnd > existingStart;
   });
+}
+
+function isTransactionUnsupported(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('transaction numbers are only allowed')
+    || message.includes('transactions are not supported')
+    || message.includes('replica set')
+    || message.includes('illegaloperation')
+  );
 }
 
 async function getRequestUser(req: Request) {
@@ -255,11 +291,17 @@ bookingRoutes.post('/', async (req, res) => {
     return res.status(400).json({ message: 'Check-out must be after check-in.' });
   }
 
-  // Accept any string for room type and payment method for now
+  // Accept any string for room type (property room labels vary); normalize payment methods.
   const roomTypeResult = validateString(body.roomType, 'Room type', 1, 100);
   if (!roomTypeResult.ok) return res.status(400).json({ message: roomTypeResult.message });
 
-  const paymentMethodResult = validateString(body.paymentMethod, 'Payment method', 1, 100);
+  const rawPaymentMethod = validateString(body.paymentMethod, 'Payment method', 1, 100);
+  if (!rawPaymentMethod.ok) return res.status(400).json({ message: rawPaymentMethod.message });
+  const paymentMethodResult = validateEnum(
+    normalizePaymentMethod(rawPaymentMethod.value),
+    'Payment method',
+    PAYMENT_METHOD_VALUES,
+  );
   if (!paymentMethodResult.ok) return res.status(400).json({ message: paymentMethodResult.message });
 
   // ── Guest field validation ────────────────────────────────────────────────
@@ -342,27 +384,47 @@ bookingRoutes.post('/', async (req, res) => {
   }
 
   const createdAt = new Date();
-  const resolvedDiscount = resolveServerDiscount(
-    discountReasonResult.value ?? undefined,
+  const canonicalDiscountReason = normalizeDiscountReason(discountReasonResult.value ?? undefined);
+  const eligibilityDiscount = resolveServerDiscount(
+    canonicalDiscountReason,
     pricing.totalPrice,
     discountAmountResult.value,
   );
+
+  let promoDiscount = 0;
+  let promoCode = '';
+  try {
+    const promo = await resolvePromoDiscount(promoCodeResult.value ?? undefined, pricing.totalPrice);
+    promoDiscount = promo.discountAmount;
+    promoCode = promo.code;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid promo code.';
+    return res.status(400).json({ message });
+  }
+
+  // Apply the larger of PWD/senior vs promo (do not stack arbitrarily beyond the subtotal).
+  const resolvedDiscount = Math.min(pricing.totalPrice, Math.max(eligibilityDiscount, promoDiscount));
+  const finalDiscountReason = promoDiscount >= eligibilityDiscount && promoCode
+    ? `promo:${promoCode}`
+    : (canonicalDiscountReason ?? '');
   const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
 
-  console.log(`[MongoDB Action] Collection: bookings, Action: create, Guest: ${guestEmailResult.value}`);
-  const booking = await BookingModel.create({
+  // Shared MongoDB with the hotel management app:
+  // - This website only INSERTS a pending request (never deletes hotel/ops data).
+  // - Room inventory / accept-decline / guest email are owned by the hotel app.
+  const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
-    hotel_id: property.hotel_id,
+    hotel_id: String(property.hotel_id ?? ''),
     room_id: property._id,
     propertyId: propertyIdResult.value,
     propertyName: propertyNameResult.value ?? property.display_name,
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
     guest_phone: guestPhoneResult.value,
-    discount_reason: discountReasonResult.value ?? undefined,
+    discount_reason: finalDiscountReason,
     discount_amount: resolvedDiscount,
-    special_requests: specialRequestsResult?.value ?? '',
-    promo_code: promoCodeResult?.value ?? '',
+    special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
+    promo_code: promoCode,
     checkInDate: checkInResult.value,
     checkOutDate: checkOutResult.value,
     adults: adultsResult.value,
@@ -379,27 +441,97 @@ bookingRoutes.post('/', async (req, res) => {
     totalPrice: finalTotalPrice,
     total_amount: finalTotalPrice,
     amountPaid: 0,
-    status: 'pending', // Submitted with Pending status
+    payment_status: 'pending',
+    status: 'pending',
     requestedAt: createdAt.toISOString(),
-    expiresAt: new Date(createdAt.getTime() + 90_000).toISOString(),
-  });
+    confirmationSendStatus: 'none' as const,
+    confirmationSentAt: null as null,
+    confirmationSendError: '',
+  };
+
+  const propertyIdValue = propertyIdResult.value;
+  const checkInValue = checkInResult.value;
+  const checkOutValue = checkOutResult.value;
+
+  async function persistBooking(session: mongoose.ClientSession | null) {
+    if (session) {
+      if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, session)) {
+        const conflict = new Error('The requested dates are not available.');
+        (conflict as Error & { status: number }).status = 409;
+        throw conflict;
+      }
+      const created = await BookingModel.create([bookingDoc], { session });
+      const booking = created?.[0];
+      if (!booking) {
+        throw new Error('Unable to create booking.');
+      }
+      if (promoCode) {
+        await incrementPromoUse(promoCode, session);
+      }
+      return booking;
+    }
+
+    if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue)) {
+      const conflict = new Error('The requested dates are not available.');
+      (conflict as Error & { status: number }).status = 409;
+      throw conflict;
+    }
+    const booking = await BookingModel.create(bookingDoc);
+    if (promoCode) {
+      await incrementPromoUse(promoCode);
+    }
+    return booking;
+  }
+
+  let booking;
+  let session: mongoose.ClientSession | null = null;
+  try {
+    try {
+      session = await mongoose.startSession();
+    } catch (startError) {
+      console.warn('[Bookings] Unable to start Mongo session; using non-transactional create.', startError);
+      session = null;
+    }
+
+    if (session) {
+      try {
+        session.startTransaction();
+        booking = await persistBooking(session);
+        await session.commitTransaction();
+      } catch (txError) {
+        try {
+          await session.abortTransaction();
+        } catch {
+          // ignore abort failures
+        }
+
+        if (isTransactionUnsupported(txError)) {
+          console.warn('[Bookings] Transactions unsupported; falling back to non-transactional create.');
+          booking = await persistBooking(null);
+        } else {
+          throw txError;
+        }
+      }
+    } else {
+      booking = await persistBooking(null);
+    }
+  } catch (error) {
+    const status = (error as { status?: number }).status ?? 400;
+    const message = error instanceof Error ? error.message : 'Unable to create booking.';
+    return res.status(status).json({ message });
+  } finally {
+    if (session) {
+      session.endSession();
+    }
+  }
+
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
-  // Reflect the booking on the property (room) so it updates in the app immediately
-  await PropertyModel.updateOne(
-    { _id: property._id },
-    {
-      $set: {
-        status: 'booked',
-        current_guest_name: guestNameResult.value,
-        current_check_in: new Date(checkInResult.value),
-        current_check_out: new Date(checkOutResult.value),
-      },
-    }
-  );
-  console.log(`[MongoDB Action] Collection: rooms, Action: updateOne, Success: true, ID: ${property._id}`);
-
-  return res.status(201).json(serializeBooking(booking as never));
+  const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
+  return res.status(201).json({
+    ...serializeBooking(booking as never),
+    receiptToken,
+  });
 });
 
 // ─── POST /:bookingId/review-availability ─────────────────────────────────────
@@ -581,10 +713,66 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
   return res.json(serializeBooking(booking.toObject() as never));
 });
 
+// ─── POST /:bookingId/payment-checkout ────────────────────────────────────────
+// Creates a real Xendit invoice when XENDIT_SECRET_KEY is configured.
+// Otherwise returns a clear "unavailable" payload so the UI never fakes payment.
+
+bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res) => {
+  const bookingIdResult = validateId(req.params.bookingId, 'Booking ID');
+  if (!bookingIdResult.ok) return res.status(400).json({ message: bookingIdResult.message });
+
+  const booking = await BookingModel.findById(bookingIdResult.value);
+  if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+
+  const bookingEmail = String(booking.guestEmail ?? '').toLowerCase();
+  const isStaff = Boolean(req.auth && isPrivilegedRole(req.auth.role));
+  const isOwner = Boolean(req.auth && req.auth.email.toLowerCase() === bookingEmail);
+
+  let tokenOk = false;
+  const rawToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  if (rawToken) {
+    try {
+      const payload = verifyReceiptToken(rawToken);
+      tokenOk = payload.bookingId === bookingIdResult.value && payload.email === bookingEmail;
+    } catch {
+      tokenOk = false;
+    }
+  }
+
+  if (!isStaff && !isOwner && !tokenOk) {
+    return res.status(403).json({ message: 'Access denied. Sign in or provide a valid receipt token to start payment.' });
+  }
+
+  if (['declined', 'cancelled'].includes(String(booking.status))) {
+    return res.status(409).json({ message: 'Cannot collect payment for a cancelled booking.' });
+  }
+
+  const frontendOrigin = CLIENT_ORIGINS[0] ?? 'http://localhost:3000';
+  const successRedirectUrl = `${frontendOrigin}/booking/confirm/${bookingIdResult.value}?email=${encodeURIComponent(bookingEmail)}&paid=1`;
+  const failureRedirectUrl = `${frontendOrigin}/booking/confirm/${bookingIdResult.value}?email=${encodeURIComponent(bookingEmail)}&paid=0`;
+
+  try {
+    const checkout = await createPaymentCheckout({
+      bookingId: bookingIdResult.value,
+      bookingReference: String(booking.booking_reference ?? ''),
+      amount: Number(booking.totalPrice ?? booking.total_amount ?? 0),
+      guestEmail: bookingEmail,
+      guestName: String(booking.guestName ?? 'Guest'),
+      description: `Madyaw booking ${booking.booking_reference ?? bookingIdResult.value}`,
+      successRedirectUrl,
+      failureRedirectUrl,
+    });
+
+    return res.json(checkout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to create payment checkout.';
+    return res.status(502).json({ message });
+  }
+});
+
 // ─── GET /:bookingId/receipt ───────────────────────────────────────────────────
 // optionalAuth: logged-in users get ownership check; guest-checkout users provide
-// their email as a query param to verify ownership without a session cookie.
-// This prevents anonymous IDOR lookups while still supporting guest checkout receipts.
+// a signed receipt token (preferred) or their email (legacy compatibility).
 
 bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   const bookingIdResult = validateId(req.params.bookingId, 'Booking ID');
@@ -593,9 +781,8 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   const booking = await BookingModel.findById(bookingIdResult.value).lean();
   if (!booking) return res.status(404).json({ message: 'Booking not found.' });
 
-  // ── Ownership check ───────────────────────────────────────────────────────
   // Privileged staff: always allowed.
-  if (req.auth && isPrivilegedRole(req.auth.role as UserRole)) {
+  if (req.auth && isPrivilegedRole(req.auth.role)) {
     return res.json(serializeBooking(booking as never));
   }
 
@@ -609,11 +796,25 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
     return res.json(serializeBooking(booking as never));
   }
 
-  // Unauthenticated guest-checkout: must supply matching email via ?email= query param.
-  // This is the guest's own PII — they are proving they made the booking without a session.
+  // Preferred guest-checkout proof: signed receipt token issued at create time.
+  const rawToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  if (rawToken) {
+    try {
+      const payload = verifyReceiptToken(rawToken);
+      const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';
+      if (payload.bookingId !== bookingIdResult.value || payload.email !== bookingEmail) {
+        return res.status(403).json({ message: 'Access denied. Invalid receipt token for this booking.' });
+      }
+      return res.json(serializeBooking(booking as never));
+    } catch {
+      return res.status(401).json({ message: 'Invalid or expired receipt token.' });
+    }
+  }
+
+  // Legacy guest-checkout: matching email query param (kept so existing confirmation links work).
   const rawEmail = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
   if (!rawEmail) {
-    return res.status(401).json({ message: 'Authentication required. Please sign in or supply your booking email to view this receipt.' });
+    return res.status(401).json({ message: 'Authentication required. Please sign in or supply a receipt token to view this receipt.' });
   }
 
   const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';

@@ -4,6 +4,7 @@ import { Loader2, Calendar, MapPin, Download, XCircle, Star, ExternalLink, Clock
 import { useBookings } from '../contexts/BookingsContext';
 import { cancelBooking, updateBookingRequest, retryBookingConfirmation } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
 import type { BookingRequest } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
 
@@ -27,11 +28,13 @@ function BookingCard({
   onCancel,
   onApprove,
   onRetryNotification,
+  canManageReservations,
 }: {
   booking: BookingRequest;
   onCancel: (id: string) => void;
   onApprove: (id: string) => void;
   onRetryNotification: (id: string) => void;
+  canManageReservations: boolean;
 }) {
   const navigate = useNavigate();
   const [isDownloading, setIsDownloading] = useState(false);
@@ -98,7 +101,7 @@ function BookingCard({
                 ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> PDF…</>
                 : <><Download className="w-3.5 h-3.5" /> Receipt</>}
             </button>
-            {isPending && (
+            {canManageReservations && isPending && (
               <button type="button" onClick={() => onApprove(booking.id)}
                 className="px-3 py-2 bg-brand-success text-white text-xs font-bold rounded-xl hover:bg-brand-success/90 transition-colors flex items-center gap-1.5 shadow-sm">
                 <CheckCircle className="w-3.5 h-3.5" /> Approve & Confirm
@@ -116,15 +119,15 @@ function BookingCard({
                 <Star className="w-3.5 h-3.5" /> Leave Review
               </button>
             )}
-            <button type="button" onClick={() => navigate(`/booking/confirm/${booking.id}`)}
+            <button type="button" onClick={() => navigate(`/booking/confirm/${booking.id}?email=${encodeURIComponent(booking.guestEmail)}`)}
               className="btn-outline text-xs flex items-center gap-1.5 py-2 px-3">
               <ExternalLink className="w-3.5 h-3.5" /> View Details
             </button>
           </div>
 
-          {booking.confirmationSendStatus === 'failed' && (
+          {canManageReservations && booking.confirmationSendStatus === 'failed' && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-red-700">
-              <span>⚠️ Confirmation notification delivery failed: {booking.confirmationSendError || 'Delivery error'}</span>
+              <span>Confirmation notification delivery failed: {booking.confirmationSendError || 'Delivery error'}</span>
               <button type="button" onClick={() => onRetryNotification(booking.id)}
                 className="inline-flex items-center gap-1 font-bold underline text-red-800 hover:text-red-950 shrink-0">
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Send Confirmation
@@ -132,9 +135,9 @@ function BookingCard({
             </div>
           )}
 
-          {booking.confirmationSendStatus === 'sent' && (
+          {canManageReservations && booking.confirmationSendStatus === 'sent' && (
             <div className="mt-3 text-[11px] text-emerald-700 font-bold flex items-center gap-1">
-              ✓ Confirmation notification sent to guest ({booking.confirmationSentAt ? new Date(booking.confirmationSentAt).toLocaleString() : 'Done'})
+              Confirmation notification marked sent ({booking.confirmationSentAt ? new Date(booking.confirmationSentAt).toLocaleString() : 'Done'})
             </div>
           )}
         </div>
@@ -145,9 +148,11 @@ function BookingCard({
 
 export default function MyBookingsPage() {
   const { bookings, isLoading, error, refetch } = useBookings();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<BookingTab>('pending');
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const canManageReservations = user?.role === 'admin' || user?.role === 'staff' || user?.role === 'super_admin';
 
   // Always fetch fresh bookings from the server when this page is visited
   useEffect(() => {
@@ -281,7 +286,13 @@ export default function MyBookingsPage() {
         <div className="space-y-4">
           {filtered.map(booking => (
             <div key={booking.id} className={processingId === booking.id ? 'opacity-50 pointer-events-none' : ''}>
-              <BookingCard booking={booking} onCancel={handleCancel} onApprove={handleApprove} onRetryNotification={handleRetryNotification} />
+              <BookingCard
+                booking={booking}
+                onCancel={handleCancel}
+                onApprove={handleApprove}
+                onRetryNotification={handleRetryNotification}
+                canManageReservations={canManageReservations}
+              />
             </div>
           ))}
         </div>

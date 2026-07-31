@@ -92,6 +92,10 @@ jest.mock('../data/mongoModels', () => ({
     countDocuments: jest.fn().mockResolvedValue(0),
     create: jest.fn(),
   },
+  PromoCodeModel: {
+    findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null), session: jest.fn().mockReturnThis() }),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+  },
 }));
 
 import { BookingModel, UserModel, PropertyModel } from '../data/mongoModels';

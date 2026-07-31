@@ -26,6 +26,19 @@ import {
   PersonalAccessTokenModel,
 } from '../src/data/mongoModels';
 
+/**
+ * DESTRUCTIVE: clears collections before importing local JSON.
+ * Refuses to run unless CONFIRM_DESTRUCTIVE_MIGRATE=YES is set.
+ * Do NOT run against the shared production MongoDB used by the hotel app.
+ */
+if (process.env.CONFIRM_DESTRUCTIVE_MIGRATE !== 'YES') {
+  console.error(
+    '[migrateToMongoDB] Aborted. This script deletes existing MongoDB collections.\n' +
+      'Set CONFIRM_DESTRUCTIVE_MIGRATE=YES only if you intentionally want a wipe+reimport.',
+  );
+  process.exit(1);
+}
+
 interface LocalData {
   hotels?: unknown[];
   roomCategories?: unknown[];
