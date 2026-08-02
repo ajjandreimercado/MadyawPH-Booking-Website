@@ -72,6 +72,7 @@ jest.mock('../data/mongoModels', () => ({
     countDocuments: jest.fn().mockResolvedValue(0),
     findById: jest.fn(),
     create: jest.fn(),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
   },
   PropertyModel: {
     findById: jest.fn(),
@@ -229,10 +230,14 @@ describe('POST /api/bookings', () => {
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('partial');
       expect(created.amountPaid).toBeGreaterThan(0);
+      expect(created.amountPaid).toBeLessThan(created.totalPrice);
       expect(created.amount_paid).toBe(created.amountPaid);
       expect(created.deposit_amount).toBe(created.amountPaid);
       expect(created.balance_due).toBe(created.totalPrice - created.amountPaid);
       expect(created.amountPaid + created.balance_due).toBe(created.totalPrice);
+      expect(created.serviceFee).toBe(0);
+      expect(created.payment_status).not.toBe('paid');
+      expect(created.payment_status).not.toBe('pending');
 
       const { ExternalReservationModel, BillingChargeModel } = jest.requireMock('../data/mongoModels') as {
         ExternalReservationModel: { create: jest.Mock };

@@ -43,14 +43,16 @@ export function calculateBookingPricing(input: BookingPricingInput): BookingPric
   const roomRate = Math.round(input.propertyPrice * (ROOM_TYPE_MULTIPLIERS[input.roomType] ?? 1));
   const roomSubtotal = roomRate * nights;
   const guestSupplement = Math.round(roomSubtotal * ((Math.max(0, input.adults - 2) * 0.035) + (input.children * 0.015)));
-  const serviceFee = Math.max(40, Math.round(roomSubtotal * 0.12));
+  // No website service fee — stay total is room (+ guest supplement) only.
+  const serviceFee = 0;
+  const roomTotal = roomSubtotal + guestSupplement;
 
   return {
     nights,
     guestCount,
     roomRate,
-    roomTotal: roomSubtotal + guestSupplement,
+    roomTotal,
     serviceFee,
-    totalPrice: roomSubtotal + guestSupplement + serviceFee,
+    totalPrice: roomTotal,
   };
 }

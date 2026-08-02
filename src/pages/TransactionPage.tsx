@@ -953,7 +953,7 @@ export default function TransactionPage() {
                     <p className="text-xl font-serif font-bold text-brand-primary">
                       ₱{requestDraft.totalPrice.toLocaleString()}
                     </p>
-                    <p className="text-xs font-bold text-brand-dark/60 mt-1">Room rate, guests &amp; service fee included</p>
+                    <p className="text-xs font-bold text-brand-dark/60 mt-1">Based on room rate for your stay</p>
                   </div>
                 </div>
               </section>
@@ -1132,7 +1132,7 @@ export default function TransactionPage() {
                 <div className="mt-6 rounded-2xl bg-brand-background/80 border border-brand-primary/10 p-4">
                   <p className="text-[10px] uppercase tracking-widest font-bold text-brand-dark/50 mb-1">Estimated</p>
                   <p className="text-3xl font-serif font-bold text-brand-primary">₱{activeDetails.totalPrice.toLocaleString()}</p>
-                  <p className="text-xs font-bold text-brand-dark/60 mt-2 leading-relaxed">This estimate includes the selected room tier and service fee.</p>
+                  <p className="text-xs font-bold text-brand-dark/60 mt-2 leading-relaxed">This estimate is based on the selected room rate for your stay.</p>
                 </div>
               </section>
 
@@ -1142,7 +1142,6 @@ export default function TransactionPage() {
 
                 <div className="space-y-3 text-sm font-bold text-brand-dark/80">
                   <SummaryRow label="Room subtotal" value={`₱${activeDetails.roomRate.toLocaleString()} / night`} />
-                  <SummaryRow label="Service fee" value={`₱${activeDetails.serviceFee.toLocaleString()}`} />
                   {activeDetails.discountAmount > 0 && (
                     <SummaryRow label="Discount" value={`-₱${activeDetails.discountAmount.toLocaleString()}`} />
                   )}

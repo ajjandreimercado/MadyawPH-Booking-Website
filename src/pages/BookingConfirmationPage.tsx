@@ -148,10 +148,6 @@ export default function BookingConfirmationPage() {
               <span className="text-brand-dark/60">Room rate ({booking.nights} nights)</span>
               <span>₱{(booking.roomRate ?? 0).toLocaleString()}</span>
             </div>
-            <div className="flex justify-between text-sm font-bold">
-              <span className="text-brand-dark/60">Service fee</span>
-              <span>₱{(booking.serviceFee ?? 0).toLocaleString()}</span>
-            </div>
             {(booking.discountAmount ?? 0) > 0 && (
               <div className="flex justify-between text-sm font-bold text-brand-success">
                 <span>Discount</span>
@@ -163,13 +159,13 @@ export default function BookingConfirmationPage() {
               <span className="text-brand-dark">₱{(booking.totalPrice ?? 0).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm font-bold pt-1">
-              <span className="text-brand-primary">Half payment (paid / due now)</span>
+              <span className="text-brand-primary">Partial payment (50% recorded)</span>
               <span className="text-brand-primary">
                 ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between text-sm font-bold">
-              <span className="text-brand-dark/60">Balance at check-in</span>
+              <span className="text-brand-dark/60">Balance at hotel check-out</span>
               <span>
                 ₱{(
                   booking.balanceDue
@@ -178,7 +174,7 @@ export default function BookingConfirmationPage() {
               </span>
             </div>
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
-              A 50% partial payment is recorded for the hotel. Pay the remaining balance at check-in.
+              Only the 50% deposit is recorded as paid. The remaining balance is collected when you check out at the hotel — not as a full website payment.
             </p>
           </div>
         </motion.div>

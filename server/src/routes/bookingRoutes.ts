@@ -433,6 +433,11 @@ bookingRoutes.post('/', async (req, res) => {
   });
 
   const { halfPayment, balanceDue } = computeHalfPayment(finalTotalPrice);
+  // Hotel app statuses are unpaid | partial | paid (not "pending").
+  // Website collects 50% now; remaining balance is paid at hotel check-out.
+  if (finalTotalPrice > 0 && halfPayment >= finalTotalPrice) {
+    console.error('[Bookings] Half payment must be less than stay total', { finalTotalPrice, halfPayment });
+  }
 
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
@@ -459,10 +464,10 @@ bookingRoutes.post('/', async (req, res) => {
     nights: pricing.nights,
     guestCount: pricing.guestCount,
     roomRate: pricing.roomRate,
-    serviceFee: pricing.serviceFee,
+    serviceFee: 0,
     totalPrice: finalTotalPrice,
     total_amount: finalTotalPrice,
-    // Website bookings require 50% deposit first; hotel app reads payment_status=partial.
+    // Half deposit only — never mark as fully paid on website create.
     amountPaid: halfPayment,
     amount_paid: halfPayment,
     deposit_amount: halfPayment,
@@ -595,15 +600,34 @@ bookingRoutes.post('/', async (req, res) => {
           channel: 'website',
           payment_method: paymentMethod,
           payment_reference: '',
-          note: 'Website half payment deposit',
+          note: 'Website half payment deposit — balance due at hotel check-out',
           recorded_by: 'website',
           booking_reference: booking.booking_reference,
           deposit_percent: 50,
+          amount_paid: halfPayment,
+          balance_due: balanceDue,
+          stay_total: finalTotalPrice,
         }),
         created_at: now,
         updated_at: now,
       },
     ]);
+    // Guard: never leave a website booking looking fully paid.
+    await BookingModel.updateOne(
+      { _id: booking._id },
+      {
+        $set: {
+          payment_status: 'partial',
+          amountPaid: halfPayment,
+          amount_paid: halfPayment,
+          deposit_amount: halfPayment,
+          balance_due: balanceDue,
+          total_amount: finalTotalPrice,
+          totalPrice: finalTotalPrice,
+          serviceFee: 0,
+        },
+      },
+    );
     console.log(`[MongoDB Action] Collection: billing_charges, Action: create half-payment ledger, Booking: ${bookingId}`);
   } catch (billingError) {
     console.error('[Bookings] Failed to create billing_charges for half payment:', billingError);

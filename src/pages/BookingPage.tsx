@@ -107,11 +107,10 @@ export default function BookingPage() {
   // ── Computed Values ──────────────────────────────────────────────────────────
   const nights = Math.max(1, differenceInDays(new Date(checkOut), new Date(checkIn)));
   const roomRate = (property?.price ?? 0) * nights;
-  const serviceFee = Math.round(roomRate * 0.12);
   const discountPct = discountType === 'pwd' || discountType === 'senior citizen' ? 0.20 : 0;
-  const discountAmt = Math.round((roomRate + serviceFee) * discountPct);
-  const total = Math.max(0, roomRate + serviceFee - discountAmt);
-  // 50% deposit now; remainder due at check-in (matches hotel app partial payment).
+  const discountAmt = Math.round(roomRate * discountPct);
+  const total = Math.max(0, roomRate - discountAmt);
+  // 50% deposit now; remainder paid at hotel check-out.
   const halfPayment = Math.floor(total / 2);
   const balanceDue = Math.max(0, total - halfPayment);
 
@@ -540,7 +539,7 @@ export default function BookingPage() {
                 <Smartphone className="w-4 h-4" /> Half Payment First
               </h2>
               <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                Reserve with a 50% deposit based on your selected room total. The remaining balance is due at check-in.
+                Reserve with a 50% deposit based on your selected room total. The remaining balance is paid at hotel check-out.
               </p>
               <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
@@ -548,7 +547,7 @@ export default function BookingPage() {
                   <p className="font-serif font-bold text-xl text-brand-primary">₱{halfPayment.toLocaleString()}</p>
                 </div>
                 <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-in</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
                   <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
                 </div>
                 <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
@@ -582,7 +581,7 @@ export default function BookingPage() {
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
                   Submitting this request records a 50% partial payment (₱{halfPayment.toLocaleString()}) for the hotel.
-                  The remaining ₱{balanceDue.toLocaleString()} is collected at check-in. Your preferred method is saved with the reservation.
+                  The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out — not as a full payment on this website.
                 </p>
               </div>
             </section>
@@ -664,10 +663,6 @@ export default function BookingPage() {
                 <span className="text-brand-dark/60">Room rate ({nights} nights)</span>
                 <span className="text-brand-dark">₱{roomRate.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Service fee</span>
-                <span className="text-brand-dark">₱{serviceFee.toLocaleString()}</span>
-              </div>
               {discountAmt > 0 && (
                 <div className="flex justify-between text-sm font-bold text-brand-success">
                   <span>
@@ -677,22 +672,22 @@ export default function BookingPage() {
                 </div>
               )}
               <div className="flex justify-between font-serif font-bold text-lg border-t border-brand-primary/8 pt-3">
-                <span className="text-brand-dark">Total</span>
+                <span className="text-brand-dark">Stay total</span>
                 <span className="text-brand-dark">₱{total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">Due now (50%)</span>
+                <span className="text-brand-primary">Due now (50% partial)</span>
                 <span className="text-brand-primary">₱{halfPayment.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Balance at check-in</span>
+                <span className="text-brand-dark/60">Balance at hotel check-out</span>
                 <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
               </div>
             </div>
 
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
-              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}Half payment recorded for the hotel
+              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}Half payment only — balance at check-out
             </p>
           </aside>
 

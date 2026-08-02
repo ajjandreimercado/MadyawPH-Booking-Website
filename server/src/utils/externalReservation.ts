@@ -38,6 +38,7 @@ export function buildExternalReservationDoc(input: {
     balance_due: input.balanceDue ?? input.totalAmount,
     payment_status: 'partial',
     deposit_percent: 50,
+    note: 'Website half deposit — remaining balance due at hotel check-out',
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,

@@ -138,20 +138,21 @@ export function serializeBooking(booking: AnyDocument) {
     guestCount: booking.guestCount,
     roomRate: booking.roomRate,
     serviceFee: booking.serviceFee,
-    totalAmount: booking.total_amount ?? booking.totalPrice,
+    totalAmount: Number(booking.total_amount ?? booking.totalPrice ?? 0),
     discountAmount: booking.discount_amount,
     discountReason: booking.discount_reason,
     status: booking.status,
     requestedAt: booking.requestedAt,
     expiresAt: booking.expiresAt,
-    totalPrice: booking.totalPrice,
-    amountPaid: booking.amountPaid ?? booking.amount_paid ?? 0,
-    balanceDue: booking.balance_due
-      ?? Math.max(
+    totalPrice: Number(booking.totalPrice ?? booking.total_amount ?? 0),
+    amountPaid: Number(booking.amountPaid ?? booking.amount_paid ?? 0),
+    balanceDue: booking.balance_due != null
+      ? Number(booking.balance_due)
+      : Math.max(
         0,
         Number(booking.total_amount ?? booking.totalPrice ?? 0) - Number(booking.amountPaid ?? booking.amount_paid ?? 0),
       ),
-    depositAmount: booking.deposit_amount ?? booking.amountPaid ?? booking.amount_paid ?? 0,
+    depositAmount: Number(booking.deposit_amount ?? booking.amountPaid ?? booking.amount_paid ?? 0),
     checkInAt: booking.check_in_at,
     checkOutAt: booking.check_out_at,
     paymentStatus: booking.payment_status,

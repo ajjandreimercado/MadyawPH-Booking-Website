@@ -78,8 +78,8 @@ export function calculateBookingPricing(
   const roomRate = Math.round(property.price * (ROOM_TYPE_OPTIONS[draft.roomType]?.multiplier ?? 1));
   const roomSubtotal = roomRate * nights;
   const guestSupplement = Math.round(roomSubtotal * ((Math.max(0, draft.adults - 2) * 0.035) + (draft.children * 0.015)));
-  const serviceFee = Math.max(40, Math.round(roomSubtotal * 0.12));
-  const subtotal = roomSubtotal + guestSupplement + serviceFee;
+  const serviceFee = 0;
+  const subtotal = roomSubtotal + guestSupplement;
 
   // Mirror the server-side discount logic so the UI shows an accurate price preview.
   const normalizedDiscount = draft.discountReason?.trim().toLowerCase();
