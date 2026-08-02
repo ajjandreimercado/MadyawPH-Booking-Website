@@ -128,7 +128,9 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   );
 
   return (
-    <div className="relative h-[70vh] min-h-[520px] md:h-[82vh] md:min-h-[620px] flex items-center justify-center pt-16">
+    // Mobile: grow with content (fixed vh was clipping headline under the nav and
+    // painting the search card over the trust line / next section).
+    <div className="relative flex flex-col justify-start md:justify-center pt-28 pb-10 sm:pt-32 sm:pb-12 md:min-h-[82vh] md:pt-28 md:pb-16">
       {/* Background Slider */}
       <div className="absolute inset-0 z-0 overflow-hidden bg-brand-dark">
         <motion.div
@@ -144,29 +146,22 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </div>
           ))}
         </motion.div>
-        <div className="absolute inset-0 bg-gradient-to-b from-brand-dark/40 via-brand-dark/20 to-brand-dark/90 mix-blend-multiply" />
+        <div className="absolute inset-0 bg-gradient-to-b from-brand-dark/55 via-brand-dark/25 to-brand-dark/90 mix-blend-multiply" />
         <div className="absolute inset-0 bg-brand-primary/10 mix-blend-overlay" />
-        <div className="absolute inset-x-0 bottom-8 z-20 flex justify-center gap-3">
-          {HERO_SLIDES.map((_, i) => (
-            <button key={i} type="button" aria-label={`Slide ${i + 1}`}
-              onClick={() => setActiveSlide(i)}
-              className={`h-2.5 rounded-full transition-all duration-300 shadow-md ${i === activeSlide ? 'w-10 bg-brand-secondary' : 'w-2.5 bg-brand-cream/60 hover:bg-brand-cream'}`} />
-          ))}
-        </div>
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center">
+      {/* Content — normal document flow so nothing overlaps */}
+      <div className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-5 sm:gap-6 md:gap-8">
         <motion.div
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="text-center mb-8"
+          className="text-center w-full"
         >
-          <p className="text-brand-cream/70 text-sm font-bold uppercase tracking-widest mb-3">Discover Luxury Stays</p>
-          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-serif text-brand-cream mb-4 drop-shadow-lg">
+          <p className="hidden sm:block text-brand-cream/70 text-sm font-bold uppercase tracking-widest mb-3">Discover Luxury Stays</p>
+          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-serif text-brand-cream mb-3 sm:mb-4 drop-shadow-lg leading-tight">
             Find Your Sanctuary
           </h1>
-          <p className="text-base sm:text-lg md:text-xl text-brand-cream/85 font-sans font-light max-w-2xl mx-auto drop-shadow px-1">
+          <p className="text-sm sm:text-lg md:text-xl text-brand-cream/85 font-sans font-light max-w-2xl mx-auto drop-shadow px-1 leading-relaxed">
             Hand-picked resorts, villas, and hotels across the Philippines and beyond.
           </p>
         </motion.div>
@@ -175,11 +170,11 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
         <motion.div
           initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="w-full bg-brand-cream/97 backdrop-blur-xl rounded-2xl shadow-2xl border border-brand-primary/10 p-5"
+          className="w-full bg-brand-cream/97 backdrop-blur-xl rounded-2xl shadow-2xl border border-brand-primary/10 p-4 sm:p-5"
         >
           <div className="flex flex-col xl:flex-row items-stretch xl:items-end gap-4">
             {/* Destination */}
-            <div className="flex-1 group">
+            <div className="flex-1 group min-w-0">
               <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 text-brand-dark/50">Destination</label>
               <div className="flex items-center gap-2 border-b-2 border-brand-secondary/30 pb-2 group-focus-within:border-brand-primary transition-colors">
                 <MapPin className="w-4 h-4 text-brand-primary shrink-0" />
@@ -190,7 +185,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setDestination(sanitize(e.target.value))}
                   onKeyDown={e => e.key === 'Enter' && void handleSearch()}
                   placeholder="Where are you going? or “hotels near me”"
-                  className="bg-transparent border-none outline-none text-brand-dark placeholder-brand-dark/35 text-base font-serif italic w-full"
+                  className="bg-transparent border-none outline-none text-brand-dark placeholder-brand-dark/35 text-base font-serif italic w-full min-w-0"
                 />
               </div>
             </div>
@@ -273,15 +268,24 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           </div>
         </motion.div>
 
-        {/* Trust indicators */}
+        {/* Trust indicators — in-flow below search, never under the card */}
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}
-          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-6 text-brand-cream/70 text-xs font-bold px-2"
+          className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-x-6 gap-y-2 text-brand-cream/80 text-xs font-bold px-2 text-center"
         >
           <span>✓ Free cancellation available</span>
           <span>✓ Best price guarantee</span>
           <span>✓ No booking fees</span>
         </motion.div>
+
+        {/* Slide dots sit in flow so they cannot cover copy */}
+        <div className="flex justify-center gap-3 pt-1">
+          {HERO_SLIDES.map((_, i) => (
+            <button key={i} type="button" aria-label={`Slide ${i + 1}`}
+              onClick={() => setActiveSlide(i)}
+              className={`h-2.5 rounded-full transition-all duration-300 shadow-md ${i === activeSlide ? 'w-10 bg-brand-secondary' : 'w-2.5 bg-brand-cream/60 hover:bg-brand-cream'}`} />
+          ))}
+        </div>
       </div>
     </div>
   );
