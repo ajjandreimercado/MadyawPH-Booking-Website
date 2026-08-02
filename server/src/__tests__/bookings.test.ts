@@ -29,6 +29,10 @@ const mockBooking = {
   paymentMethod: 'credit-card',
   roomRate: 3000,
   amountPaid: 0,
+  amount_paid: 0,
+  balance_due: 12480,
+  deposit_amount: 0,
+  payment_status: 'pending',
   totalPrice: 12480,
   total_amount: 12480,
   serviceFee: 480,
@@ -99,6 +103,9 @@ jest.mock('../data/mongoModels', () => ({
   PromoCodeModel: {
     findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null), session: jest.fn().mockReturnThis() }),
     updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+  },
+  BillingChargeModel: {
+    insertMany: jest.fn().mockResolvedValue([]),
   },
 }));
 
@@ -220,15 +227,34 @@ describe('POST /api/bookings', () => {
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
       expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
+      expect(created.payment_status).toBe('partial');
+      expect(created.amountPaid).toBeGreaterThan(0);
+      expect(created.amount_paid).toBe(created.amountPaid);
+      expect(created.deposit_amount).toBe(created.amountPaid);
+      expect(created.balance_due).toBe(created.totalPrice - created.amountPaid);
+      expect(created.amountPaid + created.balance_due).toBe(created.totalPrice);
 
-      const { ExternalReservationModel } = jest.requireMock('../data/mongoModels') as {
+      const { ExternalReservationModel, BillingChargeModel } = jest.requireMock('../data/mongoModels') as {
         ExternalReservationModel: { create: jest.Mock };
+        BillingChargeModel: { insertMany: jest.Mock };
       };
       expect(ExternalReservationModel.create).toHaveBeenCalled();
       const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
       expect(externalDoc.status).toBe('pending_approval');
       expect(externalDoc.source).toBe('app-customer');
       expect(externalDoc.external_reference).toBeTruthy();
+      const meta = typeof externalDoc.metadata === 'string'
+        ? JSON.parse(externalDoc.metadata)
+        : externalDoc.metadata;
+      expect(meta.payment_status).toBe('partial');
+      expect(meta.amount_paid).toBe(created.amountPaid);
+
+      expect(BillingChargeModel.insertMany).toHaveBeenCalled();
+      const charges = BillingChargeModel.insertMany.mock.calls[0][0];
+      expect(charges).toHaveLength(2);
+      expect(charges[0].type).toBe('room');
+      expect(charges[1].type).toBe('partial_payment');
+      expect(Number(charges[1].amount)).toBeLessThan(0);
     }
   });
 

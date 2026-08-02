@@ -18,6 +18,8 @@ export function buildExternalReservationDoc(input: {
   roomId: string;
   paymentMethod: string;
   totalAmount: number;
+  halfPayment?: number;
+  balanceDue?: number;
   nights: number;
   adults: number;
   children?: number;
@@ -32,6 +34,10 @@ export function buildExternalReservationDoc(input: {
     booking_reference: input.bookingReference,
     payment_method: input.paymentMethod,
     estimated_total: input.totalAmount,
+    amount_paid: input.halfPayment ?? 0,
+    balance_due: input.balanceDue ?? input.totalAmount,
+    payment_status: 'partial',
+    deposit_percent: 50,
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,

@@ -53,10 +53,10 @@ function ImageGallery({
   return (
     <>
       <div className="rounded-2xl overflow-hidden">
-        <div className="grid grid-cols-4 grid-rows-2 gap-2 h-[400px]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 md:grid-rows-2 gap-2 h-[240px] sm:h-[320px] md:h-[400px]">
           {/* Main image */}
           <div
-            className="col-span-2 row-span-2 relative cursor-pointer group overflow-hidden"
+            className="sm:col-span-2 sm:row-span-2 relative cursor-pointer group overflow-hidden min-h-[180px] sm:min-h-0"
             onClick={() => setLightbox(true)}
           >
             <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
@@ -69,9 +69,9 @@ function ImageGallery({
               )}
             </div>
           </div>
-          {/* Thumbnails */}
+          {/* Thumbnails — hide extras on very small screens to avoid crush */}
           {images.slice(1, 5).map((img, i) => (
-            <div key={i} className="relative cursor-pointer group overflow-hidden" onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
+            <div key={i} className={`relative cursor-pointer group overflow-hidden ${i > 1 ? 'hidden sm:block' : ''}`} onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
               <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
               {i === 3 && images.length > 5 && (
                 <div className="absolute inset-0 bg-brand-dark/50 flex items-center justify-center">
@@ -112,7 +112,7 @@ function StickyBookingWidget({ onBook, categories }: { onBook: (cat: HotelDetail
   const lowestCat = categories.filter(c => c.availableRooms > 0).sort((a, b) => a.defaultPrice - b.defaultPrice)[0];
 
   return (
-    <div className={`sticky bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-lg p-6 transition-all duration-300 ${scrolled ? 'top-6' : 'top-28'}`}>
+    <div className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-lg p-6 transition-all duration-300 lg:sticky ${scrolled ? 'lg:top-6' : 'lg:top-28'}`}>
       <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Starting from</p>
       {categories.length === 0 ? (
         <div className="mb-4">
@@ -336,14 +336,14 @@ export default function HotelDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
             {categories.some(c => c.availableRooms > 0) ? (
-              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-success bg-brand-success/15 px-5 py-3.5 shadow-md shadow-brand-success/20">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-success text-white shadow-sm">
-                  <ShieldCheck className="w-6 h-6" />
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-success bg-brand-success/15 px-4 sm:px-5 py-3 sm:py-3.5 shadow-md shadow-brand-success/20 w-full md:w-auto">
+                <span className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-brand-success text-white shadow-sm shrink-0">
+                  <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                 </span>
-                <div>
-                  <p className="text-lg sm:text-xl font-bold text-brand-success leading-tight tracking-tight">
+                <div className="min-w-0">
+                  <p className="text-base sm:text-lg md:text-xl font-bold text-brand-success leading-tight tracking-tight">
                     Rooms Available
                   </p>
                   <p className="text-xs sm:text-sm font-bold text-brand-success/80">
@@ -352,12 +352,12 @@ export default function HotelDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-danger/40 bg-brand-danger/10 px-5 py-3.5">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-danger text-white">
-                  <XCircle className="w-6 h-6" />
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-danger/40 bg-brand-danger/10 px-4 sm:px-5 py-3 sm:py-3.5 w-full md:w-auto">
+                <span className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-brand-danger text-white shrink-0">
+                  <XCircle className="w-5 h-5 sm:w-6 sm:h-6" />
                 </span>
-                <div>
-                  <p className="text-lg sm:text-xl font-bold text-brand-danger leading-tight">Fully Booked</p>
+                <div className="min-w-0">
+                  <p className="text-base sm:text-lg md:text-xl font-bold text-brand-danger leading-tight">Fully Booked</p>
                   <p className="text-xs sm:text-sm font-bold text-brand-danger/70">No rooms open right now</p>
                 </div>
               </div>
@@ -377,7 +377,7 @@ export default function HotelDetailPage() {
 
         {/* Main content + Sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8">
-          <div className="space-y-8">
+          <div className="space-y-8 order-2 lg:order-none">
 
             {/* Amenities */}
             {allAmenities.length > 0 && (
@@ -506,7 +506,7 @@ export default function HotelDetailPage() {
           </div>
 
           {/* Sticky Sidebar */}
-          <aside>
+          <aside className="order-1 lg:order-none">
             <StickyBookingWidget categories={categories} onBook={handleBook} />
           </aside>
         </div>

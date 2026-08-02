@@ -1157,16 +1157,16 @@ export default function TransactionPage() {
                   <span className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/40">Requested &rarr; Accepted &rarr; Paid &rarr; Confirmed</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 mb-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
                   {BOOKING_STEPS.map((step, index) => {
                     const isComplete = currentStatus !== 'idle' && (showDeclined ? index === 0 : index <= statusIndex);
                     const isCurrent = currentStatus !== 'idle' && index === statusIndex && !showDeclined;
                     const isDeclined = showDeclined && index === 0;
 
                     return (
-                      <div key={step.status} className="flex flex-col items-center gap-2 text-center">
+                      <div key={step.status} className="flex flex-col items-center gap-2 text-center min-w-0">
                         <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center border text-[10px] font-bold transition-colors ${
+                          className={`w-10 h-10 rounded-full flex items-center justify-center border text-[10px] font-bold transition-colors shrink-0 ${
                             isDeclined
                               ? 'bg-red-100 text-red-900 border-red-200'
                               : isCurrent
@@ -1178,7 +1178,7 @@ export default function TransactionPage() {
                         >
                           {index + 1}
                         </div>
-                        <p className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent || isComplete || isDeclined ? 'text-brand-dark' : 'text-brand-dark/40'}`}>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest break-words ${isCurrent || isComplete || isDeclined ? 'text-brand-dark' : 'text-brand-dark/40'}`}>
                           {step.label}
                         </p>
                       </div>

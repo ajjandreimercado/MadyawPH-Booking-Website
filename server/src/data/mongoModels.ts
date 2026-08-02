@@ -95,6 +95,10 @@ const bookingSchema = new Schema(
     roomRate: { type: Number, required: true },
     payment_status: { type: String, default: 'pending' },
     amountPaid: { type: Number, required: true },
+    // Hotel app partial-payment fields
+    amount_paid: { type: Number },
+    balance_due: { type: Number },
+    deposit_amount: { type: Number },
     totalPrice: { type: Number, required: true },
     total_amount: { type: Number, required: true },
     serviceFee: { type: Number, default: 0 },
@@ -169,22 +173,24 @@ const externalReservationSchema = new Schema(
 
 const billingChargeSchema = new Schema(
   {
-    _id: { type: String },
     hotel_id: { type: String, required: true, index: true },
-    booking_id: { type: String, required: true },
+    booking_id: { type: String, required: true, index: true },
     room_id: { type: String, required: true },
     type: {
       type: String,
-      enum: ['room', 'amenity', 'refund', 'early-check-in', 'late-checkout', 'manual'],
+      enum: ['room', 'amenity', 'refund', 'early-check-in', 'late-checkout', 'manual', 'partial_payment'],
       required: true,
     },
     label: { type: String, required: true },
-    amount: { type: Number, required: true },
+    amount: { type: Schema.Types.Mixed, required: true },
     quantity: { type: Number, required: true, default: 1 },
     is_manual: { type: Boolean, default: false },
+    created_by: { type: String },
     metadata: { type: Mixed, default: {} },
+    created_at: { type: Date },
+    updated_at: { type: Date },
   },
-  schemaOptions,
+  { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } },
 );
 
 const roomTransferSchema = new Schema(
@@ -426,7 +432,7 @@ export const PropertyModel = model('Room', roomSchema); // → 'rooms'
 export const RoomModel = PropertyModel;
 export const BookingModel = model('Booking', bookingSchema); // → 'bookings'
 export const ExternalReservationModel = model('ExternalReservation', externalReservationSchema, 'external_reservations'); // Atlas / hotel app use snake_case
-export const BillingChargeModel = model('BillingCharge', billingChargeSchema); // → 'billingcharges'
+export const BillingChargeModel = model('BillingCharge', billingChargeSchema, 'billing_charges'); // Atlas / hotel app use snake_case
 export const RoomTransferModel = model('RoomTransfer', roomTransferSchema, 'room_transfers'); // Atlas uses 'room_transfers'
 export const CheckoutReminderModel = model('CheckoutReminder', checkoutReminderSchema); // → 'checkoutreminders'
 export const StayReviewModel = model('StayReview', stayReviewSchema); // → 'stayreviews'

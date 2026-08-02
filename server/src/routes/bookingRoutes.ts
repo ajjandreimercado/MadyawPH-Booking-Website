@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
+import { BookingModel, BillingChargeModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -12,6 +12,7 @@ import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
+import { computeHalfPayment, formatMoneyAmount } from '../utils/halfPayment';
 import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -431,6 +432,8 @@ bookingRoutes.post('/', async (req, res) => {
     now: createdAt,
   });
 
+  const { halfPayment, balanceDue } = computeHalfPayment(finalTotalPrice);
+
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
     hotel_id: String(property.hotel_id ?? ''),
@@ -459,8 +462,12 @@ bookingRoutes.post('/', async (req, res) => {
     serviceFee: pricing.serviceFee,
     totalPrice: finalTotalPrice,
     total_amount: finalTotalPrice,
-    amountPaid: 0,
-    payment_status: 'pending',
+    // Website bookings require 50% deposit first; hotel app reads payment_status=partial.
+    amountPaid: halfPayment,
+    amount_paid: halfPayment,
+    deposit_amount: halfPayment,
+    balance_due: balanceDue,
+    payment_status: 'partial',
     status: 'pending',
     requestedAt: createdAt.toISOString(),
     confirmationSendStatus: 'none' as const,
@@ -546,6 +553,62 @@ bookingRoutes.post('/', async (req, res) => {
 
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
+  // Mirror hotel-app billing ledger: room charge + partial (half) payment credit.
+  try {
+    const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
+    const bookingId = String(booking._id);
+    const roomId = String(booking.room_id ?? property._id);
+    const now = createdAt;
+    const paymentMethod = paymentMethodResult.value;
+    await BillingChargeModel.insertMany([
+      {
+        hotel_id: hotelId,
+        booking_id: bookingId,
+        room_id: roomId,
+        type: 'room',
+        label: `Room charge (${pricing.nights} night${pricing.nights === 1 ? '' : 's'})`,
+        amount: formatMoneyAmount(finalTotalPrice),
+        quantity: 1,
+        is_manual: false,
+        created_by: 'website',
+        metadata: JSON.stringify({
+          channel: 'website',
+          billing_mode: 'nightly',
+          nights: pricing.nights,
+          room_rate: pricing.roomRate,
+          booking_reference: booking.booking_reference,
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        hotel_id: hotelId,
+        booking_id: bookingId,
+        room_id: roomId,
+        type: 'partial_payment',
+        label: 'Partial payment: Website 50% deposit',
+        amount: formatMoneyAmount(-halfPayment),
+        quantity: 1,
+        is_manual: true,
+        created_by: 'website',
+        metadata: JSON.stringify({
+          channel: 'website',
+          payment_method: paymentMethod,
+          payment_reference: '',
+          note: 'Website half payment deposit',
+          recorded_by: 'website',
+          booking_reference: booking.booking_reference,
+          deposit_percent: 50,
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+    console.log(`[MongoDB Action] Collection: billing_charges, Action: create half-payment ledger, Booking: ${bookingId}`);
+  } catch (billingError) {
+    console.error('[Bookings] Failed to create billing_charges for half payment:', billingError);
+  }
+
   // Hotel app "Online Bookings" is driven by external_reservations (pending_approval),
   // not by bookings.booking_type alone. Create the queue row linked to this booking.
   try {
@@ -561,6 +624,8 @@ bookingRoutes.post('/', async (req, res) => {
       roomId: String(booking.room_id ?? property._id),
       paymentMethod: paymentMethodResult.value,
       totalAmount: finalTotalPrice,
+      halfPayment,
+      balanceDue,
       nights: pricing.nights,
       adults: adultsResult.value,
       children: childrenResult.value,

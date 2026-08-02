@@ -50,10 +50,10 @@ function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm card-hover overflow-hidden ${view === 'list' ? 'flex gap-0' : ''}`}
+      className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm card-hover overflow-hidden ${view === 'list' ? 'flex flex-col sm:flex-row gap-0' : ''}`}
     >
       {/* Image */}
-      <div className={`relative overflow-hidden group ${view === 'list' ? 'w-64 shrink-0' : 'h-52'}`}>
+      <div className={`relative overflow-hidden group ${view === 'list' ? 'w-full sm:w-56 md:w-64 shrink-0 h-48 sm:h-auto sm:min-h-[200px]' : 'h-52'}`}>
         <img
           src={displayImages[imgIndex]}
           alt={hotel.name}
@@ -323,9 +323,9 @@ export default function SearchResultsPage() {
     <div className="min-h-screen bg-brand-background">
       {/* Search Header */}
       <div className={`sticky z-30 bg-brand-surface border-b border-brand-primary/10 shadow-sm transition-all duration-300 ${scrolled ? 'top-0' : 'top-[88px] sm:top-24'}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="relative flex-1 max-w-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <div className="relative flex-1 min-w-[12rem] max-w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-primary/60" />
               <input
                 type="text"
@@ -340,13 +340,13 @@ export default function SearchResultsPage() {
               <span className="text-xs font-bold text-brand-primary whitespace-nowrap">Near me · {radiusKm} km</span>
             )}
             {checkIn && checkOut && (
-              <span className="text-xs font-bold text-brand-dark/60 hidden sm:block whitespace-nowrap">
+              <span className="text-xs font-bold text-brand-dark/60 hidden md:block whitespace-nowrap">
                 {checkIn} → {checkOut} · {guests} guests
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setShowFilters(!showFilters)}

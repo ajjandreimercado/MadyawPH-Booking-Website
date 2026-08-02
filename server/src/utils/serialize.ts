@@ -145,6 +145,13 @@ export function serializeBooking(booking: AnyDocument) {
     requestedAt: booking.requestedAt,
     expiresAt: booking.expiresAt,
     totalPrice: booking.totalPrice,
+    amountPaid: booking.amountPaid ?? booking.amount_paid ?? 0,
+    balanceDue: booking.balance_due
+      ?? Math.max(
+        0,
+        Number(booking.total_amount ?? booking.totalPrice ?? 0) - Number(booking.amountPaid ?? booking.amount_paid ?? 0),
+      ),
+    depositAmount: booking.deposit_amount ?? booking.amountPaid ?? booking.amount_paid ?? 0,
     checkInAt: booking.check_in_at,
     checkOutAt: booking.check_out_at,
     paymentStatus: booking.payment_status,

@@ -203,6 +203,12 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   }
   divider();
   row("Payment Method", (booking.paymentMethod ?? "—").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+  const halfPaid = booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2);
+  const balance = booking.balanceDue ?? Math.max(0, (booking.totalPrice ?? 0) - halfPaid);
+  divider();
+  row("Half Payment (50%)", `PHP ${halfPaid.toLocaleString()}`);
+  divider();
+  row("Balance at Check-in", `PHP ${balance.toLocaleString()}`);
   y += 3;
 
   // Total row (Box formatted cleanly without clipping)
@@ -212,9 +218,19 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
   setTC("#ffffff");
-  t("TOTAL PAID", MARGIN + 8, y + 9);
+  t("STAY TOTAL", MARGIN + 8, y + 9);
   doc.setFontSize(12);
   t(`PHP ${(booking.totalPrice ?? 0).toLocaleString()}`, MARGIN + CONTENT_W - 8, y + 9, { align: "right" });
+
+  y += totalBoxH + 4;
+  setFill("#e8f5e9");
+  doc.roundedRect(MARGIN, y, CONTENT_W, totalBoxH, 2.5, 2.5, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  setTC(BRAND_PRIMARY);
+  t("HALF PAYMENT RECORDED", MARGIN + 8, y + 9);
+  doc.setFontSize(12);
+  t(`PHP ${halfPaid.toLocaleString()}`, MARGIN + CONTENT_W - 8, y + 9, { align: "right" });
 
   y += totalBoxH + 10;
 

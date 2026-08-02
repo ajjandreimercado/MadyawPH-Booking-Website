@@ -128,7 +128,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   );
 
   return (
-    <div className="relative h-[82vh] min-h-[620px] flex items-center justify-center pt-16">
+    <div className="relative h-[70vh] min-h-[520px] md:h-[82vh] md:min-h-[620px] flex items-center justify-center pt-16">
       {/* Background Slider */}
       <div className="absolute inset-0 z-0 overflow-hidden bg-brand-dark">
         <motion.div
@@ -163,10 +163,10 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           className="text-center mb-8"
         >
           <p className="text-brand-cream/70 text-sm font-bold uppercase tracking-widest mb-3">Discover Luxury Stays</p>
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-serif text-brand-cream mb-4 drop-shadow-lg">
+          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-serif text-brand-cream mb-4 drop-shadow-lg">
             Find Your Sanctuary
           </h1>
-          <p className="text-lg md:text-xl text-brand-cream/85 font-sans font-light max-w-2xl mx-auto drop-shadow">
+          <p className="text-base sm:text-lg md:text-xl text-brand-cream/85 font-sans font-light max-w-2xl mx-auto drop-shadow px-1">
             Hand-picked resorts, villas, and hotels across the Philippines and beyond.
           </p>
         </motion.div>
@@ -276,7 +276,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
         {/* Trust indicators */}
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}
-          className="flex items-center gap-6 mt-6 text-brand-cream/70 text-xs font-bold"
+          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-6 text-brand-cream/70 text-xs font-bold px-2"
         >
           <span>✓ Free cancellation available</span>
           <span>✓ Best price guarantee</span>

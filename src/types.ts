@@ -110,6 +110,9 @@ export interface BookingRequest {
   expiresAt: string;
   totalPrice: number;
   totalAmount?: number;
+  amountPaid?: number;
+  balanceDue?: number;
+  depositAmount?: number;
   discountAmount?: number;
   discountReason?: string;
   checkInAt?: string;

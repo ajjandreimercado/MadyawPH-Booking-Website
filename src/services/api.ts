@@ -157,6 +157,19 @@ function normalizeBookingResponse<T extends BookingRequest>(booking: T & {
     discountAmount: booking.discountAmount ?? (booking as { discount_amount?: number }).discount_amount,
     discountReason: booking.discountReason ?? (booking as { discount_reason?: string }).discount_reason,
     totalPrice: booking.totalPrice ?? booking.totalAmount,
+    amountPaid: booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0,
+    balanceDue: booking.balanceDue
+      ?? (booking as { balance_due?: number }).balance_due
+      ?? Math.max(
+        0,
+        Number(booking.totalPrice ?? booking.totalAmount ?? 0)
+          - Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0),
+      ),
+    depositAmount: booking.depositAmount
+      ?? (booking as { deposit_amount?: number }).deposit_amount
+      ?? booking.amountPaid
+      ?? (booking as { amount_paid?: number }).amount_paid
+      ?? 0,
     confirmationSentAt: booking.confirmationSentAt ?? (booking as { confirmation_sent_at?: string }).confirmation_sent_at ?? null,
     confirmationSendStatus: booking.confirmationSendStatus ?? (booking as { confirmation_send_status?: 'none' | 'sent' | 'failed' }).confirmation_send_status ?? 'none',
     confirmationSendError: booking.confirmationSendError ?? (booking as { confirmation_send_error?: string }).confirmation_send_error ?? '',

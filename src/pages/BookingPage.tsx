@@ -111,6 +111,9 @@ export default function BookingPage() {
   const discountPct = discountType === 'pwd' || discountType === 'senior citizen' ? 0.20 : 0;
   const discountAmt = Math.round((roomRate + serviceFee) * discountPct);
   const total = Math.max(0, roomRate + serviceFee - discountAmt);
+  // 50% deposit now; remainder due at check-in (matches hotel app partial payment).
+  const halfPayment = Math.floor(total / 2);
+  const balanceDue = Math.max(0, total - halfPayment);
 
   // ── Derive food amenities from property ─────────────────────────────────────
   const foodAmenities = (() => {
@@ -222,14 +225,14 @@ export default function BookingPage() {
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-serif font-bold text-brand-dark mb-1">Booking Details</h1>
-          <p className="text-brand-dark/60 font-bold text-sm">{roomLabel}</p>
+          <h1 className="text-2xl sm:text-3xl font-serif font-bold text-brand-dark mb-1">Booking Details</h1>
+          <p className="text-brand-dark/60 font-bold text-sm px-2 break-words">{roomLabel}</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 items-start">
 
           {/* ── Main Form ─────────────────────────────────────────────────── */}
-          <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-6 space-y-7">
+          <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-7 order-2 lg:order-none">
 
             {/* Section: Personal Info */}
             <section>
@@ -534,37 +537,52 @@ export default function BookingPage() {
             {/* Section: Payment Method */}
             <section>
               <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Smartphone className="w-4 h-4" /> Preferred Payment Method
+                <Smartphone className="w-4 h-4" /> Half Payment First
               </h2>
               <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                Choose how you prefer to pay after the hotel accepts your request. No payment is collected on this page.
+                Reserve with a 50% deposit based on your selected room total. The remaining balance is due at check-in.
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Due now (50%)</p>
+                  <p className="font-serif font-bold text-xl text-brand-primary">₱{halfPayment.toLocaleString()}</p>
+                </div>
+                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-in</p>
+                  <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
+                </div>
+                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Stay total</p>
+                  <p className="font-serif font-bold text-xl text-brand-dark">₱{total.toLocaleString()}</p>
+                </div>
+              </div>
+              <p className="text-xs text-brand-dark/50 font-bold mb-3">Preferred payment method for the half deposit</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {PAYMENT_METHODS.map(method => (
                   <button
                     key={method.id}
                     id={`payment-${method.id}`}
                     type="button"
                     onClick={() => setPaymentMethod(method.id)}
-                    className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all min-w-0 ${
                       paymentMethod === method.id
                         ? 'border-brand-primary bg-brand-primary/5 shadow-sm'
                         : 'border-brand-primary/15 hover:border-brand-primary/40'
                     }`}
                   >
-                    <method.icon className={`w-5 h-5 ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark/40'}`} />
-                    <span className={`font-bold text-sm ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark'}`}>
+                    <method.icon className={`w-5 h-5 shrink-0 ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark/40'}`} />
+                    <span className={`font-bold text-sm truncate ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark'}`}>
                       {method.label}
                     </span>
-                    {paymentMethod === method.id && <CheckCircle2 className="w-4 h-4 text-brand-primary ml-auto" />}
+                    {paymentMethod === method.id && <CheckCircle2 className="w-4 h-4 text-brand-primary ml-auto shrink-0" />}
                   </button>
                 ))}
               </div>
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  Online checkout will be available once payment processing is enabled for this property.
-                  For now, your preferred method is saved with the reservation request.
+                  Submitting this request records a 50% partial payment (₱{halfPayment.toLocaleString()}) for the hotel.
+                  The remaining ₱{balanceDue.toLocaleString()} is collected at check-in. Your preferred method is saved with the reservation.
                 </p>
               </div>
             </section>
@@ -591,7 +609,7 @@ export default function BookingPage() {
           </div>
 
           {/* ── Booking Summary Sidebar ────────────────────────────────────── */}
-          <aside className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-6 space-y-4 h-fit sticky top-24">
+          <aside className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-4 h-fit lg:sticky lg:top-24 order-1 lg:order-none">
             <h3 className="font-serif font-bold text-lg text-brand-dark">Booking Summary</h3>
 
             {((property as any).imageUrl ?? property.image) && (
@@ -660,13 +678,21 @@ export default function BookingPage() {
               )}
               <div className="flex justify-between font-serif font-bold text-lg border-t border-brand-primary/8 pt-3">
                 <span className="text-brand-dark">Total</span>
-                <span className="text-brand-primary">₱{total.toLocaleString()}</span>
+                <span className="text-brand-dark">₱{total.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm font-bold pt-1">
+                <span className="text-brand-primary">Due now (50%)</span>
+                <span className="text-brand-primary">₱{halfPayment.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm font-bold">
+                <span className="text-brand-dark/60">Balance at check-in</span>
+                <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
               </div>
             </div>
 
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
-              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}No hidden fees
+              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}Half payment recorded for the hotel
             </p>
           </aside>
 
