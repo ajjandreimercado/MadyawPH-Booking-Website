@@ -928,14 +928,22 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
   const successRedirectUrl = `${frontendOrigin}/booking/confirm/${bookingIdResult.value}?email=${encodeURIComponent(bookingEmail)}&paid=1`;
   const failureRedirectUrl = `${frontendOrigin}/booking/confirm/${bookingIdResult.value}?email=${encodeURIComponent(bookingEmail)}&paid=0`;
 
+  const checkoutTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
+  const recordedHalf = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
+  const { halfPayment } = computeHalfPayment(checkoutTotal);
+  // Collect the half deposit only — never invoice the full stay on website checkout.
+  const checkoutAmount = recordedHalf > 0 && recordedHalf < checkoutTotal
+    ? recordedHalf
+    : halfPayment;
+
   try {
     const checkout = await createPaymentCheckout({
       bookingId: bookingIdResult.value,
       bookingReference: String(booking.booking_reference ?? ''),
-      amount: Number(booking.totalPrice ?? booking.total_amount ?? 0),
+      amount: checkoutAmount,
       guestEmail: bookingEmail,
       guestName: String(booking.guestName ?? 'Guest'),
-      description: `Madyaw booking ${booking.booking_reference ?? bookingIdResult.value}`,
+      description: `Madyaw 50% deposit ${booking.booking_reference ?? bookingIdResult.value}`,
       successRedirectUrl,
       failureRedirectUrl,
     });

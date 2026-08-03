@@ -53,10 +53,10 @@ function ImageGallery({
   return (
     <>
       <div className="rounded-2xl overflow-hidden">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 md:grid-rows-2 gap-2 h-[240px] sm:h-[320px] md:h-[400px]">
+        <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 md:h-[400px]">
           {/* Main image */}
           <div
-            className="sm:col-span-2 sm:row-span-2 relative cursor-pointer group overflow-hidden min-h-[180px] sm:min-h-0"
+            className="md:col-span-2 md:row-span-2 relative cursor-pointer group overflow-hidden h-56 sm:h-72 md:h-auto"
             onClick={() => setLightbox(true)}
           >
             <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
@@ -68,10 +68,19 @@ function ImageGallery({
                 <span className="text-xs font-bold text-white/70">({reviewCount} reviews)</span>
               )}
             </div>
+            {images.length > 1 && (
+              <button
+                type="button"
+                className="md:hidden absolute bottom-4 right-4 bg-brand-dark/80 text-white text-xs font-bold px-3 py-2 rounded-xl"
+                onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
+              >
+                View {images.length} photos
+              </button>
+            )}
           </div>
-          {/* Thumbnails — hide extras on very small screens to avoid crush */}
+          {/* Thumbnails — desktop/tablet only to avoid crushed mobile grid */}
           {images.slice(1, 5).map((img, i) => (
-            <div key={i} className={`relative cursor-pointer group overflow-hidden ${i > 1 ? 'hidden sm:block' : ''}`} onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
+            <div key={i} className="relative cursor-pointer group overflow-hidden hidden md:block" onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
               <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
               {i === 3 && images.length > 5 && (
                 <div className="absolute inset-0 bg-brand-dark/50 flex items-center justify-center">
@@ -103,10 +112,25 @@ function ImageGallery({
   );
 }
 
-function StickyBookingWidget({ onBook, categories }: { onBook: (cat: HotelDetailCategory, checkIn: string, checkOut: string, guests: number) => void; categories: HotelDetailCategory[] }) {
-  const [checkIn, setCheckIn] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [checkOut, setCheckOut] = useState(format(addDays(new Date(), 3), 'yyyy-MM-dd'));
-  const [guests, setGuests] = useState(2);
+function StickyBookingWidget({
+  onBook,
+  categories,
+  checkIn,
+  checkOut,
+  guests,
+  onCheckInChange,
+  onCheckOutChange,
+  onGuestsChange,
+}: {
+  onBook: (cat: HotelDetailCategory, checkIn: string, checkOut: string, guests: number) => void;
+  categories: HotelDetailCategory[];
+  checkIn: string;
+  checkOut: string;
+  guests: number;
+  onCheckInChange: (value: string) => void;
+  onCheckOutChange: (value: string) => void;
+  onGuestsChange: (value: number) => void;
+}) {
   const scrolled = useScroll(20);
   const nights = Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000));
   const lowestCat = categories.filter(c => c.availableRooms > 0).sort((a, b) => a.defaultPrice - b.defaultPrice)[0];
@@ -130,7 +154,10 @@ function StickyBookingWidget({ onBook, categories }: { onBook: (cat: HotelDetail
           <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
             <Calendar className="w-4 h-4 text-brand-primary/60" />
             <input type="date" value={checkIn} min={format(new Date(), 'yyyy-MM-dd')}
-              onChange={e => { setCheckIn(e.target.value); if (e.target.value >= checkOut) setCheckOut(format(addDays(new Date(e.target.value), 1), 'yyyy-MM-dd')); }}
+              onChange={e => {
+                onCheckInChange(e.target.value);
+                if (e.target.value >= checkOut) onCheckOutChange(format(addDays(new Date(e.target.value), 1), 'yyyy-MM-dd'));
+              }}
               className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1" />
           </div>
         </div>
@@ -139,7 +166,7 @@ function StickyBookingWidget({ onBook, categories }: { onBook: (cat: HotelDetail
           <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
             <Calendar className="w-4 h-4 text-brand-primary/60" />
             <input type="date" value={checkOut} min={checkIn ? format(addDays(new Date(checkIn), 1), 'yyyy-MM-dd') : undefined}
-              onChange={e => setCheckOut(e.target.value)}
+              onChange={e => onCheckOutChange(e.target.value)}
               className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1" />
           </div>
         </div>
@@ -147,7 +174,7 @@ function StickyBookingWidget({ onBook, categories }: { onBook: (cat: HotelDetail
           <label className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 block mb-1">Guests</label>
           <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
             <Users className="w-4 h-4 text-brand-primary/60" />
-            <select value={guests} onChange={e => setGuests(Number(e.target.value))} className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1">
+            <select value={guests} onChange={e => onGuestsChange(Number(e.target.value))} className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1">
               {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} Guest{n !== 1 ? 's' : ''}</option>)}
             </select>
           </div>
@@ -183,6 +210,9 @@ export default function HotelDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
+  const [bookCheckIn, setBookCheckIn] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
+  const [bookCheckOut, setBookCheckOut] = useState(format(addDays(new Date(), 3), 'yyyy-MM-dd'));
+  const [bookGuests, setBookGuests] = useState(2);
 
   // Collect all images across room categories
   const allImages = [
@@ -446,7 +476,7 @@ export default function HotelDetailPage() {
                             <button
                               type="button"
                               disabled={cat.availableRooms === 0}
-                              onClick={() => handleBook(cat, format(addDays(new Date(), 1), 'yyyy-MM-dd'), format(addDays(new Date(), 3), 'yyyy-MM-dd'), 2)}
+                              onClick={() => handleBook(cat, bookCheckIn, bookCheckOut, bookGuests)}
                               className="btn-primary text-xs w-full disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {cat.availableRooms > 0 ? `Reserve ${cat.name}` : 'Unavailable'}
@@ -507,7 +537,16 @@ export default function HotelDetailPage() {
 
           {/* Sticky Sidebar */}
           <aside className="order-1 lg:order-none">
-            <StickyBookingWidget categories={categories} onBook={handleBook} />
+            <StickyBookingWidget
+              categories={categories}
+              onBook={handleBook}
+              checkIn={bookCheckIn}
+              checkOut={bookCheckOut}
+              guests={bookGuests}
+              onCheckInChange={setBookCheckIn}
+              onCheckOutChange={setBookCheckOut}
+              onGuestsChange={setBookGuests}
+            />
           </aside>
         </div>
       </div>

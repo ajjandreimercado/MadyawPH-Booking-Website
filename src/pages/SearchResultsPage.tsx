@@ -188,6 +188,41 @@ export default function SearchResultsPage() {
     setLocalDestination(nearMe ? 'Hotels near me' : destination);
   }, [nearMe, destination]);
 
+  // near=1 without coords would show misleading "near you" results — recover location or clear flag.
+  useEffect(() => {
+    if (!nearMe || (nearLat && nearLng)) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const position = await getCurrentPosition();
+        if (cancelled) return;
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('near', '1');
+          next.set('lat', String(position.coords.latitude));
+          next.set('lng', String(position.coords.longitude));
+          next.set('sort', 'distance');
+          return next;
+        });
+      } catch {
+        if (cancelled) return;
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('near');
+          next.delete('lat');
+          next.delete('lng');
+          return next;
+        });
+        showToast({
+          title: 'Location needed',
+          description: 'Allow location access for near-me search, or type a destination.',
+          type: 'error',
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [nearMe, nearLat, nearLng, setSearchParams, showToast]);
+
   const updateParam = (key: string, value: string) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);

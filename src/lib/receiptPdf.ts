@@ -194,7 +194,9 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
 
   // ── Payment summary ───────────────────────────────────────────────────────
   section("Payment Summary");
-  row("Room Rate",       `PHP ${(booking.roomRate ?? 0).toLocaleString()}`);
+  row("Room Rate",       `PHP ${(booking.roomRate ?? 0).toLocaleString()} x ${(booking.nights ?? 1)} night(s)`);
+  divider();
+  row("Room Subtotal",   `PHP ${((booking.roomRate ?? 0) * (booking.nights ?? 1)).toLocaleString()}`);
   if ((booking.discountAmount ?? 0) > 0) {
     divider();
     row("Discount",      `-PHP ${(booking.discountAmount ?? 0).toLocaleString()}`);

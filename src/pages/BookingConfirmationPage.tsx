@@ -145,8 +145,10 @@ export default function BookingConfirmationPage() {
           <h2 className="text-xl font-serif font-bold text-brand-dark mb-4">Amount Summary</h2>
           <div className="space-y-2">
             <div className="flex justify-between text-sm font-bold">
-              <span className="text-brand-dark/60">Room rate ({booking.nights} nights)</span>
-              <span>₱{(booking.roomRate ?? 0).toLocaleString()}</span>
+              <span className="text-brand-dark/60">
+                Room ({booking.nights} night{booking.nights !== 1 ? 's' : ''} × ₱{(booking.roomRate ?? 0).toLocaleString()})
+              </span>
+              <span>₱{((booking.roomRate ?? 0) * (booking.nights ?? 1)).toLocaleString()}</span>
             </div>
             {(booking.discountAmount ?? 0) > 0 && (
               <div className="flex justify-between text-sm font-bold text-brand-success">

@@ -93,7 +93,7 @@ const bookingSchema = new Schema(
     roomType: { type: String, required: true },
     paymentMethod: { type: String, required: true },
     roomRate: { type: Number, required: true },
-    payment_status: { type: String, default: 'pending' },
+    payment_status: { type: String, default: 'unpaid' },
     amountPaid: { type: Number, required: true },
     // Hotel app partial-payment fields
     amount_paid: { type: Number },

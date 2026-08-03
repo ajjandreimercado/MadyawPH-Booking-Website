@@ -7,10 +7,10 @@ import {
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
 import { useBookings } from '../contexts/BookingsContext';
 import { useToast } from '../components/ui/ToastProvider';
-import type { BookingPaymentMethod, Property } from '../types';
-import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS } from '../lib/bookingFlow';
+import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
+import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { format, differenceInDays, addDays } from 'date-fns';
+import { format, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
 const NATIONALITIES = [
@@ -104,12 +104,28 @@ export default function BookingPage() {
 
   const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
 
-  // ── Computed Values ──────────────────────────────────────────────────────────
-  const nights = Math.max(1, differenceInDays(new Date(checkOut), new Date(checkIn)));
-  const roomRate = (property?.price ?? 0) * nights;
-  const discountPct = discountType === 'pwd' || discountType === 'senior citizen' ? 0.20 : 0;
-  const discountAmt = Math.round(roomRate * discountPct);
-  const total = Math.max(0, roomRate - discountAmt);
+  // ── Computed Values (must match server calculateBookingPricing) ─────────────
+  const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
+    ?? (property as { type?: string } | null)?.type
+    ?? 'standard-room') as BookingRoomType;
+  const discountReason =
+    discountType === 'pwd' || discountType === 'senior citizen' ? discountType : undefined;
+  const pricing = property
+    ? calculateBookingPricing(property, {
+        checkInDate: checkIn,
+        checkOutDate: checkOut,
+        adults,
+        children,
+        infants: 0,
+        roomType,
+        paymentMethod,
+        discountReason,
+      })
+    : null;
+  const nights = pricing?.nights ?? 1;
+  const roomRate = pricing?.roomTotal ?? 0;
+  const discountAmt = pricing?.discountAmount ?? 0;
+  const total = pricing?.totalPrice ?? 0;
   // 50% deposit now; remainder paid at hotel check-out.
   const halfPayment = Math.floor(total / 2);
   const balanceDue = Math.max(0, total - halfPayment);
@@ -173,7 +189,7 @@ export default function BookingPage() {
         adults,
         children,
         infants: 0,
-        roomType: ((property as any).roomType ?? property.type ?? 'standard-room') as any,
+        roomType,
         paymentMethod,
         discountAmount: discountAmt,
         discountReason,
