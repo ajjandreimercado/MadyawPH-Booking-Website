@@ -321,15 +321,23 @@ describe('PUT /api/bookings/:id', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 200 when the booking owner updates their own booking status', async () => {
+  it('returns 200 when the booking owner cancels their own booking', async () => {
     // alice@example.com owns booking-001 (guestEmail: 'alice@example.com')
     MockUserModel.findById.mockResolvedValue({ ...mockUser } as never);
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', guestCookie())
-      .send({ status: 'confirmed' });
-    // 200 = updated OK; 403 = disallowed transition — both are valid gated responses
+      .send({ status: 'cancelled' });
     expect([200, 403]).toContain(res.status);
+  });
+
+  it('returns 403 when a guest tries to confirm their own booking (hotel owns confirmation)', async () => {
+    MockUserModel.findById.mockResolvedValue({ ...mockUser } as never);
+    const res = await request(app)
+      .put('/api/bookings/booking-001')
+      .set('Cookie', guestCookie())
+      .send({ status: 'confirmed' });
+    expect(res.status).toBe(403);
   });
 
   it('returns 403 when a guest tries to update a booking they do not own', async () => {
@@ -343,7 +351,7 @@ describe('PUT /api/bookings/:id', () => {
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', `madyaw_token=${otherToken}`)
-      .send({ status: 'confirmed' });
+      .send({ status: 'cancelled' });
     expect(res.status).toBe(403);
   });
 

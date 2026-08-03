@@ -159,7 +159,8 @@ export default function BookingPage() {
     phone.trim() &&
     checkIn &&
     checkOut &&
-    new Date(checkOut) > new Date(checkIn);
+    new Date(checkOut) > new Date(checkIn) &&
+    Boolean(validIdFile);
 
   const handleSubmit = async () => {
     if (!property || !propertyId) return;

@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import mongoose from 'mongoose';
 import { BookingModel, BillingChargeModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
-import { availabilityLimiter } from '../middleware/rateLimiters';
+import { availabilityLimiter, bookingCreateLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
@@ -45,11 +45,12 @@ const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'vill
 const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'bank-transfer'] as const;
 const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending', 'cancelled'] as const;
 
+// Guests may only cancel their own request — hotel app owns accept/confirm/paid.
 const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
-  pending: ['confirmed'],
-  requested: ['confirmed', 'accepted'],
-  accepted: ['paid'],
-  paid: ['confirmed'],
+  pending: ['cancelled'],
+  requested: ['cancelled'],
+  accepted: ['cancelled'],
+  confirmed: ['cancelled'],
 };
 
 /** Canonical discount reasons accepted by pricing. Aliases keep older clients working. */
@@ -256,9 +257,9 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
 // ─── POST / ───────────────────────────────────────────────────────────────────
 // Public: unauthenticated guests submit their own name/email/phone in the form.
 // No session token required — this is a guest booking website with no login.
-// Accepts multipart/form-data (Valid ID file) or JSON (legacy / tests without file).
+// Accepts multipart/form-data with required Valid ID file.
 
-bookingRoutes.post('/', async (req, res) => {
+bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   let validIdFile: Express.Multer.File | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
   if (contentType.includes('multipart/form-data')) {
@@ -612,15 +613,21 @@ bookingRoutes.post('/', async (req, res) => {
   // Mirror hotel-app billing ledger: room charge + partial (half) payment credit.
   try {
     await withRetries(async () => {
-      const existing = await BillingChargeModel.countDocuments({
+      const existingPartial = await BillingChargeModel.countDocuments({
         booking_id: bookingId,
         type: 'partial_payment',
         created_by: 'website',
       });
-      if (existing > 0) return;
+      const existingRoom = await BillingChargeModel.countDocuments({
+        booking_id: bookingId,
+        type: 'room',
+        created_by: 'website',
+      });
+      if (existingPartial > 0 && existingRoom > 0) return;
 
-      await BillingChargeModel.insertMany([
-        {
+      const docs: Record<string, unknown>[] = [];
+      if (existingRoom === 0) {
+        docs.push({
           hotel_id: hotelId,
           booking_id: bookingId,
           room_id: roomId,
@@ -639,8 +646,10 @@ bookingRoutes.post('/', async (req, res) => {
           }),
           created_at: createdAt,
           updated_at: createdAt,
-        },
-        {
+        });
+      }
+      if (existingPartial === 0) {
+        docs.push({
           hotel_id: hotelId,
           booking_id: bookingId,
           room_id: roomId,
@@ -664,8 +673,11 @@ bookingRoutes.post('/', async (req, res) => {
           }),
           created_at: createdAt,
           updated_at: createdAt,
-        },
-      ]);
+        });
+      }
+      if (docs.length > 0) {
+        await BillingChargeModel.insertMany(docs);
+      }
     }, { attempts: 3, delayMs: 300, label: 'billing_charges half-payment ledger' });
 
     await BookingModel.updateOne(
@@ -1069,31 +1081,22 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
 
   // Preferred guest-checkout proof: signed receipt token issued at create time.
   const rawToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
-  if (rawToken) {
-    try {
-      const payload = verifyReceiptToken(rawToken);
-      const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';
-      if (payload.bookingId !== bookingIdResult.value || payload.email !== bookingEmail) {
-        return res.status(403).json({ message: 'Access denied. Invalid receipt token for this booking.' });
-      }
-      return res.json(serializeBooking(booking as never));
-    } catch {
-      return res.status(401).json({ message: 'Invalid or expired receipt token.' });
+  if (!rawToken) {
+    return res.status(401).json({
+      message: 'Authentication required. Please open your confirmation link with a valid receipt token.',
+    });
+  }
+
+  try {
+    const payload = verifyReceiptToken(rawToken);
+    const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';
+    if (payload.bookingId !== bookingIdResult.value || payload.email !== bookingEmail) {
+      return res.status(403).json({ message: 'Access denied. Invalid receipt token for this booking.' });
     }
+    return res.json(serializeBooking(booking as never));
+  } catch {
+    return res.status(401).json({ message: 'Invalid or expired receipt token.' });
   }
-
-  // Legacy guest-checkout: matching email query param (kept so existing confirmation links work).
-  const rawEmail = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
-  if (!rawEmail) {
-    return res.status(401).json({ message: 'Authentication required. Please sign in or supply a receipt token to view this receipt.' });
-  }
-
-  const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';
-  if (rawEmail !== bookingEmail) {
-    return res.status(403).json({ message: 'Access denied. The supplied email does not match this booking.' });
-  }
-
-  return res.json(serializeBooking(booking as never));
 });
 
 export default bookingRoutes;

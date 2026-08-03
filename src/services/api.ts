@@ -75,8 +75,8 @@ export interface BookingCreatePayload {
   discountAmount?: number;
   specialRequests?: string;
   promoCode?: string;
-  /** Required guest Valid ID file (JPG/PNG/WEBP/PDF, max 5 MB). */
-  validIdFile: File;
+  /** Required on the live Booking Details page; optional only for unused legacy callers. */
+  validIdFile?: File;
 }
 
 export interface BookingUpdatePayload {
@@ -256,7 +256,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.discountAmount != null) form.append('discountAmount', String(payload.discountAmount));
   if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
-  form.append('validId', payload.validIdFile);
+  if (payload.validIdFile) form.append('validId', payload.validIdFile);
 
   const response = await api.post<BookingRequest>('/bookings', form);
   return normalizeBookingResponse(response.data);

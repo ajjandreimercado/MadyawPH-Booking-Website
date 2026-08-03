@@ -51,9 +51,7 @@ export function serializeProperty(property: AnyDocument) {
     roomStatus: roomStatus ? String(roomStatus) : undefined,
     description: source.description ? String(source.description) : undefined,
     categoryName: source.category_name ? String(source.category_name) : source.categoryName ? String(source.categoryName) : undefined,
-    currentGuestName: source.current_guest_name ? String(source.current_guest_name) : source.currentGuestName ? String(source.currentGuestName) : undefined,
-    currentCheckIn: source.current_check_in ? String(source.current_check_in) : source.currentCheckIn ? String(source.currentCheckIn) : undefined,
-    currentCheckOut: source.current_check_out ? String(source.current_check_out) : source.currentCheckOut ? String(source.currentCheckOut) : undefined,
+    // Public listing must never expose in-house guest PII from shared hotel room docs.
     hotelName: source.hotel_name ? String(source.hotel_name) : source.hotelName ? String(source.hotelName) : undefined,
     hotelLocation: source.hotel_location ? String(source.hotel_location) : source.hotelLocation ? String(source.hotelLocation) : undefined,
   };
@@ -162,7 +160,8 @@ export function serializeBooking(booking: AnyDocument) {
     hotelQueueSynced: Boolean(booking.hotel_queue_synced),
     confirmationSentAt: booking.confirmationSentAt ? new Date(booking.confirmationSentAt as string | number | Date).toISOString() : null,
     confirmationSendStatus: booking.confirmationSendStatus ?? 'none',
-    confirmationSendError: booking.confirmationSendError ?? '',
+    // Never expose provider/transport error text to clients.
+    confirmationSendError: '',
   };
 }
 

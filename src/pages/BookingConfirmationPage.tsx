@@ -36,6 +36,11 @@ export default function BookingConfirmationPage() {
     setIsLoading(true);
     const guestEmail = searchParams.get('email') ?? undefined;
     const receiptToken = searchParams.get('token') ?? undefined;
+    if (!receiptToken) {
+      setError('This confirmation link is missing a receipt token. Please use the link shown after submitting your request.');
+      setIsLoading(false);
+      return;
+    }
     fetchBookingById(bookingId, guestEmail, receiptToken)
       .then(b => { setBooking(b); setIsLoading(false); })
       .catch(err => { setError(err instanceof Error ? err.message : 'Unable to load booking'); setIsLoading(false); });

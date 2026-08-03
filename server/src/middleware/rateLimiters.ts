@@ -119,6 +119,17 @@ export const reviewSubmitLimiter = makeLimiter({
   message: { message: 'Too many review submissions. Please try again later.' },
 });
 
+/**
+ * Guest booking create + Valid ID upload.
+ * Tighter than the global limiter to reduce spam and memory pressure from multipart.
+ * Prod: 10 creates / 15 min per IP. Dev: 200.
+ */
+export const bookingCreateLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 200 : 10,
+  message: { message: 'Too many booking requests. Please try again later.' },
+});
+
 // ─── Password reset limiter (for future use) ─────────────────────────────────
 /**
  * Extra-strict limiter for password reset endpoints (when implemented).
