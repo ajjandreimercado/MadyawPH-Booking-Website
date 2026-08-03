@@ -89,6 +89,7 @@ jest.mock('../data/mongoModels', () => ({
   ExternalReservationModel: {
     create: jest.fn().mockResolvedValue({}),
     updateMany: jest.fn().mockResolvedValue({ acknowledged: true }),
+    countDocuments: jest.fn().mockResolvedValue(0),
   },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
@@ -107,6 +108,7 @@ jest.mock('../data/mongoModels', () => ({
   },
   BillingChargeModel: {
     insertMany: jest.fn().mockResolvedValue([]),
+    countDocuments: jest.fn().mockResolvedValue(0),
   },
 }));
 
@@ -194,6 +196,23 @@ describe('POST /api/bookings', () => {
     paymentMethod: 'credit-card',
   };
 
+  /** Minimal 1x1 PNG for Valid ID multipart uploads. */
+  const TINY_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  function postBooking(fields: Record<string, string | number> = VALID_PAYLOAD, withId = true) {
+    let req = request(app).post('/api/bookings');
+    Object.entries(fields).forEach(([key, value]) => {
+      req = req.field(key, String(value));
+    });
+    if (withId) {
+      req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
+    }
+    return req;
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     MockPropertyModel.findById.mockReturnValue({
@@ -203,13 +222,18 @@ describe('POST /api/bookings', () => {
     (MockBookingModel.find as jest.Mock).mockReturnValue({
       lean: jest.fn().mockResolvedValue([]),
     });
-    MockBookingModel.create.mockResolvedValue({ ...mockBooking, status: 'pending' } as never);
+    MockBookingModel.create.mockResolvedValue({
+      ...mockBooking,
+      _id: 'booking-001',
+      status: 'pending',
+      booking_reference: 'BR-111',
+      hotel_id: 'hotel-001',
+      room_id: 'room-001',
+    } as never);
   });
 
   it('creates a booking (POST /api/bookings is intentionally open for guest checkout)', async () => {
-    const res = await request(app)
-      .post('/api/bookings')
-      .send(VALID_PAYLOAD);
+    const res = await postBooking();
 
     expect([201, 409]).toContain(res.status);
     if (res.status === 201) {
@@ -238,6 +262,8 @@ describe('POST /api/bookings', () => {
       expect(created.serviceFee).toBe(0);
       expect(created.payment_status).not.toBe('paid');
       expect(created.payment_status).not.toBe('pending');
+      expect(created.valid_id_filename).toBe('id.png');
+      expect(created.valid_id_base64).toBeTruthy();
 
       const { ExternalReservationModel, BillingChargeModel } = jest.requireMock('../data/mongoModels') as {
         ExternalReservationModel: { create: jest.Mock };
@@ -253,6 +279,7 @@ describe('POST /api/bookings', () => {
         : externalDoc.metadata;
       expect(meta.payment_status).toBe('partial');
       expect(meta.amount_paid).toBe(created.amountPaid);
+      expect(meta.valid_id_uploaded).toBe(true);
 
       expect(BillingChargeModel.insertMany).toHaveBeenCalled();
       const charges = BillingChargeModel.insertMany.mock.calls[0][0];
@@ -263,18 +290,20 @@ describe('POST /api/bookings', () => {
     }
   });
 
+  it('returns 400 when Valid ID is missing', async () => {
+    const res = await postBooking(VALID_PAYLOAD, false);
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/valid id/i);
+  });
+
   it('returns 400 when check-out is before check-in', async () => {
-    const res = await request(app)
-      .post('/api/bookings')
-      .send({ ...VALID_PAYLOAD, checkOutDate: '2026-07-31' }); // before checkIn 08-01
+    const res = await postBooking({ ...VALID_PAYLOAD, checkOutDate: '2026-07-31' });
 
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when required fields are missing', async () => {
-    const res = await request(app)
-      .post('/api/bookings')
-      .send({ propertyId: 'prop-001' }); // missing many fields
+    const res = await postBooking({ propertyId: 'prop-001' });
 
     expect(res.status).toBe(400);
   });

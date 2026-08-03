@@ -125,6 +125,16 @@ const bookingSchema = new Schema(
     updated_at: { type: Date },
     special_requests: { type: String, default: '' },
     promo_code: { type: String, default: '' },
+    // Guest Valid ID (website upload) — hotel app can read from shared booking doc
+    valid_id_filename: { type: String },
+    valid_id_mime: { type: String },
+    valid_id_size: { type: Number },
+    valid_id_base64: { type: String },
+    valid_id_uploaded_at: { type: Date },
+    // Dual-write health for hotel ledger + Online Bookings queue
+    hotel_ledger_synced: { type: Boolean, default: false },
+    hotel_queue_synced: { type: Boolean, default: false },
+    hotel_sync_error: { type: String, default: '' },
     confirmationSentAt: { type: Date, default: null },
     confirmationSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
     confirmationSendError: { type: String, default: '' },

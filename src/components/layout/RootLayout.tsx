@@ -88,10 +88,10 @@ export default function RootLayout() {
             <div className="col-span-1">
               <h3 className="font-serif font-bold text-lg text-brand-secondary mb-4">Support</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Help Center</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Cancellation Options</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Safety Information</SafeLink></li>
-                <li><SafeLink href="#" className="hover:text-brand-secondary transition-colors">Contact Us</SafeLink></li>
+                <li><SafeLink href="/help" className="hover:text-brand-secondary transition-colors">Help Center</SafeLink></li>
+                <li><SafeLink href="/cancellation" className="hover:text-brand-secondary transition-colors">Cancellation Options</SafeLink></li>
+                <li><SafeLink href="/safety" className="hover:text-brand-secondary transition-colors">Safety Information</SafeLink></li>
+                <li><SafeLink href="/contact" className="hover:text-brand-secondary transition-colors">Contact Us</SafeLink></li>
               </ul>
             </div>
 
@@ -117,8 +117,8 @@ export default function RootLayout() {
           <div className="pt-8 border-t border-brand-primary/20 flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-bold text-brand-cream/50">
             <p>© {new Date().getFullYear()} Madyaw. All rights reserved.</p>
             <div className="flex gap-6">
-              <SafeLink href="#" className="hover:text-brand-secondary transition-colors">Privacy Policy</SafeLink>
-              <SafeLink href="#" className="hover:text-brand-secondary transition-colors">Terms of Service</SafeLink>
+              <SafeLink href="/privacy" className="hover:text-brand-secondary transition-colors">Privacy Policy</SafeLink>
+              <SafeLink href="/terms" className="hover:text-brand-secondary transition-colors">Terms of Service</SafeLink>
             </div>
           </div>
         </div>

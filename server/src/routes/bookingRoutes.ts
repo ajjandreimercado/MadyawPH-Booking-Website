@@ -13,6 +13,8 @@ import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import { computeHalfPayment, formatMoneyAmount } from '../utils/halfPayment';
+import { withRetries } from '../utils/withRetries';
+import { runValidIdUpload } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -254,9 +256,29 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
 // ─── POST / ───────────────────────────────────────────────────────────────────
 // Public: unauthenticated guests submit their own name/email/phone in the form.
 // No session token required — this is a guest booking website with no login.
+// Accepts multipart/form-data (Valid ID file) or JSON (legacy / tests without file).
 
 bookingRoutes.post('/', async (req, res) => {
+  let validIdFile: Express.Multer.File | undefined;
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (contentType.includes('multipart/form-data')) {
+    try {
+      validIdFile = await runValidIdUpload(req, res);
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : 'Valid ID upload failed.';
+      const isSize = /File too large|LIMIT_FILE_SIZE/i.test(message);
+      return res.status(400).json({
+        message: isSize ? 'Valid ID must be 5 MB or smaller.' : message,
+      });
+    }
+  }
+
+  if (!validIdFile) {
+    return res.status(400).json({ message: 'Please upload a valid ID (JPG, PNG, WEBP, or PDF, max 5 MB).' });
+  }
+
   // OWASP A03: strip unexpected fields — only pick known booking fields
+  // multipart fields arrive as strings; coerce occupancy numbers below.
   const body = pickFields(req.body, [
     'propertyId',
     'propertyName',
@@ -331,13 +353,25 @@ bookingRoutes.post('/', async (req, res) => {
   // ── Numeric occupancy validation ──────────────────────────────────────────
   // OWASP A03: integer + range checks prevent garbage values in DB and pricing logic
 
-  const adultsResult = validateInteger(body.adults ?? 1, 'Adults', 1, 20);
+  const adultsResult = validateInteger(Number(body.adults ?? 1), 'Adults', 1, 20);
   if (!adultsResult.ok) return res.status(400).json({ message: adultsResult.message });
 
-  const childrenResult = validateOptionalInteger(body.children, 'Children', 0, 20, 0);
+  const childrenResult = validateOptionalInteger(
+    body.children === undefined || body.children === '' ? undefined : Number(body.children),
+    'Children',
+    0,
+    20,
+    0,
+  );
   if (!childrenResult.ok) return res.status(400).json({ message: childrenResult.message });
 
-  const infantsResult = validateOptionalInteger(body.infants, 'Infants', 0, 10, 0);
+  const infantsResult = validateOptionalInteger(
+    body.infants === undefined || body.infants === '' ? undefined : Number(body.infants),
+    'Infants',
+    0,
+    10,
+    0,
+  );
   if (!infantsResult.ok) return res.status(400).json({ message: infantsResult.message });
 
   // Optional string fields with length caps
@@ -354,7 +388,10 @@ bookingRoutes.post('/', async (req, res) => {
   if (!promoCodeResult.ok) return res.status(400).json({ message: promoCodeResult.message });
 
   // Discount amount: non-negative, capped (server always recalculates, but reject clear garbage)
-  const discountAmountResult = validatePositiveNumber(body.discountAmount, 'Discount amount', 1_000_000);
+  const rawDiscountAmount = body.discountAmount === undefined || body.discountAmount === ''
+    ? undefined
+    : Number(body.discountAmount);
+  const discountAmountResult = validatePositiveNumber(rawDiscountAmount, 'Discount amount', 1_000_000);
   if (!discountAmountResult.ok) return res.status(400).json({ message: discountAmountResult.message });
 
   // ── Database operations ───────────────────────────────────────────────────
@@ -453,6 +490,14 @@ bookingRoutes.post('/', async (req, res) => {
     discount_amount: resolvedDiscount,
     special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
     promo_code: promoCode,
+    valid_id_filename: validIdFile.originalname.slice(0, 200),
+    valid_id_mime: validIdFile.mimetype,
+    valid_id_size: validIdFile.size,
+    valid_id_base64: validIdFile.buffer.toString('base64'),
+    valid_id_uploaded_at: createdAt,
+    hotel_ledger_synced: false,
+    hotel_queue_synced: false,
+    hotel_sync_error: '',
     checkInDate: checkInResult.value,
     checkOutDate: checkOutResult.value,
     adults: adultsResult.value,
@@ -558,61 +603,71 @@ bookingRoutes.post('/', async (req, res) => {
 
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
+  const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
+  const bookingId = String(booking._id);
+  const roomId = String(booking.room_id ?? property._id);
+  const paymentMethod = paymentMethodResult.value;
+  const syncErrors: string[] = [];
+
   // Mirror hotel-app billing ledger: room charge + partial (half) payment credit.
   try {
-    const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
-    const bookingId = String(booking._id);
-    const roomId = String(booking.room_id ?? property._id);
-    const now = createdAt;
-    const paymentMethod = paymentMethodResult.value;
-    await BillingChargeModel.insertMany([
-      {
-        hotel_id: hotelId,
+    await withRetries(async () => {
+      const existing = await BillingChargeModel.countDocuments({
         booking_id: bookingId,
-        room_id: roomId,
-        type: 'room',
-        label: `Room charge (${pricing.nights} night${pricing.nights === 1 ? '' : 's'})`,
-        amount: formatMoneyAmount(finalTotalPrice),
-        quantity: 1,
-        is_manual: false,
-        created_by: 'website',
-        metadata: JSON.stringify({
-          channel: 'website',
-          billing_mode: 'nightly',
-          nights: pricing.nights,
-          room_rate: pricing.roomRate,
-          booking_reference: booking.booking_reference,
-        }),
-        created_at: now,
-        updated_at: now,
-      },
-      {
-        hotel_id: hotelId,
-        booking_id: bookingId,
-        room_id: roomId,
         type: 'partial_payment',
-        label: 'Partial payment: Website 50% deposit',
-        amount: formatMoneyAmount(-halfPayment),
-        quantity: 1,
-        is_manual: true,
         created_by: 'website',
-        metadata: JSON.stringify({
-          channel: 'website',
-          payment_method: paymentMethod,
-          payment_reference: '',
-          note: 'Website half payment deposit — balance due at hotel check-out',
-          recorded_by: 'website',
-          booking_reference: booking.booking_reference,
-          deposit_percent: 50,
-          amount_paid: halfPayment,
-          balance_due: balanceDue,
-          stay_total: finalTotalPrice,
-        }),
-        created_at: now,
-        updated_at: now,
-      },
-    ]);
-    // Guard: never leave a website booking looking fully paid.
+      });
+      if (existing > 0) return;
+
+      await BillingChargeModel.insertMany([
+        {
+          hotel_id: hotelId,
+          booking_id: bookingId,
+          room_id: roomId,
+          type: 'room',
+          label: `Room charge (${pricing.nights} night${pricing.nights === 1 ? '' : 's'})`,
+          amount: formatMoneyAmount(finalTotalPrice),
+          quantity: 1,
+          is_manual: false,
+          created_by: 'website',
+          metadata: JSON.stringify({
+            channel: 'website',
+            billing_mode: 'nightly',
+            nights: pricing.nights,
+            room_rate: pricing.roomRate,
+            booking_reference: booking.booking_reference,
+          }),
+          created_at: createdAt,
+          updated_at: createdAt,
+        },
+        {
+          hotel_id: hotelId,
+          booking_id: bookingId,
+          room_id: roomId,
+          type: 'partial_payment',
+          label: 'Partial payment: Website 50% deposit',
+          amount: formatMoneyAmount(-halfPayment),
+          quantity: 1,
+          is_manual: true,
+          created_by: 'website',
+          metadata: JSON.stringify({
+            channel: 'website',
+            payment_method: paymentMethod,
+            payment_reference: '',
+            note: 'Website half payment deposit — balance due at hotel check-out',
+            recorded_by: 'website',
+            booking_reference: booking.booking_reference,
+            deposit_percent: 50,
+            amount_paid: halfPayment,
+            balance_due: balanceDue,
+            stay_total: finalTotalPrice,
+          }),
+          created_at: createdAt,
+          updated_at: createdAt,
+        },
+      ]);
+    }, { attempts: 3, delayMs: 300, label: 'billing_charges half-payment ledger' });
+
     await BookingModel.updateOne(
       { _id: booking._id },
       {
@@ -625,46 +680,77 @@ bookingRoutes.post('/', async (req, res) => {
           total_amount: finalTotalPrice,
           totalPrice: finalTotalPrice,
           serviceFee: 0,
+          hotel_ledger_synced: true,
         },
       },
     );
     console.log(`[MongoDB Action] Collection: billing_charges, Action: create half-payment ledger, Booking: ${bookingId}`);
   } catch (billingError) {
-    console.error('[Bookings] Failed to create billing_charges for half payment:', billingError);
+    const msg = billingError instanceof Error ? billingError.message : String(billingError);
+    syncErrors.push(`ledger:${msg}`);
+    console.error('[Bookings] Failed to create billing_charges for half payment after retries:', billingError);
   }
 
-  // Hotel app "Online Bookings" is driven by external_reservations (pending_approval),
-  // not by bookings.booking_type alone. Create the queue row linked to this booking.
+  // Hotel app "Online Bookings" is driven by external_reservations (pending_approval).
   try {
-    const externalDoc = buildExternalReservationDoc({
-      hotelId: String(booking.hotel_id ?? property.hotel_id ?? ''),
-      bookingId: String(booking._id),
-      bookingReference: String(booking.booking_reference),
-      guestName: guestNameResult.value,
-      guestEmail: guestEmailResult.value,
-      guestPhone: guestPhoneResult.value,
-      checkInDate: hotelAppFields.check_in_date,
-      checkOutDate: hotelAppFields.check_out_date,
-      roomId: String(booking.room_id ?? property._id),
-      paymentMethod: paymentMethodResult.value,
-      totalAmount: finalTotalPrice,
-      halfPayment,
-      balanceDue,
-      nights: pricing.nights,
-      adults: adultsResult.value,
-      children: childrenResult.value,
-      now: createdAt,
-    });
-    await ExternalReservationModel.create(externalDoc);
-    console.log(`[MongoDB Action] Collection: external_reservations, Action: create, Success: true, Ref: ${externalDoc.external_reference}`);
+    await withRetries(async () => {
+      const existing = await ExternalReservationModel.countDocuments({
+        booking_id: bookingId,
+        external_reference: String(booking.booking_reference),
+      });
+      if (existing > 0) return;
+
+      const externalDoc = buildExternalReservationDoc({
+        hotelId,
+        bookingId,
+        bookingReference: String(booking.booking_reference),
+        guestName: guestNameResult.value,
+        guestEmail: guestEmailResult.value,
+        guestPhone: guestPhoneResult.value,
+        checkInDate: hotelAppFields.check_in_date,
+        checkOutDate: hotelAppFields.check_out_date,
+        roomId,
+        paymentMethod,
+        totalAmount: finalTotalPrice,
+        halfPayment,
+        balanceDue,
+        nights: pricing.nights,
+        adults: adultsResult.value,
+        children: childrenResult.value,
+        now: createdAt,
+        validIdUploaded: true,
+        validIdFilename: validIdFile.originalname.slice(0, 200),
+      });
+      await ExternalReservationModel.create(externalDoc);
+    }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });
+
+    await BookingModel.updateOne(
+      { _id: booking._id },
+      { $set: { hotel_queue_synced: true } },
+    );
+    console.log(`[MongoDB Action] Collection: external_reservations, Action: create, Success: true, Ref: ${booking.booking_reference}`);
   } catch (externalError) {
-    // Booking already exists — do not fail the guest response; hotel can still open the booking record.
-    console.error('[Bookings] Failed to create external_reservations Online Bookings row:', externalError);
+    const msg = externalError instanceof Error ? externalError.message : String(externalError);
+    syncErrors.push(`queue:${msg}`);
+    console.error('[Bookings] Failed to create external_reservations Online Bookings row after retries:', externalError);
+  }
+
+  if (syncErrors.length > 0) {
+    await BookingModel.updateOne(
+      { _id: booking._id },
+      { $set: { hotel_sync_error: syncErrors.join(' | ').slice(0, 500) } },
+    );
   }
 
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
     ...serializeBooking(booking as never),
+    amountPaid: halfPayment,
+    balanceDue,
+    paymentStatus: 'partial',
+    validIdUploaded: true,
+    hotelLedgerSynced: syncErrors.every((e) => !e.startsWith('ledger:')),
+    hotelQueueSynced: syncErrors.every((e) => !e.startsWith('queue:')),
     receiptToken,
   });
 });

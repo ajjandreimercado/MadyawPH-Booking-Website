@@ -168,7 +168,16 @@ export default function BookingPage() {
       return;
     }
     if (!validIdFile) {
-      showToast({ title: 'Please upload/send your valid ID to continue', type: 'error' });
+      showToast({ title: 'Please upload your valid ID to continue', type: 'error' });
+      return;
+    }
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(validIdFile.type)) {
+      showToast({ title: 'Valid ID must be a JPG, PNG, WEBP, or PDF', type: 'error' });
+      return;
+    }
+    if (validIdFile.size > 5 * 1024 * 1024) {
+      showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
       return;
     }
 
@@ -194,8 +203,9 @@ export default function BookingPage() {
         discountAmount: discountAmt,
         discountReason,
         promoCode: promoCode.trim() || undefined,
+        validIdFile,
         specialRequests: [
-          validIdFile ? `Valid ID: ${validIdFile.name}` : '',
+          `Valid ID uploaded: ${validIdFile.name}`,
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
@@ -350,17 +360,29 @@ export default function BookingPage() {
                           Click to upload or drag & drop your valid ID
                         </p>
                         <p className="text-[10px] text-brand-dark/50 mt-0.5">
-                          PNG, JPG, or PDF (MAX. 5MB)
+                          JPG, PNG, WEBP, or PDF (MAX. 5MB) — stored securely for the hotel
                         </p>
                       </div>
                     )}
                     <input
                       id="booking-valid-id"
                       type="file"
-                      accept="image/*,.pdf"
+                      accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
                       onChange={e => {
                         const file = e.target.files?.[0];
-                        if (file) setValidIdFile(file);
+                        if (!file) return;
+                        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+                        if (!allowed.includes(file.type)) {
+                          showToast({ title: 'Valid ID must be a JPG, PNG, WEBP, or PDF', type: 'error' });
+                          e.target.value = '';
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
+                          e.target.value = '';
+                          return;
+                        }
+                        setValidIdFile(file);
                       }}
                       className="hidden"
                     />

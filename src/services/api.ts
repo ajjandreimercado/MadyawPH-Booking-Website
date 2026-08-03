@@ -75,6 +75,8 @@ export interface BookingCreatePayload {
   discountAmount?: number;
   specialRequests?: string;
   promoCode?: string;
+  /** Required guest Valid ID file (JPG/PNG/WEBP/PDF, max 5 MB). */
+  validIdFile: File;
 }
 
 export interface BookingUpdatePayload {
@@ -108,6 +110,17 @@ export const api = axios.create({
     Accept: 'application/json',
     'Content-Type': 'application/json',
   },
+});
+
+api.interceptors.request.use((config) => {
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    // Let the browser set multipart boundary.
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+      delete (config.headers as Record<string, unknown>)['content-type'];
+    }
+  }
+  return config;
 });
 // Requests now rely on httpOnly cookies set by the API; do not auto-inject tokens from localStorage.
 
@@ -226,7 +239,26 @@ export async function getCurrentUser() {
 }
 
 export async function createBookingRequest(payload: BookingCreatePayload) {
-  const response = await api.post<BookingRequest>('/bookings', payload);
+  const form = new FormData();
+  form.append('propertyId', payload.propertyId);
+  form.append('propertyName', payload.propertyName);
+  form.append('guestName', payload.guestName);
+  form.append('guestEmail', payload.guestEmail);
+  if (payload.guestPhone) form.append('guestPhone', payload.guestPhone);
+  form.append('checkInDate', payload.checkInDate);
+  form.append('checkOutDate', payload.checkOutDate);
+  form.append('adults', String(payload.adults));
+  form.append('children', String(payload.children));
+  form.append('infants', String(payload.infants));
+  form.append('roomType', payload.roomType);
+  form.append('paymentMethod', payload.paymentMethod);
+  if (payload.discountReason) form.append('discountReason', payload.discountReason);
+  if (payload.discountAmount != null) form.append('discountAmount', String(payload.discountAmount));
+  if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
+  if (payload.promoCode) form.append('promoCode', payload.promoCode);
+  form.append('validId', payload.validIdFile);
+
+  const response = await api.post<BookingRequest>('/bookings', form);
   return normalizeBookingResponse(response.data);
 }
 

@@ -24,6 +24,8 @@ export function buildExternalReservationDoc(input: {
   adults: number;
   children?: number;
   now?: Date;
+  validIdUploaded?: boolean;
+  validIdFilename?: string;
 }) {
   const now = input.now ?? new Date();
   const metadata = {
@@ -39,6 +41,8 @@ export function buildExternalReservationDoc(input: {
     payment_status: 'partial',
     deposit_percent: 50,
     note: 'Website half deposit — remaining balance due at hotel check-out',
+    valid_id_uploaded: Boolean(input.validIdUploaded),
+    valid_id_filename: input.validIdFilename ?? '',
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,
