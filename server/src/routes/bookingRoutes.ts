@@ -14,7 +14,7 @@ import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import { computeHalfPayment, formatMoneyAmount } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
-import { runValidIdUpload } from '../middleware/validIdUpload';
+import { runValidIdUpload, type UploadedValidIdFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -260,7 +260,7 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
 // Accepts multipart/form-data with required Valid ID file.
 
 bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
-  let validIdFile: Express.Multer.File | undefined;
+  let validIdFile: UploadedValidIdFile | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
   if (contentType.includes('multipart/form-data')) {
     try {

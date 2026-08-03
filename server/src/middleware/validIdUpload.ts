@@ -1,7 +1,18 @@
+import type { Request, Response } from 'express';
 import multer from 'multer';
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 export const VALID_ID_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Local file shape — avoids Express.Multer types (not installed on Render prod builds). */
+export interface UploadedValidIdFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 /** Detect file type from magic bytes (do not trust client Content-Type alone). */
 export function detectValidIdMime(buffer: Buffer): string | null {
@@ -47,14 +58,16 @@ export const validIdUpload = multer({
   },
 }).single('validId');
 
-export function runValidIdUpload(req: Parameters<typeof validIdUpload>[0], res: Parameters<typeof validIdUpload>[1]): Promise<Express.Multer.File | undefined> {
+type RequestWithFile = Request & { file?: UploadedValidIdFile };
+
+export function runValidIdUpload(req: Request, res: Response): Promise<UploadedValidIdFile | undefined> {
   return new Promise((resolve, reject) => {
     validIdUpload(req, res, (err: unknown) => {
       if (err) {
         reject(err);
         return;
       }
-      const file = req.file;
+      const file = (req as RequestWithFile).file;
       if (!file) {
         resolve(undefined);
         return;
