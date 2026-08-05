@@ -4,7 +4,10 @@
  */
 
 import { BookingModel } from '../data/mongoModels';
-import { sendBookingConfirmationNotification } from './notificationService';
+import {
+  sendBookingConfirmationNotification,
+  sendBookingDeclinedNotification,
+} from './notificationService';
 import { ensureWebsiteHalfPaymentLedger } from '../utils/websiteBillingLedger';
 import { computeHalfPayment } from '../utils/halfPayment';
 import { toStayDate } from '../utils/hotelAppBookingFields';
@@ -219,6 +222,8 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
   }
   await booking.save();
 
+  const emailSent = await sendBookingDeclinedNotification(booking);
+
   return {
     ok: true,
     kind: 'rejected',
@@ -226,6 +231,9 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     bookingReference,
     previousStatus,
     newStatus: String(booking.status),
-    message: `Booking marked ${booking.status} after hotel rejection.`,
+    emailSent,
+    message: emailSent
+      ? `Booking marked ${booking.status}; decline email sent to ${booking.guestEmail}.`
+      : `Booking marked ${booking.status}; decline email was not delivered.`,
   };
 }

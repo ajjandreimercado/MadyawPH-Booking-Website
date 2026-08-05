@@ -7,7 +7,7 @@ import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '
 import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
-import { sendBookingConfirmationNotification } from '../services/notificationService';
+import { sendBookingConfirmationNotification, sendBookingRequestReceivedNotification, sendBookingDeclinedNotification } from '../services/notificationService';
 import { createPaymentCheckout } from '../services/paymentService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
@@ -791,6 +791,16 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     );
   }
 
+  // Guest lifecycle email #1: request received (do not fail the booking if email fails).
+  try {
+    const fresh = await BookingModel.findById(booking._id);
+    if (fresh) {
+      await sendBookingRequestReceivedNotification(fresh);
+    }
+  } catch (emailError) {
+    console.error('[Bookings] Failed to send request-received email:', emailError);
+  }
+
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
     ...serializeBooking(booking as never),
@@ -861,6 +871,12 @@ bookingRoutes.post('/:bookingId/review-availability', requireAuth, async (req, r
     }
     console.log(`[MongoDB Action] Collection: bookings, Action: save (update status), ID: ${booking._id}, New Status: ${booking.status}`);
     await booking.save();
+
+    if (booking.status === 'declined') {
+      await sendBookingDeclinedNotification(booking).catch((err) => {
+        console.error('[Bookings] Decline email failed after availability review:', err);
+      });
+    }
 
     return res.json({
       booking: serializeBooking(booking.toObject() as never),
@@ -944,6 +960,13 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
 
   if (statusResult.value === 'confirmed' && previousStatus !== 'confirmed') {
     await sendBookingConfirmationNotification(booking);
+  }
+  if (
+    (statusResult.value === 'declined' || statusResult.value === 'cancelled')
+    && previousStatus !== statusResult.value
+    && !['declined', 'cancelled'].includes(String(previousStatus))
+  ) {
+    await sendBookingDeclinedNotification(booking);
   }
 
   // Heal missing hotel-app required boolean so saves/reports don't fail validation.

@@ -138,6 +138,10 @@ const bookingSchema = new Schema(
     confirmationSentAt: { type: Date, default: null },
     confirmationSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
     confirmationSendError: { type: String, default: '' },
+    requestSentAt: { type: Date, default: null },
+    requestSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
+    declineSentAt: { type: Date, default: null },
+    declineSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
   },
   schemaOptions,
 );

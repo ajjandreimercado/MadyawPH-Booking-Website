@@ -59,15 +59,21 @@ jest.mock('../data/mongoModels', () => ({
 
 jest.mock('../services/notificationService', () => ({
   sendBookingConfirmationNotification: jest.fn().mockResolvedValue(true),
+  sendBookingDeclinedNotification: jest.fn().mockResolvedValue(true),
+  sendBookingRequestReceivedNotification: jest.fn().mockResolvedValue(true),
 }));
 
 import { BookingModel } from '../data/mongoModels';
-import { sendBookingConfirmationNotification } from '../services/notificationService';
+import {
+  sendBookingConfirmationNotification,
+  sendBookingDeclinedNotification,
+} from '../services/notificationService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { normalizeHotelDecisionStatus } from '../utils/externalReservation';
 
 const MockBookingModel = BookingModel as jest.Mocked<typeof BookingModel>;
 const mockSend = sendBookingConfirmationNotification as jest.MockedFunction<typeof sendBookingConfirmationNotification>;
+const mockDeclineSend = sendBookingDeclinedNotification as jest.MockedFunction<typeof sendBookingDeclinedNotification>;
 
 describe('normalizeHotelDecisionStatus', () => {
   it('maps hotel approval statuses', () => {
@@ -109,7 +115,7 @@ describe('applyHotelBookingDecision', () => {
     expect(mockSend).toHaveBeenCalledWith(booking);
   });
 
-  it('declines pending booking on rejection without email', async () => {
+  it('declines pending booking on rejection and emails guest', async () => {
     const booking = { ...mockBookingDoc, save: jest.fn().mockResolvedValue(undefined) };
     MockBookingModel.findById.mockResolvedValue(booking as never);
 
@@ -122,6 +128,7 @@ describe('applyHotelBookingDecision', () => {
     expect(result.kind).toBe('rejected');
     expect(booking.status).toBe('declined');
     expect(mockSend).not.toHaveBeenCalled();
+    expect(mockDeclineSend).toHaveBeenCalledWith(booking);
   });
 });
 
