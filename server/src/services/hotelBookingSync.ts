@@ -7,6 +7,7 @@ import { BookingModel } from '../data/mongoModels';
 import { sendBookingConfirmationNotification } from './notificationService';
 import { ensureWebsiteHalfPaymentLedger } from '../utils/websiteBillingLedger';
 import { computeHalfPayment } from '../utils/halfPayment';
+import { toStayDate } from '../utils/hotelAppBookingFields';
 import {
   normalizeHotelDecisionStatus,
   type HotelDecisionKind,
@@ -48,6 +49,26 @@ async function findWebsiteBooking(input: HotelDecisionInput) {
   }
 
   return null;
+}
+
+function attachStayDatesForHotel(booking: {
+  checkInDate?: string;
+  checkOutDate?: string;
+  check_in_date?: Date | string | null;
+  check_out_date?: Date | string | null;
+}) {
+  const checkInYmd = String(booking.checkInDate ?? '').slice(0, 10);
+  const checkOutYmd = String(booking.checkOutDate ?? '').slice(0, 10);
+  let changed = false;
+  if (!booking.check_in_date && /^\d{4}-\d{2}-\d{2}$/.test(checkInYmd)) {
+    booking.check_in_date = toStayDate(checkInYmd);
+    changed = true;
+  }
+  if (!booking.check_out_date && /^\d{4}-\d{2}-\d{2}$/.test(checkOutYmd)) {
+    booking.check_out_date = toStayDate(checkOutYmd);
+    changed = true;
+  }
+  return changed;
 }
 
 async function writeLedgerAfterApproval(booking: {
@@ -124,6 +145,9 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     // Hotel may already set reserved/booked — treat those as approved too.
     const alreadyActive = ['confirmed', 'reserved', 'booked'].includes(previousStatus);
     if (alreadyActive) {
+      if (attachStayDatesForHotel(booking)) {
+        await booking.save();
+      }
       await writeLedgerAfterApproval(booking);
       const emailSent = await sendBookingConfirmationNotification(booking);
       return {
@@ -150,6 +174,7 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     }
 
     booking.status = 'confirmed';
+    attachStayDatesForHotel(booking);
     if (typeof booking.summary_only !== 'boolean') {
       booking.summary_only = false;
     }

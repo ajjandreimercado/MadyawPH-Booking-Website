@@ -246,11 +246,11 @@ describe('POST /api/bookings', () => {
       expect(created.summary_only).toBe(false);
       expect(created.booking_type).toBe('online');
       expect(created.booking_source).toBe('website-customer');
-      expect(created.check_in_date).toBeInstanceOf(Date);
-      expect(created.check_out_date).toBeInstanceOf(Date);
+      expect(created.check_in_date).toBeUndefined();
+      expect(created.check_out_date).toBeUndefined();
       expect(created.created_at).toBeInstanceOf(Date);
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
-      expect(created.status).toBe('pending');
+      expect(created.status).toBe('requested');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('partial');
       expect(created.amountPaid).toBeGreaterThan(0);

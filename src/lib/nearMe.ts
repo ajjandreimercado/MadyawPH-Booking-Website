@@ -36,7 +36,7 @@ export function buildGoogleMapsDirectionsUrl(input: {
   destLng?: number | null;
   originLat?: number | null;
   originLng?: number | null;
-  /** Prefer hotel name + street address — more accurate than city-center geocodes. */
+  /** Prefer hotel business name — more accurate than street geocodes. */
   destinationQuery?: string;
   label?: string;
 }): string {
@@ -65,21 +65,36 @@ export function buildGoogleMapsDirectionsUrl(input: {
     && Number.isFinite(input.originLat)
     && Number.isFinite(input.originLng)
   ) {
-    return `https://www.google.com/maps/dir/?api=1&origin=${input.originLat},${input.originLng}&destination=${destination}`;
+    return `https://www.google.com/maps/dir/?api=1&origin=${input.originLat},${input.originLng}&destination=${destination}&travelmode=driving`;
   }
 
-  return `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+  // Search (not raw lat/lng) so Google Places can match the hotel business listing.
+  return `https://www.google.com/maps/search/?api=1&query=${destination}`;
 }
 
-/** Build a Maps query from hotel name + address (strips noisy region suffixes). */
+/**
+ * Build a Maps query that prefers the hotel business name.
+ * Avoid stuffing long street strings that geocode to city landmarks (e.g. Guingona Park).
+ */
 export function buildHotelMapsQuery(hotel: { name?: string; location?: string; city?: string }): string {
   const name = String(hotel.name ?? '').trim();
-  let location = String(hotel.location ?? '').trim();
-  // Drop "Caraga (Region XIII)" style tails that dilute Google place matching.
-  location = location
-    .replace(/,?\s*Caraga\s*\(Region\s*XIII\)/i, '')
-    .replace(/,?\s*Region\s*XIII/i, '')
-    .trim();
   const city = String(hotel.city ?? '').trim();
-  return [name, location || city].filter(Boolean).join(', ');
+
+  // Extract a short city hint from location when city field is empty.
+  let cityHint = city;
+  if (!cityHint) {
+    const loc = String(hotel.location ?? '');
+    const butuan = loc.match(/\bButuan(?:\s+City)?\b/i);
+    if (butuan) cityHint = 'Butuan City';
+  }
+
+  // Name + city only — Google resolves "Gloreto Luxury Hotel, Butuan City" far better
+  // than "Villanueva Street, Brgy Golden Ribbon…" which lands on Guingona Park.
+  if (name && cityHint) {
+    return `${name}, ${cityHint}, Philippines`;
+  }
+  if (name) {
+    return `${name}, Philippines`;
+  }
+  return String(hotel.location ?? cityHint ?? '').trim();
 }

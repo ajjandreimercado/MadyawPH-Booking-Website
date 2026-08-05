@@ -25,8 +25,8 @@ export function toStayDate(dateStr: string): Date {
 export interface HotelAppBookingFields {
   guest_name: string;
   guest_email: string;
-  check_in_date: Date;
-  check_out_date: Date;
+  check_in_date?: Date;
+  check_out_date?: Date;
   created_at: Date;
   updated_at: Date;
   booking_type: 'online';
@@ -38,6 +38,11 @@ export interface HotelAppBookingFields {
 
 /**
  * Dual-write fields the hotel app expects alongside the website camelCase fields.
+ *
+ * `includeStayDates` defaults to false for website Online Booking requests:
+ * writing check_in_date/check_out_date on create makes the hotel app treat the
+ * request as an inventory hold and blocks approval (self-overlap).
+ * Stay Dates live on external_reservations until the hotel approves.
  */
 export function buildHotelAppBookingFields(input: {
   guestName: string;
@@ -46,13 +51,20 @@ export function buildHotelAppBookingFields(input: {
   checkOutDate: string;
   paymentMethod: string;
   now?: Date;
+  /** When false (default), omit snake_case stay dates so hotel inventory is not held. */
+  includeStayDates?: boolean;
 }): HotelAppBookingFields {
   const now = input.now ?? new Date();
+  const includeStayDates = input.includeStayDates === true;
   return {
     guest_name: input.guestName,
     guest_email: input.guestEmail,
-    check_in_date: toStayDate(input.checkInDate),
-    check_out_date: toStayDate(input.checkOutDate),
+    ...(includeStayDates
+      ? {
+          check_in_date: toStayDate(input.checkInDate),
+          check_out_date: toStayDate(input.checkOutDate),
+        }
+      : {}),
     created_at: now,
     updated_at: now,
     // Hotel UI maps booking_type === 'online' → "Online"; anything else often shows as "Local"

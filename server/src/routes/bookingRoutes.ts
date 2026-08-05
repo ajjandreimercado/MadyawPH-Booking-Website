@@ -12,7 +12,7 @@ import { createPaymentCheckout } from '../services/paymentService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
-import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
+import { buildHotelAppBookingFields, toStayDate } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import { computeHalfPayment } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
@@ -552,9 +552,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
 
   // Shared MongoDB with the hotel management app:
-  // - This website only INSERTS a pending request (never deletes hotel/ops data).
-  // - Dual-write snake_case Date + guest aliases so frontdesk schedule/queue can read them.
-  // - summary_only must be an explicit boolean or hotel reports fail validation.
+  // - This website only INSERTS a reservation request (never deletes hotel/ops data).
+  // - Do NOT write check_in_date/check_out_date here — that makes the hotel app treat
+  //   the request as a room hold and blocks Online Booking approval (self-overlap).
+  // - Stay Dates for the hotel queue live on external_reservations only until approval.
   const hotelAppFields = buildHotelAppBookingFields({
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
@@ -562,7 +563,13 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     checkOutDate: checkOutResult.value,
     paymentMethod: paymentMethodResult.value,
     now: createdAt,
+    includeStayDates: false,
   });
+
+  const stayDatesForQueue = {
+    checkInDate: toStayDate(checkInResult.value),
+    checkOutDate: toStayDate(checkOutResult.value),
+  };
 
   const { halfPayment, balanceDue } = computeHalfPayment(finalTotalPrice);
   // Hotel app statuses are unpaid | partial | paid (not "pending").
@@ -613,7 +620,9 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     deposit_amount: halfPayment,
     balance_due: balanceDue,
     payment_status: 'partial',
-    status: 'pending',
+    // 'requested' = website Online Booking awaiting hotel approval.
+    // Avoid 'pending' — hotel app treats pending bookings as inventory holds.
+    status: 'requested',
     requestedAt: createdAt.toISOString(),
     confirmationSendStatus: 'none' as const,
     confirmationSentAt: null as null,
@@ -747,8 +756,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
         guestName: guestNameResult.value,
         guestEmail: guestEmailResult.value,
         guestPhone: guestPhoneResult.value,
-        checkInDate: hotelAppFields.check_in_date,
-        checkOutDate: hotelAppFields.check_out_date,
+        checkInDate: stayDatesForQueue.checkInDate,
+        checkOutDate: stayDatesForQueue.checkOutDate,
         roomId,
         paymentMethod,
         totalAmount: finalTotalPrice,
