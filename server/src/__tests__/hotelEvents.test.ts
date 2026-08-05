@@ -30,6 +30,7 @@ jest.mock('../data/mongoModels', () => ({
     find: jest.fn(),
     create: jest.fn(),
     countDocuments: jest.fn(),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 }),
   },
   PropertyModel: { findById: jest.fn(), find: jest.fn() },
   UserModel: { findById: jest.fn(), findOne: jest.fn() },
@@ -61,6 +62,10 @@ jest.mock('../services/notificationService', () => ({
   sendBookingConfirmationNotification: jest.fn().mockResolvedValue(true),
   sendBookingDeclinedNotification: jest.fn().mockResolvedValue(true),
   sendBookingRequestReceivedNotification: jest.fn().mockResolvedValue(true),
+  queueGuestNotification: jest.fn((_label: string, task: () => Promise<unknown>) => {
+    void task();
+  }),
+  buildRebookUrl: jest.fn(),
 }));
 
 import { BookingModel } from '../data/mongoModels';
@@ -74,6 +79,13 @@ import { normalizeHotelDecisionStatus } from '../utils/externalReservation';
 const MockBookingModel = BookingModel as jest.Mocked<typeof BookingModel>;
 const mockSend = sendBookingConfirmationNotification as jest.MockedFunction<typeof sendBookingConfirmationNotification>;
 const mockDeclineSend = sendBookingDeclinedNotification as jest.MockedFunction<typeof sendBookingDeclinedNotification>;
+
+function mockFindBooking(booking: typeof mockBookingDoc) {
+  const chain = { select: jest.fn().mockResolvedValue(booking) };
+  (MockBookingModel.findById as jest.Mock).mockReturnValue(chain);
+  (MockBookingModel.findOne as jest.Mock).mockReturnValue(chain);
+  return chain;
+}
 
 describe('normalizeHotelDecisionStatus', () => {
   it('maps hotel approval statuses', () => {
@@ -97,11 +109,12 @@ describe('applyHotelBookingDecision', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSend.mockResolvedValue(true);
+    (MockBookingModel.updateOne as jest.Mock).mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
   });
 
   it('confirms pending booking and sends email on approval', async () => {
-    const booking = { ...mockBookingDoc, save: jest.fn().mockResolvedValue(undefined) };
-    MockBookingModel.findOne.mockResolvedValue(booking as never);
+    const booking = { ...mockBookingDoc };
+    mockFindBooking(booking);
 
     const result = await applyHotelBookingDecision({
       bookingReference: 'BR-111',
@@ -111,13 +124,13 @@ describe('applyHotelBookingDecision', () => {
     expect(result.ok).toBe(true);
     expect(result.kind).toBe('approved');
     expect(booking.status).toBe('confirmed');
-    expect(booking.save).toHaveBeenCalled();
+    expect(MockBookingModel.updateOne).toHaveBeenCalled();
     expect(mockSend).toHaveBeenCalledWith(booking);
   });
 
   it('declines pending booking on rejection and emails guest', async () => {
-    const booking = { ...mockBookingDoc, save: jest.fn().mockResolvedValue(undefined) };
-    MockBookingModel.findById.mockResolvedValue(booking as never);
+    const booking = { ...mockBookingDoc };
+    mockFindBooking(booking);
 
     const result = await applyHotelBookingDecision({
       bookingId: 'booking-001',
@@ -136,6 +149,7 @@ describe('POST /api/bookings/hotel-events', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSend.mockResolvedValue(true);
+    (MockBookingModel.updateOne as jest.Mock).mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
   });
 
   it('returns 503 when webhook secret is missing', async () => {
@@ -156,8 +170,8 @@ describe('POST /api/bookings/hotel-events', () => {
   });
 
   it('confirms booking when hotel sends approved event', async () => {
-    const booking = { ...mockBookingDoc, save: jest.fn().mockResolvedValue(undefined) };
-    MockBookingModel.findOne.mockResolvedValue(booking as never);
+    const booking = { ...mockBookingDoc };
+    mockFindBooking(booking);
 
     const res = await request(app)
       .post('/api/bookings/hotel-events')

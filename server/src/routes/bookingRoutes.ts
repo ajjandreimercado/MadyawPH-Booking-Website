@@ -7,7 +7,7 @@ import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '
 import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
-import { sendBookingConfirmationNotification, sendBookingRequestReceivedNotification, sendBookingDeclinedNotification } from '../services/notificationService';
+import { sendBookingConfirmationNotification, sendBookingRequestReceivedNotification, sendBookingDeclinedNotification, queueGuestNotification } from '../services/notificationService';
 import { createPaymentCheckout } from '../services/paymentService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
@@ -717,28 +717,6 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   // by the hotel app and blocks Online Booking approval (self-overlap).
   // Deposit preference is stored on the booking + external_reservations metadata;
   // ledger rows are written after hotel approval (see hotelBookingSync).
-  try {
-    await BookingModel.updateOne(
-      { _id: booking._id },
-      {
-        $set: {
-          payment_status: 'partial',
-          amountPaid: halfPayment,
-          amount_paid: halfPayment,
-          deposit_amount: halfPayment,
-          balance_due: balanceDue,
-          total_amount: finalTotalPrice,
-          totalPrice: finalTotalPrice,
-          serviceFee: 0,
-          hotel_ledger_synced: false,
-        },
-      },
-    );
-  } catch (billingError) {
-    const msg = billingError instanceof Error ? billingError.message : String(billingError);
-    syncErrors.push(`ledger-fields:${msg}`);
-    console.error('[Bookings] Failed to persist half-payment preference fields:', billingError);
-  }
 
   // Hotel app "Online Bookings" is driven by external_reservations (pending_approval).
   try {
@@ -791,15 +769,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     );
   }
 
-  // Guest lifecycle email #1: request received (do not fail the booking if email fails).
-  try {
-    const fresh = await BookingModel.findById(booking._id);
-    if (fresh) {
-      await sendBookingRequestReceivedNotification(fresh);
-    }
-  } catch (emailError) {
-    console.error('[Bookings] Failed to send request-received email:', emailError);
-  }
+  // Guest lifecycle email #1: request received (off the request path — Resend can be slow).
+  queueGuestNotification('request-received', () => sendBookingRequestReceivedNotification(booking));
 
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
@@ -873,9 +844,7 @@ bookingRoutes.post('/:bookingId/review-availability', requireAuth, async (req, r
     await booking.save();
 
     if (booking.status === 'declined') {
-      await sendBookingDeclinedNotification(booking).catch((err) => {
-        console.error('[Bookings] Decline email failed after availability review:', err);
-      });
+      queueGuestNotification('decline-after-review', () => sendBookingDeclinedNotification(booking));
     }
 
     return res.json({
@@ -959,14 +928,14 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
   }
 
   if (statusResult.value === 'confirmed' && previousStatus !== 'confirmed') {
-    await sendBookingConfirmationNotification(booking);
+    queueGuestNotification('confirmation', () => sendBookingConfirmationNotification(booking));
   }
   if (
     (statusResult.value === 'declined' || statusResult.value === 'cancelled')
     && previousStatus !== statusResult.value
     && !['declined', 'cancelled'].includes(String(previousStatus))
   ) {
-    await sendBookingDeclinedNotification(booking);
+    queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));
   }
 
   // Heal missing hotel-app required boolean so saves/reports don't fail validation.

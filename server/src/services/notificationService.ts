@@ -1,3 +1,4 @@
+import { BookingModel } from '../data/mongoModels';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
 
 export interface BookingNotificationTarget {
@@ -55,6 +56,16 @@ export function buildRebookUrl(booking: BookingNotificationTarget): string {
   return `${origin}/search`;
 }
 
+/**
+ * Run guest email work off the request path so booking/confirm UX is not blocked
+ * waiting on Resend.
+ */
+export function queueGuestNotification(label: string, task: () => Promise<unknown>): void {
+  void task().catch((error) => {
+    console.error(`[Notification] ${label} failed:`, error);
+  });
+}
+
 async function deliverEmail(to: string, subject: string, text: string): Promise<EmailSendResult> {
   const apiKey = getResendApiKey();
   if (!apiKey) {
@@ -93,11 +104,19 @@ async function deliverEmail(to: string, subject: string, text: string): Promise<
   return { delivered: true, provider: 'resend' };
 }
 
+/**
+ * Prefer a targeted $set so we never rewrite multi-MB valid_id_base64 on email status updates.
+ */
 async function persistSendState(
   booking: BookingNotificationTarget,
   fields: Record<string, unknown>,
 ): Promise<void> {
   Object.assign(booking, fields);
+  const id = booking._id;
+  if (id != null) {
+    await BookingModel.updateOne({ _id: id }, { $set: fields });
+    return;
+  }
   if (typeof booking.save === 'function') {
     await booking.save();
   }

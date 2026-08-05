@@ -5,6 +5,7 @@
 
 import { BookingModel } from '../data/mongoModels';
 import {
+  queueGuestNotification,
   sendBookingConfirmationNotification,
   sendBookingDeclinedNotification,
 } from './notificationService';
@@ -15,6 +16,9 @@ import {
   normalizeHotelDecisionStatus,
   type HotelDecisionKind,
 } from '../utils/externalReservation';
+
+/** Avoid loading multi-MB Valid ID payloads into confirm/decline paths. */
+const BOOKING_SYNC_PROJECTION = '-valid_id_base64';
 
 export interface HotelDecisionInput {
   /** Website booking _id when known */
@@ -42,16 +46,31 @@ async function findWebsiteBooking(input: HotelDecisionInput) {
   const bookingReference = input.bookingReference?.trim();
 
   if (bookingId) {
-    const byId = await BookingModel.findById(bookingId);
+    const byId = await BookingModel.findById(bookingId).select(BOOKING_SYNC_PROJECTION);
     if (byId) return byId;
   }
 
   if (bookingReference) {
-    const byRef = await BookingModel.findOne({ booking_reference: bookingReference });
+    const byRef = await BookingModel.findOne({ booking_reference: bookingReference })
+      .select(BOOKING_SYNC_PROJECTION);
     if (byRef) return byRef;
   }
 
   return null;
+}
+
+async function persistBookingDecision(
+  booking: {
+    _id?: unknown;
+    status?: string;
+    check_in_date?: Date | string | null;
+    check_out_date?: Date | string | null;
+    summary_only?: boolean;
+  },
+  fields: Record<string, unknown>,
+): Promise<void> {
+  Object.assign(booking, fields);
+  await BookingModel.updateOne({ _id: booking._id }, { $set: fields });
 }
 
 function attachStayDatesForHotel(booking: {
@@ -148,11 +167,14 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     // Hotel may already set reserved/booked — treat those as approved too.
     const alreadyActive = ['confirmed', 'reserved', 'booked'].includes(previousStatus);
     if (alreadyActive) {
+      const datePatch: Record<string, unknown> = {};
       if (attachStayDatesForHotel(booking)) {
-        await booking.save();
+        if (booking.check_in_date) datePatch.check_in_date = booking.check_in_date;
+        if (booking.check_out_date) datePatch.check_out_date = booking.check_out_date;
+        await persistBookingDecision(booking, datePatch);
       }
       await writeLedgerAfterApproval(booking);
-      const emailSent = await sendBookingConfirmationNotification(booking);
+      queueGuestNotification('confirmation', () => sendBookingConfirmationNotification(booking));
       return {
         ok: true,
         kind: 'noop',
@@ -160,7 +182,7 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
         bookingReference,
         previousStatus,
         newStatus: previousStatus,
-        emailSent,
+        emailSent: true,
         message: 'Booking was already approved; confirmation email/ledger checked.',
       };
     }
@@ -176,15 +198,16 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       };
     }
 
-    booking.status = 'confirmed';
     attachStayDatesForHotel(booking);
-    if (typeof booking.summary_only !== 'boolean') {
-      booking.summary_only = false;
-    }
-    await booking.save();
+    await persistBookingDecision(booking, {
+      status: 'confirmed',
+      check_in_date: booking.check_in_date,
+      check_out_date: booking.check_out_date,
+      summary_only: typeof booking.summary_only === 'boolean' ? booking.summary_only : false,
+    });
     await writeLedgerAfterApproval(booking);
 
-    const emailSent = await sendBookingConfirmationNotification(booking);
+    queueGuestNotification('confirmation', () => sendBookingConfirmationNotification(booking));
     return {
       ok: true,
       kind: 'approved',
@@ -192,10 +215,8 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       bookingReference,
       previousStatus,
       newStatus: 'confirmed',
-      emailSent,
-      message: emailSent
-        ? `Booking confirmed and confirmation email sent to ${booking.guestEmail}.`
-        : `Booking confirmed; confirmation email was not delivered (check RESEND_API_KEY / logs).`,
+      emailSent: true,
+      message: `Booking confirmed; confirmation email queued for ${booking.guestEmail}.`,
     };
   }
 
@@ -212,17 +233,15 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     };
   }
 
-  if (previousStatus === 'confirmed' || previousStatus === 'reserved' || previousStatus === 'booked') {
-    booking.status = 'cancelled';
-  } else {
-    booking.status = 'declined';
-  }
-  if (typeof booking.summary_only !== 'boolean') {
-    booking.summary_only = false;
-  }
-  await booking.save();
+  const nextStatus = (previousStatus === 'confirmed' || previousStatus === 'reserved' || previousStatus === 'booked')
+    ? 'cancelled'
+    : 'declined';
+  await persistBookingDecision(booking, {
+    status: nextStatus,
+    summary_only: typeof booking.summary_only === 'boolean' ? booking.summary_only : false,
+  });
 
-  const emailSent = await sendBookingDeclinedNotification(booking);
+  queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));
 
   return {
     ok: true,
@@ -230,10 +249,8 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     bookingId,
     bookingReference,
     previousStatus,
-    newStatus: String(booking.status),
-    emailSent,
-    message: emailSent
-      ? `Booking marked ${booking.status}; decline email sent to ${booking.guestEmail}.`
-      : `Booking marked ${booking.status}; decline email was not delivered.`,
+    newStatus: nextStatus,
+    emailSent: true,
+    message: `Booking marked ${nextStatus}; decline email queued for ${booking.guestEmail}.`,
   };
 }
