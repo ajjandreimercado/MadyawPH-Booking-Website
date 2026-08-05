@@ -17,6 +17,8 @@ interface User {
   partner?: PartnerProfile;
   // Profile picture URL — set when the user signs in with Google
   avatar?: string;
+  authProvider?: string;
+  emailVerified?: boolean;
 }
 
 type LoginInput = {
@@ -51,7 +53,17 @@ function isPartnerProfile(value: unknown): value is PartnerProfile {
   return Boolean(partner.portalId && partner.propertyName && partner.accessLevel);
 }
 
-function normalizeUser(apiUser: { id?: string; _id?: string; email: string; name: string; role?: string; partner?: unknown; avatar?: string }): User {
+function normalizeUser(apiUser: {
+  id?: string;
+  _id?: string;
+  email: string;
+  name: string;
+  role?: string;
+  partner?: unknown;
+  avatar?: string;
+  authProvider?: string;
+  emailVerified?: boolean;
+}): User {
   const allowedRoles: UserRole[] = ['guest', 'partner', 'admin', 'staff', 'super_admin'];
   const role = allowedRoles.includes(apiUser.role as UserRole)
     ? (apiUser.role as UserRole)
@@ -64,6 +76,8 @@ function normalizeUser(apiUser: { id?: string; _id?: string; email: string; name
     role,
     partner: isPartnerProfile(apiUser.partner) ? apiUser.partner : undefined,
     avatar: apiUser.avatar ?? undefined,
+    authProvider: apiUser.authProvider ?? 'local',
+    emailVerified: Boolean(apiUser.emailVerified),
   };
 }
 

@@ -6,6 +6,57 @@
 export const ONLINE_BOOKING_EXTERNAL_SOURCE = 'app-customer';
 export const ONLINE_BOOKING_PENDING_STATUS = 'pending_approval';
 
+/** Statuses the hotel app writes when a website request is accepted for check-in. */
+export const HOTEL_APPROVED_STATUSES = new Set([
+  'approved',
+  'reserved',
+  'confirmed',
+  'accepted',
+  'booked',
+  'checked_in',
+  'checked-in',
+]);
+
+/** Statuses the hotel app writes when a website request is turned down. */
+export const HOTEL_REJECTED_STATUSES = new Set([
+  'rejected',
+  'declined',
+  'cancelled',
+  'canceled',
+]);
+
+export type HotelDecisionKind = 'approved' | 'rejected';
+
+export function normalizeHotelDecisionStatus(raw: string | undefined | null): HotelDecisionKind | null {
+  const status = String(raw ?? '').trim().toLowerCase();
+  if (!status) return null;
+
+  // Webhook event names
+  if (
+    status === 'reservation.approved'
+    || status === 'reservation.confirmed'
+    || status === 'reservation.reserved'
+    || status.endsWith('.approved')
+    || status.endsWith('.confirmed')
+  ) {
+    return 'approved';
+  }
+  if (
+    status === 'reservation.rejected'
+    || status === 'reservation.declined'
+    || status === 'reservation.cancelled'
+    || status.endsWith('.rejected')
+    || status.endsWith('.declined')
+    || status.endsWith('.cancelled')
+  ) {
+    return 'rejected';
+  }
+
+  if (HOTEL_APPROVED_STATUSES.has(status)) return 'approved';
+  if (HOTEL_REJECTED_STATUSES.has(status)) return 'rejected';
+  return null;
+}
+
 export function buildExternalReservationDoc(input: {
   hotelId: string;
   bookingId: string;

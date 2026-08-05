@@ -104,6 +104,8 @@ export function serializeUser(user: AnyDocument) {
     favorites: Array.isArray(user.favorites) ? user.favorites : [],
     // avatar is the Google profile picture URL — safe to expose to the owner
     avatar: user.avatar ? String(user.avatar) : undefined,
+    authProvider: user.authProvider ? String(user.authProvider) : 'local',
+    emailVerified: Boolean(user.emailVerified),
   };
 }
 

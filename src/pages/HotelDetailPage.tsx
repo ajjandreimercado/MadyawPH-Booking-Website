@@ -9,7 +9,7 @@ import type { HotelDetailCategory } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import StarRating from '../components/ui/StarRating';
 import { format, addDays } from 'date-fns';
-import { buildGoogleMapsDirectionsUrl, getCurrentPosition } from '../lib/nearMe';
+import { buildGoogleMapsDirectionsUrl, buildHotelMapsQuery, getCurrentPosition } from '../lib/nearMe';
 
 // Track recently viewed in localStorage
 function trackRecentlyViewed(hotel: Hotel) {
@@ -252,15 +252,9 @@ export default function HotelDetailPage() {
 
   const openDirections = async () => {
     if (!hotel) return;
-    const destLat = hotel.latitude;
-    const destLng = hotel.longitude;
-    if (typeof destLat !== 'number' || typeof destLng !== 'number') {
-      // Fallback: open Google Maps search by hotel name + address (still free, no API key)
-      const query = encodeURIComponent(`${hotel.name} ${hotel.location}`);
-      window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
+    // Always navigate by hotel name + address. Stored lat/lng are often a shared
+    // city-center pin (Guingona Park for Butuan) and send guests to the wrong place.
+    const destinationQuery = buildHotelMapsQuery(hotel);
     setIsOpeningMaps(true);
     try {
       let originLat: number | undefined;
@@ -270,11 +264,10 @@ export default function HotelDetailPage() {
         originLat = position.coords.latitude;
         originLng = position.coords.longitude;
       } catch {
-        // Guest denied location — still open destination pin
+        // Guest denied location — still open destination directions
       }
       const url = buildGoogleMapsDirectionsUrl({
-        destLat,
-        destLng,
+        destinationQuery,
         originLat,
         originLng,
         label: hotel.name,

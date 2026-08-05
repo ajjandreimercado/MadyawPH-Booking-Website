@@ -130,6 +130,17 @@ export const bookingCreateLimiter = makeLimiter({
   message: { message: 'Too many booking requests. Please try again later.' },
 });
 
+/**
+ * Hotel-app webhook events. Keyed by IP (no user session).
+ * Prod: 120 / 15 min. Dev: 2 000.
+ */
+export const hotelWebhookLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 2_000 : 120,
+  keyGenerator: (req) => req.ip ?? 'unknown',
+  message: { message: 'Too many hotel webhook events. Please try again later.' },
+});
+
 // ─── Password reset limiter (for future use) ─────────────────────────────────
 /**
  * Extra-strict limiter for password reset endpoints (when implemented).

@@ -151,9 +151,13 @@ export default function BookingConfirmationPage() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm font-bold">
               <span className="text-brand-dark/60">
-                Room ({booking.nights} night{booking.nights !== 1 ? 's' : ''} × ₱{(booking.roomRate ?? 0).toLocaleString()})
+                Room &amp; guests ({booking.nights} night{booking.nights !== 1 ? 's' : ''})
               </span>
-              <span>₱{((booking.roomRate ?? 0) * (booking.nights ?? 1)).toLocaleString()}</span>
+              <span>
+                ₱{(
+                  (booking.totalPrice ?? 0) + (booking.discountAmount ?? 0)
+                ).toLocaleString()}
+              </span>
             </div>
             {(booking.discountAmount ?? 0) > 0 && (
               <div className="flex justify-between text-sm font-bold text-brand-success">
@@ -166,7 +170,7 @@ export default function BookingConfirmationPage() {
               <span className="text-brand-dark">₱{(booking.totalPrice ?? 0).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm font-bold pt-1">
-              <span className="text-brand-primary">Partial payment (50% recorded)</span>
+              <span className="text-brand-primary">Half deposit (50%)</span>
               <span className="text-brand-primary">
                 ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
               </span>
@@ -181,7 +185,7 @@ export default function BookingConfirmationPage() {
               </span>
             </div>
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
-              Only the 50% deposit is recorded as paid. The remaining balance is collected when you check out at the hotel — not as a full website payment.
+              The 50% deposit is shown for the hotel ledger. Any online payment capture is separate when offered; the balance is collected at hotel check-out.
             </p>
           </div>
         </motion.div>

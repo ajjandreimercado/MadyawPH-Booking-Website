@@ -5,7 +5,10 @@
  * - If XENDIT_SECRET_KEY is not configured, checkout stays unavailable and
  *   bookings continue to work as reservation requests (no fake paid state).
  * - When the key is present, this creates an Xendit Invoice and returns a URL.
+ * - The secret key never leaves the server process (not in responses or logs).
  */
+
+import { getXenditSecretKey } from '../config/env';
 
 export interface PaymentCheckoutRequest {
   bookingId: string;
@@ -27,18 +30,14 @@ export interface PaymentCheckoutResponse {
   message: string;
 }
 
-function getXenditSecret() {
-  return (process.env.XENDIT_SECRET_KEY ?? '').trim();
-}
-
 export function isOnlinePaymentEnabled() {
-  return Boolean(getXenditSecret());
+  return Boolean(getXenditSecretKey());
 }
 
 export async function createPaymentCheckout(
   input: PaymentCheckoutRequest,
 ): Promise<PaymentCheckoutResponse> {
-  const secret = getXenditSecret();
+  const secret = getXenditSecretKey();
   if (!secret) {
     return {
       enabled: false,
@@ -55,38 +54,47 @@ export async function createPaymentCheckout(
   const externalId = `madyaw-${input.bookingId}-${Date.now()}`;
   const auth = Buffer.from(`${secret}:`).toString('base64');
 
-  const response = await fetch('https://api.xendit.co/v2/invoices', {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      external_id: externalId,
-      amount: Math.round(input.amount),
-      currency: input.currency ?? 'PHP',
-      description: input.description,
-      customer: {
-        given_names: input.guestName,
-        email: input.guestEmail,
+  let response: Response;
+  try {
+    response = await fetch('https://api.xendit.co/v2/invoices', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
       },
-      success_redirect_url: input.successRedirectUrl,
-      failure_redirect_url: input.failureRedirectUrl,
-      metadata: {
-        bookingId: input.bookingId,
-        bookingReference: input.bookingReference ?? '',
-      },
-    }),
-  });
+      body: JSON.stringify({
+        external_id: externalId,
+        amount: Math.round(input.amount),
+        currency: input.currency ?? 'PHP',
+        description: input.description,
+        customer: {
+          given_names: input.guestName,
+          email: input.guestEmail,
+        },
+        success_redirect_url: input.successRedirectUrl,
+        failure_redirect_url: input.failureRedirectUrl,
+        metadata: {
+          bookingId: input.bookingId,
+          bookingReference: input.bookingReference ?? '',
+        },
+      }),
+    });
+  } catch (error) {
+    console.error('[Payment] Xendit request failed:', error instanceof Error ? error.message : error);
+    throw new Error('Unable to reach the payment provider. Please try again later.');
+  }
 
   if (!response.ok) {
     const bodyText = await response.text();
-    throw new Error(`Xendit invoice creation failed (${response.status}): ${bodyText.slice(0, 300)}`);
+    // Log provider detail server-side only — never echo raw provider bodies to browsers.
+    console.error(`[Payment] Xendit invoice error (${response.status}): ${bodyText.slice(0, 500)}`);
+    throw new Error('Unable to create payment checkout. Please try again later.');
   }
 
   const invoice = (await response.json()) as { id?: string; invoice_url?: string };
   if (!invoice.invoice_url) {
-    throw new Error('Xendit did not return an invoice URL.');
+    console.error('[Payment] Xendit response missing invoice_url');
+    throw new Error('Unable to create payment checkout. Please try again later.');
   }
 
   return {

@@ -1,21 +1,23 @@
 import { Router, type Request } from 'express';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, BillingChargeModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
-import { availabilityLimiter, bookingCreateLimiter } from '../middleware/rateLimiters';
+import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
 import { sendBookingConfirmationNotification } from '../services/notificationService';
 import { createPaymentCheckout } from '../services/paymentService';
+import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
-import { computeHalfPayment, formatMoneyAmount } from '../utils/halfPayment';
+import { computeHalfPayment } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
 import { runValidIdUpload, type UploadedValidIdFile } from '../middleware/validIdUpload';
-import { CLIENT_ORIGINS } from '../config/env';
+import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
   pickFields,
@@ -45,12 +47,11 @@ const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'vill
 const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'bank-transfer'] as const;
 const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending', 'cancelled'] as const;
 
-// Guests may only cancel their own request — hotel app owns accept/confirm/paid.
+// Guests may only cancel pre-confirmation requests — hotel app owns confirm/cancel after confirm.
 const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ['cancelled'],
   requested: ['cancelled'],
   accepted: ['cancelled'],
-  confirmed: ['cancelled'],
 };
 
 /** Canonical discount reasons accepted by pricing. Aliases keep older clients working. */
@@ -174,6 +175,17 @@ async function getRequestUser(req: Request) {
   };
 }
 
+/** Staff/admin may only touch bookings for their hotel; super_admin may touch any. */
+function staffCanAccessBooking(
+  role: UserRole,
+  staffHotelId: string | null | undefined,
+  bookingHotelId: unknown,
+): boolean {
+  if (role === 'super_admin') return true;
+  if (!staffHotelId) return false;
+  return String(bookingHotelId ?? '') === staffHotelId;
+}
+
 // ─── GET / ────────────────────────────────────────────────────────────────────
 // requireAuth: unauthenticated callers receive 401; never returns all bookings to the public.
 
@@ -192,12 +204,17 @@ bookingRoutes.get('/', requireAuth, async (req, res) => {
   const limitNum = Math.min(200, Math.max(1, Number(req.query.limit) || defaultLimit));
   const skip = (pageNum - 1) * limitNum;
 
-  // Non-privileged users (guests) only see their own bookings, filtered by guestEmail.
-  // Privileged users (admin/staff/super_admin) and partners see all bookings.
-  const filter: Record<string, unknown> =
-    !isPrivilegedRole(requester.role as UserRole)
-      ? { guestEmail: requester.email }
-      : {};
+  // Guests: own bookings only. Hotel staff/admin: their hotel_id only. super_admin: all.
+  let filter: Record<string, unknown>;
+  if (!isPrivilegedRole(requester.role as UserRole)) {
+    filter = { guestEmail: requester.email };
+  } else if (requester.role === 'super_admin') {
+    filter = {};
+  } else if (requester.hotelId) {
+    filter = { hotel_id: requester.hotelId };
+  } else {
+    return res.status(403).json({ message: 'Access denied. Staff account has no hotel assigned.' });
+  }
 
   console.log(`[MongoDB Query] Collection: bookings, Query: ${JSON.stringify(filter)}, Sort: { createdAt: -1 }, Page: ${pageNum}, Limit: ${limitNum}`);
   const [bookings, total] = await Promise.all([
@@ -252,6 +269,83 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
     const message = error instanceof Error ? error.message : 'Unable to check availability.';
     return res.status(400).json({ message });
   }
+});
+
+// ─── POST /hotel-events ───────────────────────────────────────────────────────
+// Hotel management app callback when an Online Booking is approved/rejected.
+// Auth: Authorization: Bearer <HOTEL_WEBHOOK_SECRET>  (or X-Madyaw-Hotel-Secret)
+
+function timingSafeEqualString(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) {
+    crypto.timingSafeEqual(b, b);
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isHotelWebhookAuthorized(req: Request): boolean {
+  const secret = getHotelWebhookSecret();
+  if (!secret) return false;
+  const header = req.header('authorization') ?? '';
+  const bearer = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+  const alt = (req.header('x-madyaw-hotel-secret') ?? '').trim();
+  const provided = bearer || alt;
+  if (!provided) return false;
+  return timingSafeEqualString(provided, secret);
+}
+
+bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
+  if (!getHotelWebhookSecret()) {
+    return res.status(503).json({
+      message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.',
+    });
+  }
+  if (!isHotelWebhookAuthorized(req)) {
+    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+  }
+
+  const body = req.body as {
+    event?: string;
+    status?: string;
+    bookingId?: string;
+    booking_id?: string;
+    bookingReference?: string;
+    booking_reference?: string;
+    external_reference?: string;
+  };
+
+  const status = String(body.status ?? body.event ?? '').trim();
+  if (!status) {
+    return res.status(400).json({ message: 'status or event is required.' });
+  }
+
+  const bookingId = String(body.bookingId ?? body.booking_id ?? '').trim() || undefined;
+  const bookingReference = String(
+    body.bookingReference ?? body.booking_reference ?? body.external_reference ?? '',
+  ).trim() || undefined;
+
+  if (!bookingId && !bookingReference) {
+    return res.status(400).json({
+      message: 'bookingId or bookingReference is required.',
+    });
+  }
+
+  const result = await applyHotelBookingDecision({
+    bookingId,
+    bookingReference,
+    status,
+    source: 'webhook',
+  });
+
+  if (result.kind === 'not_found') {
+    return res.status(404).json(result);
+  }
+  if (!result.ok) {
+    return res.status(409).json(result);
+  }
+  return res.json(result);
 });
 
 // ─── POST / ───────────────────────────────────────────────────────────────────
@@ -610,76 +704,11 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const paymentMethod = paymentMethodResult.value;
   const syncErrors: string[] = [];
 
-  // Mirror hotel-app billing ledger: room charge + partial (half) payment credit.
+  // Do NOT write billing_charges yet. A room charge is treated as an inventory hold
+  // by the hotel app and blocks Online Booking approval (self-overlap).
+  // Deposit preference is stored on the booking + external_reservations metadata;
+  // ledger rows are written after hotel approval (see hotelBookingSync).
   try {
-    await withRetries(async () => {
-      const existingPartial = await BillingChargeModel.countDocuments({
-        booking_id: bookingId,
-        type: 'partial_payment',
-        created_by: 'website',
-      });
-      const existingRoom = await BillingChargeModel.countDocuments({
-        booking_id: bookingId,
-        type: 'room',
-        created_by: 'website',
-      });
-      if (existingPartial > 0 && existingRoom > 0) return;
-
-      const docs: Record<string, unknown>[] = [];
-      if (existingRoom === 0) {
-        docs.push({
-          hotel_id: hotelId,
-          booking_id: bookingId,
-          room_id: roomId,
-          type: 'room',
-          label: `Room charge (${pricing.nights} night${pricing.nights === 1 ? '' : 's'})`,
-          amount: formatMoneyAmount(finalTotalPrice),
-          quantity: 1,
-          is_manual: false,
-          created_by: 'website',
-          metadata: JSON.stringify({
-            channel: 'website',
-            billing_mode: 'nightly',
-            nights: pricing.nights,
-            room_rate: pricing.roomRate,
-            booking_reference: booking.booking_reference,
-          }),
-          created_at: createdAt,
-          updated_at: createdAt,
-        });
-      }
-      if (existingPartial === 0) {
-        docs.push({
-          hotel_id: hotelId,
-          booking_id: bookingId,
-          room_id: roomId,
-          type: 'partial_payment',
-          label: 'Partial payment: Website 50% deposit',
-          amount: formatMoneyAmount(-halfPayment),
-          quantity: 1,
-          is_manual: true,
-          created_by: 'website',
-          metadata: JSON.stringify({
-            channel: 'website',
-            payment_method: paymentMethod,
-            payment_reference: '',
-            note: 'Website half payment deposit — balance due at hotel check-out',
-            recorded_by: 'website',
-            booking_reference: booking.booking_reference,
-            deposit_percent: 50,
-            amount_paid: halfPayment,
-            balance_due: balanceDue,
-            stay_total: finalTotalPrice,
-          }),
-          created_at: createdAt,
-          updated_at: createdAt,
-        });
-      }
-      if (docs.length > 0) {
-        await BillingChargeModel.insertMany(docs);
-      }
-    }, { attempts: 3, delayMs: 300, label: 'billing_charges half-payment ledger' });
-
     await BookingModel.updateOne(
       { _id: booking._id },
       {
@@ -692,15 +721,14 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
           total_amount: finalTotalPrice,
           totalPrice: finalTotalPrice,
           serviceFee: 0,
-          hotel_ledger_synced: true,
+          hotel_ledger_synced: false,
         },
       },
     );
-    console.log(`[MongoDB Action] Collection: billing_charges, Action: create half-payment ledger, Booking: ${bookingId}`);
   } catch (billingError) {
     const msg = billingError instanceof Error ? billingError.message : String(billingError);
-    syncErrors.push(`ledger:${msg}`);
-    console.error('[Bookings] Failed to create billing_charges for half payment after retries:', billingError);
+    syncErrors.push(`ledger-fields:${msg}`);
+    console.error('[Bookings] Failed to persist half-payment preference fields:', billingError);
   }
 
   // Hotel app "Online Bookings" is driven by external_reservations (pending_approval).
@@ -858,14 +886,20 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
 
   // ── Ownership / privilege check ───────────────────────────────────────────
   // Guests may only update their own booking.
-  // Privileged staff (admin/staff/super_admin) may update any booking.
-  const callerRole = (req.auth!.role as UserRole);
-  const callerEmail = req.auth!.email.toLowerCase();
+  // Privileged staff may update bookings for their hotel only (super_admin: any).
+  const requester = await getRequestUser(req);
+  if (!requester) {
+    return res.status(401).json({ message: 'Authenticated user not found.' });
+  }
+  const callerRole = requester.role as UserRole;
   const isStaff = isPrivilegedRole(callerRole);
-  const isOwner = booking.guestEmail?.toLowerCase() === callerEmail;
+  const isOwner = booking.guestEmail?.toLowerCase() === requester.email;
 
   if (!isStaff && !isOwner) {
     return res.status(403).json({ message: 'Access denied. You may only update your own bookings.' });
+  }
+  if (isStaff && !staffCanAccessBooking(callerRole, requester.hotelId, booking.hotel_id)) {
+    return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
   }
 
   // Non-privileged guests may only make allowed status transitions.
@@ -917,7 +951,8 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
 // requireAuth + admin/staff/super_admin only — privileged staff action.
 
 bookingRoutes.post('/:bookingId/retry-confirmation', requireAuth, async (req, res) => {
-  if (!req.auth || !isPrivilegedRole(req.auth.role as UserRole)) {
+  const requester = await getRequestUser(req);
+  if (!requester || !isPrivilegedRole(requester.role as UserRole)) {
     return res.status(403).json({ message: 'Access denied. Staff access required.' });
   }
 
@@ -929,6 +964,9 @@ bookingRoutes.post('/:bookingId/retry-confirmation', requireAuth, async (req, re
   const booking = await BookingModel.findById(bookingIdResult.value);
   if (!booking) {
     return res.status(404).json({ message: 'Booking not found.' });
+  }
+  if (!staffCanAccessBooking(requester.role as UserRole, requester.hotelId, booking.hotel_id)) {
+    return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
   }
 
   await sendBookingConfirmationNotification(booking);
@@ -947,14 +985,20 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
   if (!booking) return res.status(404).json({ message: 'Booking not found.' });
 
   // ── Ownership / privilege check ───────────────────────────────────────────
-  const callerRole = (req.auth!.role as UserRole);
-  const callerEmail = req.auth!.email.toLowerCase();
+  const requester = await getRequestUser(req);
+  if (!requester) {
+    return res.status(401).json({ message: 'Authenticated user not found.' });
+  }
+  const callerRole = requester.role as UserRole;
   const isStaff = isPrivilegedRole(callerRole);
   const ownerEmail = String(booking.guestEmail ?? booking.guest_email ?? '').toLowerCase();
-  const isOwner = Boolean(ownerEmail) && ownerEmail === callerEmail;
+  const isOwner = Boolean(ownerEmail) && ownerEmail === requester.email;
 
   if (!isStaff && !isOwner) {
     return res.status(403).json({ message: 'Access denied. You may only cancel your own bookings.' });
+  }
+  if (isStaff && !staffCanAccessBooking(callerRole, requester.hotelId, booking.hotel_id)) {
+    return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
   }
 
   const cancellableStatuses = ['requested', 'accepted', 'pending'];
@@ -1000,8 +1044,9 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
   if (!booking) return res.status(404).json({ message: 'Booking not found.' });
 
   const bookingEmail = String(booking.guestEmail ?? '').toLowerCase();
-  const isStaff = Boolean(req.auth && isPrivilegedRole(req.auth.role));
-  const isOwner = Boolean(req.auth && req.auth.email.toLowerCase() === bookingEmail);
+  const requester = req.auth ? await getRequestUser(req) : null;
+  const isStaff = Boolean(requester && isPrivilegedRole(requester.role as UserRole));
+  const isOwner = Boolean(requester && requester.email === bookingEmail);
 
   let tokenOk = false;
   const rawToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
@@ -1016,6 +1061,13 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
 
   if (!isStaff && !isOwner && !tokenOk) {
     return res.status(403).json({ message: 'Access denied. Sign in or provide a valid receipt token to start payment.' });
+  }
+  if (
+    isStaff
+    && requester
+    && !staffCanAccessBooking(requester.role as UserRole, requester.hotelId, booking.hotel_id)
+  ) {
+    return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
   }
 
   if (['declined', 'cancelled'].includes(String(booking.status))) {
@@ -1064,8 +1116,15 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   const booking = await BookingModel.findById(bookingIdResult.value).lean();
   if (!booking) return res.status(404).json({ message: 'Booking not found.' });
 
-  // Privileged staff: always allowed.
+  // Privileged staff: only their hotel (super_admin: any).
   if (req.auth && isPrivilegedRole(req.auth.role)) {
+    const requester = await getRequestUser(req);
+    if (!requester) {
+      return res.status(401).json({ message: 'Authenticated user not found.' });
+    }
+    if (!staffCanAccessBooking(requester.role as UserRole, requester.hotelId, booking.hotel_id)) {
+      return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
+    }
     return res.json(serializeBooking(booking as never));
   }
 

@@ -281,12 +281,8 @@ describe('POST /api/bookings', () => {
       expect(meta.amount_paid).toBe(created.amountPaid);
       expect(meta.valid_id_uploaded).toBe(true);
 
-      expect(BillingChargeModel.insertMany).toHaveBeenCalled();
-      const charges = BillingChargeModel.insertMany.mock.calls[0][0];
-      expect(charges).toHaveLength(2);
-      expect(charges[0].type).toBe('room');
-      expect(charges[1].type).toBe('partial_payment');
-      expect(Number(charges[1].amount)).toBeLessThan(0);
+      // Billing ledger must wait until hotel approval — early room charges cause self-overlap.
+      expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
     }
   });
 
@@ -311,6 +307,14 @@ describe('POST /api/bookings', () => {
 
 // ─── PUT /api/bookings/:id — status transitions ───────────────────────────────
 describe('PUT /api/bookings/:id', () => {
+  function mockRequestUser(user: typeof mockUser & { hotel_id?: string | null }) {
+    MockUserModel.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ ...user }),
+      }),
+    } as never);
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     MockBookingModel.findById.mockResolvedValue({ ...mockBooking } as never);
@@ -323,7 +327,7 @@ describe('PUT /api/bookings/:id', () => {
 
   it('returns 200 when the booking owner cancels their own booking', async () => {
     // alice@example.com owns booking-001 (guestEmail: 'alice@example.com')
-    MockUserModel.findById.mockResolvedValue({ ...mockUser } as never);
+    mockRequestUser({ ...mockUser });
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', guestCookie())
@@ -332,7 +336,7 @@ describe('PUT /api/bookings/:id', () => {
   });
 
   it('returns 403 when a guest tries to confirm their own booking (hotel owns confirmation)', async () => {
-    MockUserModel.findById.mockResolvedValue({ ...mockUser } as never);
+    mockRequestUser({ ...mockUser });
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', guestCookie())
@@ -347,7 +351,7 @@ describe('PUT /api/bookings/:id', () => {
       process.env.JWT_SECRET!,
       { expiresIn: '1h' },
     );
-    MockUserModel.findById.mockResolvedValue({ ...mockUser, _id: 'user-002', email: 'other@example.com' } as never);
+    mockRequestUser({ ...mockUser, _id: 'user-002', email: 'other@example.com' });
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', `madyaw_token=${otherToken}`)
@@ -355,8 +359,14 @@ describe('PUT /api/bookings/:id', () => {
     expect(res.status).toBe(403);
   });
 
-  it('admin may update any booking', async () => {
-    MockUserModel.findById.mockResolvedValue({ ...mockUser, _id: 'admin-001', email: 'admin@example.com', role: 'admin' } as never);
+  it('admin may update bookings for their hotel', async () => {
+    mockRequestUser({
+      ...mockUser,
+      _id: 'admin-001',
+      email: 'admin@example.com',
+      role: 'admin',
+      hotel_id: 'hotel-001',
+    });
     const res = await request(app)
       .put('/api/bookings/booking-001')
       .set('Cookie', adminCookie())

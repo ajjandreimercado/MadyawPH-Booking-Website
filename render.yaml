@@ -23,6 +23,17 @@ services:
         sync: false   # Comma-separated origins: https://madyaw.com,https://madyaw-frontend.onrender.com
       - key: GOOGLE_CLIENT_ID
         sync: false   # Set manually in Render dashboard
+      # ── Optional provider secrets (server-only — never add these to the frontend) ──
+      - key: RESEND_API_KEY
+        sync: false   # Set manually in Render dashboard when email delivery is enabled
+      - key: EMAIL_FROM
+        sync: false   # e.g. Madyaw Bookings <noreply@yourdomain.com>
+      - key: XENDIT_SECRET_KEY
+        sync: false   # Set manually in Render dashboard when online payments are enabled
+      - key: HOTEL_WEBHOOK_SECRET
+        sync: false   # Shared secret for hotel-app POST /api/bookings/hotel-events
+      - key: ENABLE_EXTERNAL_RESERVATION_WATCHER
+        value: "true" # Mongo change stream sync when hotel updates external_reservations
 
   # ─── Frontend: React / Vite Static Site ─────────────────────────────────────
   - type: web
@@ -43,7 +54,9 @@ services:
         source: /*
         destination: /index.html
     envVars:
+      # PUBLIC ONLY — every VITE_* value is baked into the browser bundle.
+      # Do NOT add JWT / Mongo / Xendit / Resend secrets here.
       - key: VITE_API_URL
         sync: false   # Set to your backend URL: https://madyaw-api.onrender.com/api
       - key: VITE_GOOGLE_CLIENT_ID
-        sync: false   # Same Google Client ID as the backend
+        sync: false   # Same Google Client ID as the backend (public OAuth client ID)

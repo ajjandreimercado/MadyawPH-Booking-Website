@@ -28,7 +28,18 @@ jest.mock('../data/mongoModels', () => ({
     create: jest.fn(),
   },
   BookingModel: { find: jest.fn(), findById: jest.fn(), create: jest.fn(), countDocuments: jest.fn() },
-  PropertyModel: { find: jest.fn(), findById: jest.fn() },
+  PropertyModel: {
+    find: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    }),
+    findById: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      }),
+    }),
+  },
   HotelModel: { find: jest.fn(), findById: jest.fn() },
   RoomCategoryModel: { find: jest.fn(), findById: jest.fn() },
 }));
@@ -48,8 +59,14 @@ function makeAuthCookie(): string {
 
 // ─── GET /api/reviews ─────────────────────────────────────────────────────────
 describe('GET /api/reviews', () => {
-  it('returns 200 with paginated response shape', async () => {
+  it('returns 400 when neither propertyId nor hotelId is provided', async () => {
     const res = await request(app).get('/api/reviews');
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/propertyId or hotelId/i);
+  });
+
+  it('returns 200 with paginated response shape when propertyId is provided', async () => {
+    const res = await request(app).get('/api/reviews?propertyId=prop-001');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('data');
     expect(res.body).toHaveProperty('total');
@@ -143,7 +160,7 @@ describe('GET /api/reviews — never exposes internal fields', () => {
     });
     MockReviewModel.countDocuments.mockResolvedValue(1);
 
-    const res = await request(app).get('/api/reviews');
+    const res = await request(app).get('/api/reviews?propertyId=p-1');
     expect(res.status).toBe(200);
     // __v (mongoose version key) must not be in response
     expect(res.body.data[0].__v).toBeUndefined();

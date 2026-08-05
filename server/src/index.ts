@@ -1,6 +1,10 @@
 import app from './app';
 import { connectDatabase } from './config/db';
 import { PORT } from './config/env';
+import {
+  startExternalReservationWatcher,
+  stopExternalReservationWatcher,
+} from './services/externalReservationWatcher';
 
 // ─── Startup env validation (fail fast with a clear message) ──────────────────
 const REQUIRED_ENV_VARS = ['PORT', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'CLIENT_ORIGIN', 'MONGODB_URI'];
@@ -68,6 +72,7 @@ console.log(`[STARTUP] MongoDB target: ${safeMongo}`);
 
 async function start() {
   await connectDatabase();
+  await startExternalReservationWatcher();
 
   const server = app.listen(PORT, () => {
     console.log(`[INFO] Madyaw API running on http://localhost:${PORT} (env: ${process.env.NODE_ENV ?? 'development'})`);
@@ -76,13 +81,15 @@ async function start() {
   // ─── Graceful shutdown — drain connections before exiting ───────────────────
   function shutdown(signal: string) {
     console.log(`\n[INFO] ${signal} received. Closing HTTP server gracefully…`);
-    server.close((err) => {
-      if (err) {
-        console.error('[ERROR] Error during graceful shutdown:', err);
-        process.exit(1);
-      }
-      console.log('[INFO] HTTP server closed. Exiting.');
-      process.exit(0);
+    void stopExternalReservationWatcher().finally(() => {
+      server.close((err) => {
+        if (err) {
+          console.error('[ERROR] Error during graceful shutdown:', err);
+          process.exit(1);
+        }
+        console.log('[INFO] HTTP server closed. Exiting.');
+        process.exit(0);
+      });
     });
 
     // Force-kill if connections haven't drained within 10 seconds.

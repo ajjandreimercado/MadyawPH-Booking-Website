@@ -305,6 +305,7 @@ describe('POST /api/auth/google', () => {
     expect(res.body.user.googleSub).toBeUndefined();
     expect(res.body.user.lockoutUntil).toBeUndefined();
     expect(res.body.user.failedLoginAttempts).toBeUndefined();
-    expect(res.body.user.emailVerified).toBeUndefined();
+    // emailVerified / authProvider are safe owner-facing fields (used for booking prefill).
+    expect(typeof res.body.user.emailVerified).toBe('boolean');
   });
 });

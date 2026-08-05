@@ -1,3 +1,5 @@
+import { getEmailFrom, getResendApiKey } from '../config/env';
+
 export interface BookingNotificationTarget {
   _id?: unknown;
   booking_reference?: string;
@@ -16,14 +18,6 @@ interface EmailSendResult {
   delivered: boolean;
   provider: 'resend' | 'console';
   error?: string;
-}
-
-function getResendApiKey() {
-  return (process.env.RESEND_API_KEY ?? '').trim();
-}
-
-function getEmailFrom() {
-  return (process.env.EMAIL_FROM ?? 'Madyaw Bookings <noreply@madyaw.com>').trim();
 }
 
 async function deliverEmail(to: string, subject: string, text: string): Promise<EmailSendResult> {
@@ -53,10 +47,12 @@ async function deliverEmail(to: string, subject: string, text: string): Promise<
 
   if (!response.ok) {
     const bodyText = await response.text();
+    // Keep provider bodies in server logs only (never return them via serializeBooking).
+    console.error(`[Notification] Resend failed (${response.status}): ${bodyText.slice(0, 500)}`);
     return {
       delivered: false,
       provider: 'resend',
-      error: `Resend failed (${response.status}): ${bodyText.slice(0, 300)}`,
+      error: `Email delivery failed (${response.status}).`,
     };
   }
 

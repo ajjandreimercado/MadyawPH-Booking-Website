@@ -121,7 +121,12 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 
   const isOperational = error instanceof Error && 'statusCode' in error;
   const statusCode = isOperational ? (error as Error & { statusCode: number }).statusCode : 500;
-  const message = error instanceof Error ? error.message : 'Unexpected server error.';
+  const rawMessage = error instanceof Error ? error.message : 'Unexpected server error.';
+  // In production, hide unexpected internal messages (may include provider noise).
+  const message =
+    process.env.NODE_ENV === 'production' && statusCode >= 500 && !isOperational
+      ? 'Unexpected server error.'
+      : rawMessage;
 
   // Never leak stack traces or internal details to clients.
   res.status(statusCode).json({ message, status: 'error' });
