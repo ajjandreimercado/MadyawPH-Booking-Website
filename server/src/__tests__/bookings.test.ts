@@ -91,6 +91,9 @@ jest.mock('../data/mongoModels', () => ({
     updateMany: jest.fn().mockResolvedValue({ acknowledged: true }),
     countDocuments: jest.fn().mockResolvedValue(0),
   },
+  BookingValidIdModel: {
+    findOneAndUpdate: jest.fn().mockResolvedValue({}),
+  },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -263,13 +266,16 @@ describe('POST /api/bookings', () => {
       expect(created.payment_status).not.toBe('paid');
       expect(created.payment_status).not.toBe('pending');
       expect(created.valid_id_filename).toBe('id.png');
-      expect(created.valid_id_base64).toBeTruthy();
+      expect(created.valid_id_stored).toBe(true);
+      expect(created.valid_id_base64).toBeUndefined();
 
-      const { ExternalReservationModel, BillingChargeModel } = jest.requireMock('../data/mongoModels') as {
+      const { ExternalReservationModel, BillingChargeModel, BookingValidIdModel } = jest.requireMock('../data/mongoModels') as {
         ExternalReservationModel: { create: jest.Mock };
         BillingChargeModel: { insertMany: jest.Mock };
+        BookingValidIdModel: { findOneAndUpdate: jest.Mock };
       };
       expect(ExternalReservationModel.create).toHaveBeenCalled();
+      expect(BookingValidIdModel.findOneAndUpdate).toHaveBeenCalled();
       const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
       expect(externalDoc.status).toBe('pending_approval');
       expect(externalDoc.source).toBe('app-customer');

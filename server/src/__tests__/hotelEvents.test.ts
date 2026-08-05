@@ -41,6 +41,9 @@ jest.mock('../data/mongoModels', () => ({
     updateMany: jest.fn(),
     watch: jest.fn(),
   },
+  BookingValidIdModel: {
+    findOneAndUpdate: jest.fn().mockResolvedValue({}),
+  },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({

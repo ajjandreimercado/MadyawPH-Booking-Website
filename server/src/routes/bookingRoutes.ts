@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, PropertyModel, UserModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -595,7 +595,7 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     valid_id_filename: validIdFile.originalname.slice(0, 200),
     valid_id_mime: validIdFile.mimetype,
     valid_id_size: validIdFile.size,
-    valid_id_base64: validIdFile.buffer.toString('base64'),
+    valid_id_stored: true,
     valid_id_uploaded_at: createdAt,
     hotel_ledger_synced: false,
     hotel_queue_synced: false,
@@ -706,6 +706,30 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   }
 
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
+
+  // Store Valid ID binary off the booking document so hotel list/login queries stay lean.
+  try {
+    await withRetries(async () => {
+      await BookingValidIdModel.findOneAndUpdate(
+        { booking_id: String(booking._id) },
+        {
+          $set: {
+            booking_id: String(booking._id),
+            booking_reference: String(booking.booking_reference),
+            hotel_id: String(booking.hotel_id ?? property.hotel_id ?? ''),
+            filename: validIdFile.originalname.slice(0, 200),
+            mime: validIdFile.mimetype,
+            size: validIdFile.size,
+            base64: validIdFile.buffer.toString('base64'),
+            uploaded_at: createdAt,
+          },
+        },
+        { upsert: true, new: true },
+      );
+    }, { attempts: 3, delayMs: 200, label: 'booking_valid_ids store' });
+  } catch (idStoreError) {
+    console.error('[Bookings] Failed to store Valid ID in booking_valid_ids:', idStoreError);
+  }
 
   const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
   const bookingId = String(booking._id);

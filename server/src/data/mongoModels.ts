@@ -125,11 +125,13 @@ const bookingSchema = new Schema(
     updated_at: { type: Date },
     special_requests: { type: String, default: '' },
     promo_code: { type: String, default: '' },
-    // Guest Valid ID (website upload) — hotel app can read from shared booking doc
+    // Guest Valid ID metadata only — binary lives in booking_valid_ids (keeps bookings lean for hotel app lists).
     valid_id_filename: { type: String },
     valid_id_mime: { type: String },
     valid_id_size: { type: Number },
-    valid_id_base64: { type: String },
+    // Legacy inline payload (select:false). New uploads do not write this field.
+    valid_id_base64: { type: String, select: false },
+    valid_id_stored: { type: Boolean, default: false },
     valid_id_uploaded_at: { type: Date },
     // Dual-write health for hotel ledger + Online Bookings queue
     hotel_ledger_synced: { type: Boolean, default: false },
@@ -142,6 +144,21 @@ const bookingSchema = new Schema(
     requestSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
     declineSentAt: { type: Date, default: null },
     declineSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
+  },
+  schemaOptions,
+);
+
+/** Binary Valid ID files — kept off `bookings` so hotel list/login queries stay fast. */
+const bookingValidIdSchema = new Schema(
+  {
+    booking_id: { type: String, required: true, unique: true, index: true },
+    booking_reference: { type: String, index: true },
+    hotel_id: { type: String, index: true },
+    filename: { type: String, required: true },
+    mime: { type: String, required: true },
+    size: { type: Number, required: true },
+    base64: { type: String, required: true },
+    uploaded_at: { type: Date, required: true },
   },
   schemaOptions,
 );
@@ -445,6 +462,7 @@ export const RoomCategoryModel = model('RoomCategory', roomCategorySchema, 'room
 export const PropertyModel = model('Room', roomSchema); // → 'rooms'
 export const RoomModel = PropertyModel;
 export const BookingModel = model('Booking', bookingSchema); // → 'bookings'
+export const BookingValidIdModel = model('BookingValidId', bookingValidIdSchema, 'booking_valid_ids');
 export const ExternalReservationModel = model('ExternalReservation', externalReservationSchema, 'external_reservations'); // Atlas / hotel app use snake_case
 export const BillingChargeModel = model('BillingCharge', billingChargeSchema, 'billing_charges'); // Atlas / hotel app use snake_case
 export const RoomTransferModel = model('RoomTransfer', roomTransferSchema, 'room_transfers'); // Atlas uses 'room_transfers'

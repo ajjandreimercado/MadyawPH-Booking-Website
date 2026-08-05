@@ -156,7 +156,7 @@ export function serializeBooking(booking: AnyDocument) {
     checkInAt: booking.check_in_at,
     checkOutAt: booking.check_out_at,
     paymentStatus: booking.payment_status,
-    validIdUploaded: Boolean(booking.valid_id_filename || booking.valid_id_base64),
+    validIdUploaded: Boolean(booking.valid_id_filename || booking.valid_id_stored || booking.valid_id_base64),
     validIdFilename: booking.valid_id_filename ?? '',
     hotelLedgerSynced: Boolean(booking.hotel_ledger_synced),
     hotelQueueSynced: Boolean(booking.hotel_queue_synced),
