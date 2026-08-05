@@ -9,7 +9,7 @@ import type { HotelDetailCategory } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import StarRating from '../components/ui/StarRating';
 import { format, addDays } from 'date-fns';
-import { buildGoogleMapsDirectionsUrl, buildHotelMapsQuery, getCurrentPosition } from '../lib/nearMe';
+import { buildGoogleMapsDirectionsUrl, getCurrentPosition, resolveHotelMapsDestination } from '../lib/nearMe';
 
 // Track recently viewed in localStorage
 function trackRecentlyViewed(hotel: Hotel) {
@@ -252,9 +252,14 @@ export default function HotelDetailPage() {
 
   const openDirections = async () => {
     if (!hotel) return;
-    // Always navigate by hotel name + address. Stored lat/lng are often a shared
-    // city-center pin (Guingona Park for Butuan) and send guests to the wrong place.
-    const destinationQuery = buildHotelMapsQuery(hotel);
+    // Real hotels → name + city. Test/unknown names → barangay/city (or coords).
+    const { destinationQuery, destLat, destLng } = resolveHotelMapsDestination({
+      name: hotel.name,
+      location: hotel.location,
+      city: hotel.city,
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
+    });
     setIsOpeningMaps(true);
     try {
       let originLat: number | undefined;
@@ -268,6 +273,8 @@ export default function HotelDetailPage() {
       }
       const url = buildGoogleMapsDirectionsUrl({
         destinationQuery,
+        destLat,
+        destLng,
         originLat,
         originLng,
         label: hotel.name,
