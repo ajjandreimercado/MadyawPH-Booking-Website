@@ -126,7 +126,7 @@ describe('applyHotelBookingDecision', () => {
 
     expect(result.ok).toBe(true);
     expect(result.kind).toBe('approved');
-    expect(booking.status).toBe('confirmed');
+    expect(booking.status).toBe('reserved');
     expect(MockBookingModel.updateOne).toHaveBeenCalled();
     expect(mockSend).toHaveBeenCalledWith(booking);
   });
@@ -183,7 +183,7 @@ describe('POST /api/bookings/hotel-events', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.kind).toBe('approved');
-    expect(res.body.newStatus).toBe('confirmed');
+    expect(res.body.newStatus).toBe('reserved');
     expect(mockSend).toHaveBeenCalled();
   });
 });

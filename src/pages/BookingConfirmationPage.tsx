@@ -9,7 +9,10 @@ import { downloadReceiptPdf } from '../lib/receiptPdf';
 function statusLabel(status?: string) {
   switch (status) {
     case 'confirmed':
+    case 'reserved':
+    case 'booked':
     case 'paid':
+      return 'Confirmed';
     case 'accepted':
       return 'Accepted';
     case 'declined':
@@ -77,6 +80,7 @@ export default function BookingConfirmationPage() {
   }
 
   const isPending = booking.status === 'pending' || booking.status === 'requested';
+  const isConfirmed = booking.status === 'confirmed' || booking.status === 'reserved' || booking.status === 'booked' || booking.status === 'paid';
 
   return (
     <div className="min-h-screen bg-brand-background pt-32 pb-20">

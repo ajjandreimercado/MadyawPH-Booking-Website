@@ -200,7 +200,7 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
 
     attachStayDatesForHotel(booking);
     await persistBookingDecision(booking, {
-      status: 'confirmed',
+      status: 'reserved',
       check_in_date: booking.check_in_date,
       check_out_date: booking.check_out_date,
       summary_only: typeof booking.summary_only === 'boolean' ? booking.summary_only : false,
@@ -214,9 +214,9 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       bookingId,
       bookingReference,
       previousStatus,
-      newStatus: 'confirmed',
+      newStatus: 'reserved',
       emailSent: true,
-      message: `Booking confirmed; confirmation email queued for ${booking.guestEmail}.`,
+      message: `Booking reserved; confirmation email queued for ${booking.guestEmail}.`,
     };
   }
 

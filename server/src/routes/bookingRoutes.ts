@@ -40,7 +40,7 @@ const bookingRoutes = Router();
 type UserRole = 'guest' | 'partner' | 'admin' | 'staff' | 'super_admin';
 type BookingStatus = 'requested' | 'accepted' | 'declined' | 'paid' | 'confirmed' | 'pending' | 'cancelled';
 
-const ACTIVE_BOOKING_STATUSES = ['requested', 'accepted', 'paid', 'confirmed', 'pending'] as const;
+const ACTIVE_BOOKING_STATUSES = ['requested', 'accepted', 'paid', 'confirmed', 'pending', 'reserved', 'booked'] as const;
 
 // Allowlists — validated server-side, never taken verbatim from client input (OWASP A03)
 const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'villa-retreat'] as const;
@@ -620,9 +620,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     deposit_amount: halfPayment,
     balance_due: balanceDue,
     payment_status: 'partial',
-    // 'requested' = website Online Booking awaiting hotel approval.
-    // Avoid 'pending' — hotel app treats pending bookings as inventory holds.
-    status: 'requested',
+    // Hotel-native awaiting status is "pending". Do NOT write check_in_date/check_out_date
+    // on create (those are what make the hotel app treat this as an inventory hold).
+    // Online Bookings queue is driven by external_reservations (pending_approval).
+    status: 'pending',
     requestedAt: createdAt.toISOString(),
     confirmationSendStatus: 'none' as const,
     confirmationSentAt: null as null,

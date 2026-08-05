@@ -253,7 +253,7 @@ describe('POST /api/bookings', () => {
       expect(created.check_out_date).toBeUndefined();
       expect(created.created_at).toBeInstanceOf(Date);
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
-      expect(created.status).toBe('requested');
+      expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('partial');
       expect(created.amountPaid).toBeGreaterThan(0);
