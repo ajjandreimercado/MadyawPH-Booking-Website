@@ -436,6 +436,8 @@ export async function searchHotels(params: SearchParams = {}): Promise<{
   totalPages: number;
   nearMe?: boolean;
   radiusKm?: number;
+  searchAnchor?: { lat: number; lng: number; label: string };
+  sortedByDistance?: boolean;
 }> {
   const response = await api.get('/hotels/search', { params });
   return response.data;

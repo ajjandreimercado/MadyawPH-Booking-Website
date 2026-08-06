@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useScroll } from '../hooks/useScroll';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -35,7 +35,17 @@ function formatLabel(value: string) {
   return value.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
-function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 'grid' | 'list'; onSelect: (hotel: SearchResultHotel) => void }) {
+function HotelCard({
+  hotel,
+  view,
+  distanceFromLabel,
+  onSelect,
+}: {
+  hotel: SearchResultHotel;
+  view: 'grid' | 'list';
+  distanceFromLabel?: string;
+  onSelect: (hotel: SearchResultHotel) => void;
+}) {
   const [imgIndex, setImgIndex] = useState(0);
   const images = [
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
@@ -108,7 +118,10 @@ function HotelCard({ hotel, view, onSelect }: { hotel: SearchResultHotel; view: 
           </p>
           {typeof hotel.distanceKm === 'number' && (
             <p className="text-xs font-bold text-brand-primary mb-3">
-              {hotel.distanceKm < 1 ? `${Math.round(hotel.distanceKm * 1000)} m away` : `${hotel.distanceKm} km away`}
+              {hotel.distanceKm < 1
+                ? `${Math.round(hotel.distanceKm * 1000)} m`
+                : `${hotel.distanceKm} km`}
+              {distanceFromLabel ? ` from ${distanceFromLabel}` : ' away'}
             </p>
           )}
           {hotel.totalReviews > 0 && (
@@ -160,6 +173,8 @@ export default function SearchResultsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [dynamicRoomTypes, setDynamicRoomTypes] = useState<string[]>([]);
   const [dynamicAmenities, setDynamicAmenities] = useState<string[]>([]);
+  const [searchAnchor, setSearchAnchor] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [sortedByDistance, setSortedByDistance] = useState(false);
 
   // Filter state (controlled from URL params)
   const destination = searchParams.get('destination') ?? '';
@@ -183,6 +198,56 @@ export default function SearchResultsPage() {
   const [minRating, setMinRating] = useState(Number(searchParams.get('rating') ?? 0));
   const [freeCancellation, setFreeCancellation] = useState(searchParams.get('freeCancellation') === 'true');
   const [breakfastIncluded, setBreakfastIncluded] = useState(searchParams.get('breakfastIncluded') === 'true');
+  const priceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep filter UI in sync when URL changes (back/forward, clear from empty state).
+  useEffect(() => {
+    setPriceMin(Number(searchParams.get('priceMin') ?? 0));
+    setPriceMax(Number(searchParams.get('priceMax') ?? 0));
+    setSelectedType(searchParams.get('type') ?? '');
+    setSelectedAmenities(searchParams.get('amenities') ? searchParams.get('amenities')!.split(',') : []);
+    setMinRating(Number(searchParams.get('rating') ?? 0));
+    setFreeCancellation(searchParams.get('freeCancellation') === 'true');
+    setBreakfastIncluded(searchParams.get('breakfastIncluded') === 'true');
+  }, [searchParams]);
+
+  const pushFilterParams = (patch: {
+    priceMin?: number;
+    priceMax?: number;
+    type?: string;
+    amenities?: string[];
+    rating?: number;
+    freeCancellation?: boolean;
+    breakfastIncluded?: boolean;
+  }) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      const priceMinVal = patch.priceMin ?? priceMin;
+      const priceMaxVal = patch.priceMax ?? priceMax;
+      const typeVal = patch.type !== undefined ? patch.type : selectedType;
+      const amenitiesVal = patch.amenities !== undefined ? patch.amenities : selectedAmenities;
+      const ratingVal = patch.rating !== undefined ? patch.rating : minRating;
+      const freeCancelVal = patch.freeCancellation !== undefined ? patch.freeCancellation : freeCancellation;
+      const breakfastVal = patch.breakfastIncluded !== undefined ? patch.breakfastIncluded : breakfastIncluded;
+
+      if (priceMinVal > 0) next.set('priceMin', String(priceMinVal)); else next.delete('priceMin');
+      if (priceMaxVal > 0) next.set('priceMax', String(priceMaxVal)); else next.delete('priceMax');
+      if (typeVal) next.set('type', typeVal); else next.delete('type');
+      if (amenitiesVal.length > 0) next.set('amenities', amenitiesVal.join(',')); else next.delete('amenities');
+      if (ratingVal > 0) next.set('rating', String(ratingVal)); else next.delete('rating');
+      if (freeCancelVal) next.set('freeCancellation', 'true'); else next.delete('freeCancellation');
+      if (breakfastVal) next.set('breakfastIncluded', 'true'); else next.delete('breakfastIncluded');
+      next.set('page', '1');
+      return next;
+    });
+  };
+
+  const schedulePriceFilterUpdate = (min: number, max: number) => {
+    if (priceDebounceRef.current) clearTimeout(priceDebounceRef.current);
+    priceDebounceRef.current = setTimeout(() => {
+      pushFilterParams({ priceMin: min, priceMax: max });
+    }, 400);
+  };
 
   useEffect(() => {
     setLocalDestination(nearMe ? 'Hotels near me' : destination);
@@ -264,34 +329,20 @@ export default function SearchResultsPage() {
       next.delete('near');
       next.delete('lat');
       next.delete('lng');
-      if (safe) next.set('destination', safe);
-      else next.delete('destination');
+      if (safe) {
+        next.set('destination', safe);
+        next.set('sort', 'distance');
+      } else {
+        next.delete('destination');
+        next.delete('sort');
+      }
       next.set('page', '1');
       return next;
     });
-  };
-
-  const applyFilters = () => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (priceMin > 0) next.set('priceMin', String(priceMin)); else next.delete('priceMin');
-      if (priceMax > 0) next.set('priceMax', String(priceMax)); else next.delete('priceMax');
-      if (selectedType) next.set('type', selectedType); else next.delete('type');
-      if (selectedAmenities.length > 0) next.set('amenities', selectedAmenities.join(',')); else next.delete('amenities');
-      if (minRating > 0) next.set('rating', String(minRating)); else next.delete('rating');
-      if (freeCancellation) next.set('freeCancellation', 'true'); else next.delete('freeCancellation');
-      if (breakfastIncluded) next.set('breakfastIncluded', 'true'); else next.delete('breakfastIncluded');
-      next.set('page', '1');
-      return next;
-    });
-    setShowFilters(false);
   };
 
   const clearFilters = () => {
-    setPriceMin(0); setPriceMax(0); setSelectedType('');
-    setSelectedAmenities([]); setMinRating(0);
-    setFreeCancellation(false); setBreakfastIncluded(false);
-    setSearchParams(prev => {
+    setSearchParams((prev) => {
       const next = new URLSearchParams();
       if (prev.get('destination')) next.set('destination', prev.get('destination')!);
       if (prev.get('near')) next.set('near', prev.get('near')!);
@@ -301,6 +352,7 @@ export default function SearchResultsPage() {
       if (prev.get('checkIn')) next.set('checkIn', prev.get('checkIn')!);
       if (prev.get('checkOut')) next.set('checkOut', prev.get('checkOut')!);
       if (prev.get('guests')) next.set('guests', prev.get('guests')!);
+      if (prev.get('sort')) next.set('sort', prev.get('sort')!);
       return next;
     });
   };
@@ -338,8 +390,16 @@ export default function SearchResultsPage() {
       setHotels(result.data);
       setTotal(result.total);
       setTotalPages(result.totalPages);
+      setSearchAnchor(result.searchAnchor ?? null);
+      setSortedByDistance(Boolean(result.sortedByDistance));
     }).catch(() => {
-      if (isActive) { setHotels([]); setTotal(0); setTotalPages(0); }
+      if (isActive) {
+        setHotels([]);
+        setTotal(0);
+        setTotalPages(0);
+        setSearchAnchor(null);
+        setSortedByDistance(false);
+      }
     }).finally(() => {
       if (isActive) setIsLoading(false);
     });
@@ -348,8 +408,13 @@ export default function SearchResultsPage() {
   }, [searchParams, page]);
 
   const activeFilterCount = [
-    priceMin > 0, priceMax > 0, selectedType !== '',
-    selectedAmenities.length > 0, minRating > 0, freeCancellation, breakfastIncluded,
+    Number(searchParams.get('priceMin')) > 0,
+    Number(searchParams.get('priceMax')) > 0,
+    Boolean(searchParams.get('type')),
+    Boolean(searchParams.get('amenities')),
+    Number(searchParams.get('rating')) > 0,
+    searchParams.get('freeCancellation') === 'true',
+    searchParams.get('breakfastIncluded') === 'true',
   ].filter(Boolean).length;
 
   const scrolled = useScroll(20);
@@ -427,9 +492,29 @@ export default function SearchResultsPage() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Price per night (₱)</p>
                   <div className="flex items-center gap-2">
-                    <input type="number" placeholder="Min" value={priceMin || ''} onChange={e => setPriceMin(Number(e.target.value))} className="input-field text-xs py-2 px-3 w-full" />
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={priceMin || ''}
+                      onChange={(e) => {
+                        const min = Number(e.target.value);
+                        setPriceMin(min);
+                        schedulePriceFilterUpdate(min, priceMax);
+                      }}
+                      className="input-field text-xs py-2 px-3 w-full"
+                    />
                     <span className="text-brand-dark/40 font-bold">–</span>
-                    <input type="number" placeholder="Max" value={priceMax || ''} onChange={e => setPriceMax(Number(e.target.value))} className="input-field text-xs py-2 px-3 w-full" />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={priceMax || ''}
+                      onChange={(e) => {
+                        const max = Number(e.target.value);
+                        setPriceMax(max);
+                        schedulePriceFilterUpdate(priceMin, max);
+                      }}
+                      className="input-field text-xs py-2 px-3 w-full"
+                    />
                   </div>
                 </div>
 
@@ -439,12 +524,12 @@ export default function SearchResultsPage() {
                   <div className="space-y-2">
                     {dynamicRoomTypes.map(rt => (
                       <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="roomType" value={rt} checked={selectedType === rt} onChange={() => setSelectedType(rt)} className="accent-brand-primary" />
+                        <input type="radio" name="roomType" value={rt} checked={selectedType === rt} onChange={() => { setSelectedType(rt); pushFilterParams({ type: rt }); }} className="accent-brand-primary" />
                         <span className="text-sm font-bold text-brand-dark">{formatLabel(rt)}</span>
                       </label>
                     ))}
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="roomType" value="" checked={selectedType === ''} onChange={() => setSelectedType('')} className="accent-brand-primary" />
+                      <input type="radio" name="roomType" value="" checked={selectedType === ''} onChange={() => { setSelectedType(''); pushFilterParams({ type: '' }); }} className="accent-brand-primary" />
                       <span className="text-sm font-bold text-brand-dark">Any type</span>
                     </label>
                   </div>
@@ -461,7 +546,13 @@ export default function SearchResultsPage() {
                           <input
                             type="checkbox"
                             checked={selectedAmenities.includes(a)}
-                            onChange={() => setSelectedAmenities(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a])}
+                            onChange={() => {
+                              const next = selectedAmenities.includes(a)
+                                ? selectedAmenities.filter((x) => x !== a)
+                                : [...selectedAmenities, a];
+                              setSelectedAmenities(next);
+                              pushFilterParams({ amenities: next });
+                            }}
                             className="accent-brand-primary"
                           />
                           <IconComponent className="w-3.5 h-3.5 text-brand-primary/60" />
@@ -478,7 +569,7 @@ export default function SearchResultsPage() {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Min Rating</p>
                     <div className="flex gap-2">
                       {[0, 3, 4, 5].map(r => (
-                        <button key={r} type="button" onClick={() => setMinRating(r)}
+                        <button key={r} type="button" onClick={() => { setMinRating(r); pushFilterParams({ rating: r }); }}
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${minRating === r ? 'bg-brand-primary text-white border-brand-primary' : 'border-brand-primary/20 text-brand-dark hover:border-brand-primary/40'}`}>
                           {r === 0 ? 'Any' : `${r}+`}
                         </button>
@@ -486,17 +577,13 @@ export default function SearchResultsPage() {
                     </div>
                   </div>
                   <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={freeCancellation} onChange={() => setFreeCancellation(!freeCancellation)} className="accent-brand-primary w-4 h-4" />
+                    <input type="checkbox" checked={freeCancellation} onChange={() => { const next = !freeCancellation; setFreeCancellation(next); pushFilterParams({ freeCancellation: next }); }} className="accent-brand-primary w-4 h-4" />
                     <span className="text-sm font-bold text-brand-dark">Free Cancellation</span>
                   </label>
                   <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={breakfastIncluded} onChange={() => setBreakfastIncluded(!breakfastIncluded)} className="accent-brand-primary w-4 h-4" />
+                    <input type="checkbox" checked={breakfastIncluded} onChange={() => { const next = !breakfastIncluded; setBreakfastIncluded(next); pushFilterParams({ breakfastIncluded: next }); }} className="accent-brand-primary w-4 h-4" />
                     <span className="text-sm font-bold text-brand-dark">Breakfast Included</span>
                   </label>
-                  <div className="flex gap-2 pt-2">
-                    <button type="button" onClick={applyFilters} className="btn-primary text-xs flex-1">Apply</button>
-                    <button type="button" onClick={clearFilters} className="btn-outline text-xs flex-1">Clear</button>
-                  </div>
                 </div>
               </div>
             </motion.div>
@@ -511,15 +598,19 @@ export default function SearchResultsPage() {
             <h1 className="text-2xl font-serif font-bold text-brand-dark">
               {nearMe
                 ? 'Hotels near you'
-                : destination
-                  ? `Properties in "${destination}"`
-                  : 'All Properties'}
+                : searchAnchor
+                  ? `Hotels near ${searchAnchor.label}`
+                  : destination
+                    ? `Properties in "${destination}"`
+                    : 'All Properties'}
             </h1>
             {!isLoading && (
               <p className="text-sm font-bold text-brand-dark/50 mt-1">
                 {nearMe
                   ? `${total} ${total === 1 ? 'hotel' : 'hotels'} within ${radiusKm} km · nearest first`
-                  : `${total} ${total === 1 ? 'property' : 'properties'} found`}
+                  : sortedByDistance && searchAnchor
+                    ? `${total} ${total === 1 ? 'hotel' : 'hotels'} · nearest to farthest from ${searchAnchor.label}`
+                    : `${total} ${total === 1 ? 'property' : 'properties'} found`}
               </p>
             )}
           </div>
@@ -551,7 +642,13 @@ export default function SearchResultsPage() {
           <AnimatePresence mode="popLayout">
             <motion.div layout className={`grid gap-5 ${view === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
               {hotels.map(hotel => (
-                <HotelCard key={hotel.id} hotel={hotel} view={view} onSelect={() => {}} />
+                <HotelCard
+                  key={hotel.id}
+                  hotel={hotel}
+                  view={view}
+                  distanceFromLabel={searchAnchor?.label}
+                  onSelect={() => {}}
+                />
               ))}
             </motion.div>
           </AnimatePresence>

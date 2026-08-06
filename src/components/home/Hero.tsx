@@ -102,7 +102,10 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
     }
 
     trackSearchSubmitted({ destination: safeDestination || 'All destinations', guests: adults + children, rooms });
-    if (safeDestination) params.set('destination', safeDestination);
+    if (safeDestination) {
+      params.set('destination', safeDestination);
+      params.set('sort', 'distance');
+    }
     navigate(`/search?${params.toString()}`);
   };
 

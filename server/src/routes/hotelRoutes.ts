@@ -8,6 +8,7 @@ import Fuse from 'fuse.js';
 import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
+import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
 
 const hotelRoutes = Router();
 
@@ -58,6 +59,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   const roomFilter: Record<string, unknown> = {};
   let hotelScores: Record<string, number> = {};
   const distanceByHotelId: Record<string, number> = {};
+  let searchAnchor: { latitude: number; longitude: number; label: string } | null = null;
 
   if (nearMode) {
     const allHotels = await HotelModel.find().lean();
@@ -107,7 +109,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     });
 
     const fuseResults = fuse.search(destStr);
-    const matchedHotelIds: string[] = [];
+    const matchedHotelIds = new Set<string>();
 
     fuseResults.forEach((result) => {
       const h = result.item as {
@@ -115,7 +117,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
         coordinates?: { latitude?: number; longitude?: number };
       };
       const hId = String(h._id);
-      matchedHotelIds.push(hId);
+      matchedHotelIds.add(hId);
 
       const relevanceScore = (1 - (result.score || 0)) * 100;
       let proximityScore = 0;
@@ -139,39 +141,48 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
       hotelScores[hId] = finalScore;
     });
 
-    // Also include hotels within radius of the geocoded destination for location accuracy
     if (geocodeParams) {
+      searchAnchor = {
+        latitude: geocodeParams.latitude,
+        longitude: geocodeParams.longitude,
+        label: buildAnchorLabel(destStr, geocodeParams.displayName),
+      };
+
       for (const hotel of allHotels) {
         const coords = hotelHasCoordinates(hotel as never);
         if (!coords) continue;
         const hId = String((hotel as { _id: unknown })._id);
-        if (matchedHotelIds.includes(hId)) continue;
         const meters = getDistance(
           { latitude: geocodeParams.latitude, longitude: geocodeParams.longitude },
           coords,
         );
+        distanceByHotelId[hId] = meters;
         if (meters / 1000 <= nearRadiusKm) {
-          matchedHotelIds.push(hId);
-          distanceByHotelId[hId] = meters;
+          matchedHotelIds.add(hId);
           hotelScores[hId] = Math.max(hotelScores[hId] ?? 0, Math.max(0, nearRadiusKm - meters / 1000));
         }
       }
     }
 
+    const matchedIds = Array.from(matchedHotelIds);
     const escaped = destStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const flexiblePattern = escaped.replace(/\s+/g, '').split('').join('\\s*');
     const rx = new RegExp(flexiblePattern, 'i');
 
-    roomFilter.$or = [
-      { hotel_name: rx },
-      { display_name: rx },
-      { category_name: rx },
-      { room_type: rx },
-      { hotel_location: rx },
-    ];
-
-    if (matchedHotelIds.length > 0 && Array.isArray(roomFilter.$or)) {
-      roomFilter.$or.push({ hotel_id: { $in: matchedHotelIds } });
+    if (geocodeParams && matchedIds.length > 0) {
+      roomFilter.hotel_id = { $in: matchedIds };
+    } else {
+      const orClauses: Record<string, unknown>[] = [
+        { hotel_name: rx },
+        { display_name: rx },
+        { category_name: rx },
+        { room_type: rx },
+        { hotel_location: rx },
+      ];
+      if (matchedIds.length > 0) {
+        orClauses.push({ hotel_id: { $in: matchedIds } });
+      }
+      roomFilter.$or = orClauses;
     }
   }
 
@@ -262,7 +273,19 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     };
     const ratingData = ratingMap.get(hid) ?? { sum: 0, count: 0 };
     const avgRating = ratingData.count > 0 ? Math.round((ratingData.sum / ratingData.count) * 10) / 10 : 0;
-    const meters = distanceByHotelId[hid];
+    let meters = distanceByHotelId[hid];
+
+    if (searchAnchor && meters == null) {
+      const coords = hotelHasCoordinates(hotel as never);
+      if (coords) {
+        meters = getDistance(
+          { latitude: searchAnchor.latitude, longitude: searchAnchor.longitude },
+          coords,
+        );
+        distanceByHotelId[hid] = meters;
+      }
+    }
+
     return {
       ...serializeHotel(hotel as never),
       minPrice: stats.minPrice === Infinity ? 0 : stats.minPrice,
@@ -280,7 +303,8 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     results = results.filter((h) => h.avgRating >= parsedRating);
   }
 
-  if (nearMode || sort === 'distance') {
+  const distanceSort = shouldSortByDistance(String(sort), nearMode, searchAnchor != null);
+  if (distanceSort) {
     results.sort((a, b) => {
       const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
       const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
@@ -305,7 +329,15 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     limit: safeLimit,
     totalPages: Math.ceil(total / safeLimit),
     nearMe: nearMode,
-    radiusKm: nearMode ? nearRadiusKm : undefined,
+    radiusKm: nearMode || searchAnchor ? nearRadiusKm : undefined,
+    searchAnchor: searchAnchor
+      ? {
+        lat: searchAnchor.latitude,
+        lng: searchAnchor.longitude,
+        label: searchAnchor.label,
+      }
+      : undefined,
+    sortedByDistance: distanceSort,
   });
 });
 
