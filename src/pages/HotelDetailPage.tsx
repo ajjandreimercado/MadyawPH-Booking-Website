@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useScroll } from '../hooks/useScroll';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, XCircle, Calendar, Users, MessageSquareQuote, Navigation } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote, Navigation } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import type { Hotel } from '../types';
@@ -322,15 +322,6 @@ export default function HotelDetailPage() {
   return (
     <div className="bg-brand-background min-h-screen pt-32 pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Breadcrumbs */}
-        <nav className="text-sm mb-4 flex items-center gap-2 text-brand-dark/60 font-bold">
-          <Link to="/" className="hover:text-brand-primary transition-colors">Home</Link>
-          <span>/</span>
-          <Link to="/search" className="hover:text-brand-primary transition-colors">Properties</Link>
-          <span>/</span>
-          <span className="text-brand-dark">{hotel.name}</span>
-        </nav>
-
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
           <div>
@@ -366,31 +357,17 @@ export default function HotelDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
+          <div className="flex items-center shrink-0">
             {categories.some(c => c.availableRooms > 0) ? (
-              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-success bg-brand-success/15 px-4 sm:px-5 py-3 sm:py-3.5 shadow-md shadow-brand-success/20 w-full md:w-auto">
-                <span className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-brand-success text-white shadow-sm shrink-0">
-                  <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg md:text-xl font-bold text-brand-success leading-tight tracking-tight">
-                    Rooms Available
-                  </p>
-                  <p className="text-xs sm:text-sm font-bold text-brand-success/80">
-                    {categories.reduce((sum, c) => sum + (c.availableRooms > 0 ? c.availableRooms : 0), 0)} ready to book
-                  </p>
-                </div>
-              </div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 px-4 py-2 text-sm font-bold tracking-wide">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-success animate-pulse" aria-hidden />
+                Rooms available
+              </span>
             ) : (
-              <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-danger/40 bg-brand-danger/10 px-4 sm:px-5 py-3 sm:py-3.5 w-full md:w-auto">
-                <span className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl bg-brand-danger text-white shrink-0">
-                  <XCircle className="w-5 h-5 sm:w-6 sm:h-6" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg md:text-xl font-bold text-brand-danger leading-tight">Fully Booked</p>
-                  <p className="text-xs sm:text-sm font-bold text-brand-danger/70">No rooms open right now</p>
-                </div>
-              </div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-danger/10 text-brand-danger border border-brand-danger/25 px-4 py-2 text-sm font-bold tracking-wide">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-danger" aria-hidden />
+                Fully booked
+              </span>
             )}
           </div>
         </div>
@@ -432,9 +409,9 @@ export default function HotelDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <h2 className="text-xl font-serif font-bold text-brand-dark">Available Rooms</h2>
                 {categories.some(c => c.availableRooms > 0) && (
-                  <span className="inline-flex items-center gap-2 rounded-xl bg-brand-success text-white text-sm font-bold px-4 py-2 shadow-sm">
-                    <ShieldCheck className="w-4 h-4" />
-                    Rooms Available
+                  <span className="inline-flex items-center gap-2 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 px-3.5 py-1.5 text-xs font-bold tracking-wide">
+                    <span className="h-1.5 w-1.5 rounded-full bg-brand-success" aria-hidden />
+                    Rooms available
                   </span>
                 )}
               </div>
@@ -457,11 +434,11 @@ export default function HotelDetailPage() {
                             <div className="flex flex-wrap gap-2 mb-3">
                               {cat.availableRooms > 0
                                 ? (
-                                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-success text-white text-sm font-bold px-3 py-1.5 shadow-sm">
-                                    ✓ {cat.availableRooms} available
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 text-xs font-bold px-3 py-1.5 tracking-wide">
+                                    Available
                                   </span>
                                 )
-                                : <span className="availability-badge-full text-sm px-3 py-1.5">✗ Fully booked</span>
+                                : <span className="inline-flex items-center rounded-full bg-brand-danger/10 text-brand-danger border border-brand-danger/25 text-xs font-bold px-3 py-1.5 tracking-wide">Fully booked</span>
                               }
                               {(cat as any).freeCancellation && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-success/10 text-brand-success">Free cancellation</span>}
                               {(cat as any).breakfastIncluded && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-warning/10 text-brand-warning">🍳 Breakfast included</span>}
