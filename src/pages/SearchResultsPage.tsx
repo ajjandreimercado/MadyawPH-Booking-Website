@@ -24,12 +24,25 @@ const SORT_OPTIONS = [
 
 const AMENITY_ICONS: Record<string, any> = {
   'wifi': Wifi,
+  'wi-fi': Wifi,
   'restaurant': Utensils,
   'gym': Dumbbell,
   'pool': Waves,
   'parking': ParkingCircle,
   'bar': Wine,
+  'breakfast': Utensils,
+  'breakfast-included': Utensils,
+  'air-conditioning': Star,
+  'airconditioning': Star,
+  'free-cancellation': Star,
+  'spa': Star,
+  'laundry': Star,
+  'pet-friendly': Star,
 };
+
+function amenityIconKey(value: string) {
+  return value.trim().toLowerCase().replace(/[\s_/]+/g, '-');
+}
 
 function formatLabel(value: string) {
   return value.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -173,6 +186,9 @@ export default function SearchResultsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [dynamicRoomTypes, setDynamicRoomTypes] = useState<string[]>([]);
   const [dynamicAmenities, setDynamicAmenities] = useState<string[]>([]);
+  const [priceBounds, setPriceBounds] = useState<{ min?: number; max?: number }>({});
+  const [supportsFreeCancellation, setSupportsFreeCancellation] = useState(true);
+  const [supportsBreakfastIncluded, setSupportsBreakfastIncluded] = useState(true);
   const [searchAnchor, setSearchAnchor] = useState<{ lat: number; lng: number; label: string } | null>(null);
   const [sortedByDistance, setSortedByDistance] = useState(false);
 
@@ -359,8 +375,14 @@ export default function SearchResultsPage() {
 
   useEffect(() => {
     fetchFilters().then(res => {
-      setDynamicRoomTypes(res.roomTypes);
-      setDynamicAmenities(res.amenities);
+      setDynamicRoomTypes(res.roomTypes ?? []);
+      setDynamicAmenities(res.amenities ?? []);
+      setPriceBounds({
+        min: res.priceMin,
+        max: res.priceMax,
+      });
+      setSupportsFreeCancellation(res.supportsFreeCancellation !== false);
+      setSupportsBreakfastIncluded(res.supportsBreakfastIncluded !== false);
     }).catch(console.error);
   }, []);
 
@@ -494,7 +516,7 @@ export default function SearchResultsPage() {
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      placeholder="Min"
+                      placeholder={priceBounds.min ? String(priceBounds.min) : 'Min'}
                       value={priceMin || ''}
                       onChange={(e) => {
                         const min = Number(e.target.value);
@@ -506,7 +528,7 @@ export default function SearchResultsPage() {
                     <span className="text-brand-dark/40 font-bold">–</span>
                     <input
                       type="number"
-                      placeholder="Max"
+                      placeholder={priceBounds.max ? String(priceBounds.max) : 'Max'}
                       value={priceMax || ''}
                       onChange={(e) => {
                         const max = Number(e.target.value);
@@ -516,18 +538,27 @@ export default function SearchResultsPage() {
                       className="input-field text-xs py-2 px-3 w-full"
                     />
                   </div>
+                  {priceBounds.min != null && priceBounds.max != null && (
+                    <p className="mt-2 text-[10px] font-bold text-brand-dark/40">
+                      Partner rooms from ₱{priceBounds.min.toLocaleString()} – ₱{priceBounds.max.toLocaleString()}
+                    </p>
+                  )}
                 </div>
 
                 {/* Room Type */}
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Room Type</p>
-                  <div className="space-y-2">
-                    {dynamicRoomTypes.map(rt => (
-                      <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="roomType" value={rt} checked={selectedType === rt} onChange={() => { setSelectedType(rt); pushFilterParams({ type: rt }); }} className="accent-brand-primary" />
-                        <span className="text-sm font-bold text-brand-dark">{formatLabel(rt)}</span>
-                      </label>
-                    ))}
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {dynamicRoomTypes.length === 0 ? (
+                      <p className="text-xs font-bold text-brand-dark/40">No room types listed yet</p>
+                    ) : (
+                      dynamicRoomTypes.map(rt => (
+                        <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="roomType" value={rt} checked={selectedType === rt} onChange={() => { setSelectedType(rt); pushFilterParams({ type: rt }); }} className="accent-brand-primary" />
+                          <span className="text-sm font-bold text-brand-dark">{formatLabel(rt)}</span>
+                        </label>
+                      ))
+                    )}
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" name="roomType" value="" checked={selectedType === ''} onChange={() => { setSelectedType(''); pushFilterParams({ type: '' }); }} className="accent-brand-primary" />
                       <span className="text-sm font-bold text-brand-dark">Any type</span>
@@ -538,28 +569,34 @@ export default function SearchResultsPage() {
                 {/* Amenities */}
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 mb-3">Amenities</p>
-                  <div className="space-y-2">
-                    {dynamicAmenities.map(a => {
-                      const IconComponent = AMENITY_ICONS[a] || Star;
-                      return (
-                        <label key={a} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedAmenities.includes(a)}
-                            onChange={() => {
-                              const next = selectedAmenities.includes(a)
-                                ? selectedAmenities.filter((x) => x !== a)
-                                : [...selectedAmenities, a];
-                              setSelectedAmenities(next);
-                              pushFilterParams({ amenities: next });
-                            }}
-                            className="accent-brand-primary"
-                          />
-                          <IconComponent className="w-3.5 h-3.5 text-brand-primary/60" />
-                          <span className="text-sm font-bold text-brand-dark">{formatLabel(a)}</span>
-                        </label>
-                      );
-                    })}
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {dynamicAmenities.length === 0 ? (
+                      <p className="text-xs font-bold text-brand-dark/40 leading-relaxed">
+                        Partner hotels have not listed amenities yet. Use room type, price, and the options on the right.
+                      </p>
+                    ) : (
+                      dynamicAmenities.map(a => {
+                        const IconComponent = AMENITY_ICONS[amenityIconKey(a)] || Star;
+                        return (
+                          <label key={a} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedAmenities.includes(a)}
+                              onChange={() => {
+                                const next = selectedAmenities.includes(a)
+                                  ? selectedAmenities.filter((x) => x !== a)
+                                  : [...selectedAmenities, a];
+                                setSelectedAmenities(next);
+                                pushFilterParams({ amenities: next });
+                              }}
+                              className="accent-brand-primary"
+                            />
+                            <IconComponent className="w-3.5 h-3.5 text-brand-primary/60" />
+                            <span className="text-sm font-bold text-brand-dark">{formatLabel(a)}</span>
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
@@ -576,14 +613,18 @@ export default function SearchResultsPage() {
                       ))}
                     </div>
                   </div>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={freeCancellation} onChange={() => { const next = !freeCancellation; setFreeCancellation(next); pushFilterParams({ freeCancellation: next }); }} className="accent-brand-primary w-4 h-4" />
-                    <span className="text-sm font-bold text-brand-dark">Free Cancellation</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={breakfastIncluded} onChange={() => { const next = !breakfastIncluded; setBreakfastIncluded(next); pushFilterParams({ breakfastIncluded: next }); }} className="accent-brand-primary w-4 h-4" />
-                    <span className="text-sm font-bold text-brand-dark">Breakfast Included</span>
-                  </label>
+                  {supportsFreeCancellation && (
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={freeCancellation} onChange={() => { const next = !freeCancellation; setFreeCancellation(next); pushFilterParams({ freeCancellation: next }); }} className="accent-brand-primary w-4 h-4" />
+                      <span className="text-sm font-bold text-brand-dark">Free Cancellation</span>
+                    </label>
+                  )}
+                  {supportsBreakfastIncluded && (
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={breakfastIncluded} onChange={() => { const next = !breakfastIncluded; setBreakfastIncluded(next); pushFilterParams({ breakfastIncluded: next }); }} className="accent-brand-primary w-4 h-4" />
+                      <span className="text-sm font-bold text-brand-dark">Breakfast Included</span>
+                    </label>
+                  )}
                 </div>
               </div>
             </motion.div>

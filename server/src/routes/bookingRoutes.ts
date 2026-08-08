@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -11,10 +11,15 @@ import { sendBookingConfirmationNotification, sendBookingRequestReceivedNotifica
 import { createPaymentCheckout } from '../services/paymentService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
+import { resolveMemberDiscount } from '../utils/memberDiscount';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields, toStayDate } from '../utils/hotelAppBookingFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
-import { computeHalfPayment } from '../utils/halfPayment';
+import {
+  computeOnlinePaymentDue,
+  resolveHotelOnlinePaymentMode,
+  resolveOnlinePaymentModeFromBooking,
+} from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
 import { runValidIdUpload, type UploadedValidIdFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
@@ -391,6 +396,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     'discountAmount',
     'specialRequests',
     'promoCode',
+    'membershipId',
+    'memberShidId',
   ] as const);
 
   // ── Required field validation ─────────────────────────────────────────────
@@ -482,6 +489,13 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const promoCodeResult = validateOptionalString(body.promoCode, 'Promo code', 50);
   if (!promoCodeResult.ok) return res.status(400).json({ message: promoCodeResult.message });
 
+  const membershipIdResult = validateOptionalString(
+    body.membershipId ?? body.memberShidId,
+    'Membership ID',
+    40,
+  );
+  if (!membershipIdResult.ok) return res.status(400).json({ message: membershipIdResult.message });
+
   // Discount amount: non-negative, capped (server always recalculates, but reject clear garbage)
   const rawDiscountAmount = body.discountAmount === undefined || body.discountAmount === ''
     ? undefined
@@ -498,6 +512,12 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   if (!property) {
     return res.status(404).json({ message: 'Room not found.' });
   }
+
+  const hotelIdForPolicy = String(property.hotel_id ?? '');
+  const hotelDoc = hotelIdForPolicy
+    ? await HotelModel.findById(hotelIdForPolicy).lean()
+    : null;
+  const paymentMode = resolveHotelOnlinePaymentMode(hotelDoc);
 
   let pricing;
 
@@ -544,11 +564,37 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     return res.status(400).json({ message });
   }
 
-  // Apply the larger of PWD/senior vs promo (do not stack arbitrarily beyond the subtotal).
-  const resolvedDiscount = Math.min(pricing.totalPrice, Math.max(eligibilityDiscount, promoDiscount));
-  const finalDiscountReason = promoDiscount >= eligibilityDiscount && promoCode
-    ? `promo:${promoCode}`
-    : (canonicalDiscountReason ?? '');
+  let memberDiscount = 0;
+  let membershipId = '';
+  let memberDiscountPercent = 0;
+  const rawMembershipId = membershipIdResult.value?.trim() ?? '';
+  if (rawMembershipId) {
+    const member = await resolveMemberDiscount(rawMembershipId, pricing.totalPrice);
+    if (!member.valid) {
+      return res.status(400).json({ message: member.message || 'Invalid membership ID.' });
+    }
+    memberDiscount = member.discountAmount;
+    membershipId = member.membershipId;
+    memberDiscountPercent = member.discountPercent;
+  }
+
+  // Apply the largest single discount among PWD/senior, promo, and Madyaw member.
+  const resolvedDiscount = Math.min(
+    pricing.totalPrice,
+    Math.max(eligibilityDiscount, promoDiscount, memberDiscount),
+  );
+  let finalDiscountReason = canonicalDiscountReason ?? '';
+  let finalDiscountType = canonicalDiscountReason ?? '';
+  let finalDiscountValue = canonicalDiscountReason ? 20 : 0;
+  if (memberDiscount >= eligibilityDiscount && memberDiscount >= promoDiscount && membershipId) {
+    finalDiscountReason = 'madyaw member';
+    finalDiscountType = 'member';
+    finalDiscountValue = memberDiscountPercent;
+  } else if (promoDiscount >= eligibilityDiscount && promoCode) {
+    finalDiscountReason = `promo:${promoCode}`;
+    finalDiscountType = 'promo';
+    finalDiscountValue = 0;
+  }
   const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
 
   // Shared MongoDB with the hotel management app:
@@ -571,11 +617,12 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     checkOutDate: toStayDate(checkOutResult.value),
   };
 
-  const { halfPayment, balanceDue } = computeHalfPayment(finalTotalPrice);
+  const { amountDue, balanceDue, depositPercent, mode: onlinePaymentMode, paymentStatus } =
+    computeOnlinePaymentDue(finalTotalPrice, paymentMode);
   // Hotel app statuses are unpaid | partial | paid (not "pending").
-  // Website collects 50% now; remaining balance is paid at hotel check-out.
-  if (finalTotalPrice > 0 && halfPayment >= finalTotalPrice) {
-    console.error('[Bookings] Half payment must be less than stay total', { finalTotalPrice, halfPayment });
+  // Amount due follows this hotel's online payment policy (half or full).
+  if (onlinePaymentMode === 'half' && finalTotalPrice > 0 && amountDue >= finalTotalPrice) {
+    console.error('[Bookings] Half payment must be less than stay total', { finalTotalPrice, amountDue });
   }
 
   const bookingDoc = {
@@ -589,7 +636,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     guest_phone: guestPhoneResult.value,
     ...hotelAppFields,
     discount_reason: finalDiscountReason,
+    discount_type: finalDiscountType,
+    discount_value: finalDiscountValue,
     discount_amount: resolvedDiscount,
+    member_shid_id: membershipId,
     special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
     promo_code: promoCode,
     valid_id_filename: validIdFile.originalname.slice(0, 200),
@@ -614,12 +664,14 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     serviceFee: 0,
     totalPrice: finalTotalPrice,
     total_amount: finalTotalPrice,
-    // Half deposit only — never mark as fully paid on website create.
-    amountPaid: halfPayment,
-    amount_paid: halfPayment,
-    deposit_amount: halfPayment,
+    // Online payment due follows hotel admin policy (half or full).
+    amountPaid: amountDue,
+    amount_paid: amountDue,
+    deposit_amount: amountDue,
     balance_due: balanceDue,
-    payment_status: 'partial',
+    online_payment_mode: onlinePaymentMode,
+    deposit_percent: depositPercent,
+    payment_status: paymentStatus,
     // Hotel-native awaiting status is "pending". Do NOT write check_in_date/check_out_date
     // on create (those are what make the hotel app treat this as an inventory hold).
     // Online Bookings queue is driven by external_reservations (pending_approval).
@@ -764,8 +816,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
         roomId,
         paymentMethod,
         totalAmount: finalTotalPrice,
-        halfPayment,
+        amountDue,
         balanceDue,
+        onlinePaymentMode,
+        depositPercent,
         nights: pricing.nights,
         adults: adultsResult.value,
         children: childrenResult.value,
@@ -800,9 +854,11 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
     ...serializeBooking(booking as never),
-    amountPaid: halfPayment,
+    amountPaid: amountDue,
     balanceDue,
-    paymentStatus: 'partial',
+    paymentStatus,
+    onlinePaymentMode,
+    depositPercent,
     validIdUploaded: true,
     hotelLedgerSynced: syncErrors.every((e) => !e.startsWith('ledger:')),
     hotelQueueSynced: syncErrors.every((e) => !e.startsWith('queue:')),
@@ -1105,12 +1161,17 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
   const failureRedirectUrl = `${frontendOrigin}/booking/confirm/${bookingIdResult.value}?email=${encodeURIComponent(bookingEmail)}&paid=0`;
 
   const checkoutTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
-  const recordedHalf = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
-  const { halfPayment } = computeHalfPayment(checkoutTotal);
-  // Collect the half deposit only — never invoice the full stay on website checkout.
-  const checkoutAmount = recordedHalf > 0 && recordedHalf < checkoutTotal
-    ? recordedHalf
-    : halfPayment;
+  const mode = resolveOnlinePaymentModeFromBooking(booking);
+  const due = computeOnlinePaymentDue(checkoutTotal, mode);
+  const recorded = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
+  const checkoutAmount = recorded > 0
+    ? (mode === 'full'
+      ? Math.min(recorded, checkoutTotal) || due.amountDue
+      : (recorded < checkoutTotal ? recorded : due.amountDue))
+    : due.amountDue;
+  const checkoutLabel = mode === 'full'
+    ? `Madyaw full stay payment ${booking.booking_reference ?? bookingIdResult.value}`
+    : `Madyaw 50% deposit ${booking.booking_reference ?? bookingIdResult.value}`;
 
   try {
     const checkout = await createPaymentCheckout({
@@ -1119,7 +1180,7 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
       amount: checkoutAmount,
       guestEmail: bookingEmail,
       guestName: String(booking.guestName ?? 'Guest'),
-      description: `Madyaw 50% deposit ${booking.booking_reference ?? bookingIdResult.value}`,
+      description: checkoutLabel,
       successRedirectUrl,
       failureRedirectUrl,
     });

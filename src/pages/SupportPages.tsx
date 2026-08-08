@@ -51,11 +51,11 @@ export function HelpCenterPage() {
       sections={[
         {
           heading: 'How booking works',
-          body: 'Search for a hotel or room, submit a reservation request with your details and a 50% deposit preference, then wait for the hotel to accept. Confirmation and room assignment are handled by the hotel — not on this website.',
+          body: 'Search for a hotel or room, submit a reservation request with your details and the hotel’s required online payment (half or full), then wait for the hotel to accept. Confirmation and room assignment are handled by the hotel — not on this website.',
         },
         {
-          heading: 'Half payment',
-          body: 'Your request records a 50% partial payment for the hotel. The remaining balance is collected when you check out at the hotel.',
+          heading: 'Online payment',
+          body: 'Each partner hotel chooses whether online bookings require a 50% deposit or full payment. The remaining balance (if any) is collected when you check out at the hotel.',
         },
         {
           heading: 'Valid ID',
@@ -107,7 +107,7 @@ export function SafetyPage() {
         },
         {
           heading: 'Payments',
-          body: 'This website records a preferred half-deposit for the hotel. Follow only payment instructions that come from the hotel after they accept your request.',
+          body: 'This website records the hotel’s required online payment (half deposit or full stay). Follow only payment instructions that come from the hotel after they accept your request.',
         },
         {
           heading: 'On property',

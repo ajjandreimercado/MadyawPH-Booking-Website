@@ -69,8 +69,12 @@ export function buildExternalReservationDoc(input: {
   roomId: string;
   paymentMethod: string;
   totalAmount: number;
+  amountDue?: number;
+  /** @deprecated Use amountDue */
   halfPayment?: number;
   balanceDue?: number;
+  depositPercent?: number;
+  onlinePaymentMode?: 'half' | 'full';
   nights: number;
   adults: number;
   children?: number;
@@ -79,6 +83,19 @@ export function buildExternalReservationDoc(input: {
   validIdFilename?: string;
 }) {
   const now = input.now ?? new Date();
+  const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
+  const balanceDue = Number(
+    input.balanceDue
+    ?? Math.max(0, Number(input.totalAmount) - amountDue),
+  );
+  const mode = input.onlinePaymentMode
+    ?? (amountDue > 0 && amountDue >= Number(input.totalAmount) ? 'full' : 'half');
+  const depositPercent = Number(input.depositPercent ?? (mode === 'full' ? 100 : 50));
+  const paymentStatus = mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial';
+  const note = mode === 'full'
+    ? 'Website full stay payment — no remaining balance at hotel check-out'
+    : 'Website half deposit — remaining balance due at hotel check-out';
+
   const metadata = {
     // Hotel Online Bookings queue filters external_reservations (often by app-customer + pending_approval).
     // Keep website identity in metadata / booking.booking_source.
@@ -87,11 +104,12 @@ export function buildExternalReservationDoc(input: {
     booking_reference: input.bookingReference,
     payment_method: input.paymentMethod,
     estimated_total: input.totalAmount,
-    amount_paid: input.halfPayment ?? 0,
-    balance_due: input.balanceDue ?? input.totalAmount,
-    payment_status: 'partial',
-    deposit_percent: 50,
-    note: 'Website half deposit — remaining balance due at hotel check-out',
+    amount_paid: amountDue,
+    balance_due: balanceDue,
+    payment_status: paymentStatus,
+    online_payment_mode: mode,
+    deposit_percent: depositPercent,
+    note,
     valid_id_uploaded: Boolean(input.validIdUploaded),
     valid_id_filename: input.validIdFilename ?? '',
     billing_mode: 'nightly',

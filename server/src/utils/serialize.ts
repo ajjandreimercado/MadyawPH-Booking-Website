@@ -1,3 +1,5 @@
+import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
+
 type AnyDocument = { _id: unknown; [key: string]: unknown };
 
 function toId(value: unknown) {
@@ -63,6 +65,8 @@ export function serializeHotel(hotel: AnyDocument) {
   const longitude = typeof coordinates?.longitude === 'number' ? coordinates.longitude : Number(coordinates?.longitude);
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
 
+  const onlinePaymentMode = resolveHotelOnlinePaymentMode(hotel);
+
   return {
     id: toId(hotel._id),
     _id: toId(hotel._id),
@@ -73,6 +77,8 @@ export function serializeHotel(hotel: AnyDocument) {
     imageUrl: hotel.image_url ? String(hotel.image_url) : undefined,
     latitude: hasCoords ? latitude : undefined,
     longitude: hasCoords ? longitude : undefined,
+    onlinePaymentMode,
+    depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
   };
 }
 
@@ -153,6 +159,10 @@ export function serializeBooking(booking: AnyDocument) {
         Number(booking.total_amount ?? booking.totalPrice ?? 0) - Number(booking.amountPaid ?? booking.amount_paid ?? 0),
       ),
     depositAmount: Number(booking.deposit_amount ?? booking.amountPaid ?? booking.amount_paid ?? 0),
+    onlinePaymentMode: resolveOnlinePaymentModeFromBooking(booking),
+    depositPercent: resolveOnlinePaymentModeFromBooking(booking) === 'full' ? 100 : Number(booking.deposit_percent ?? 50),
+    membershipId: booking.member_shid_id ? String(booking.member_shid_id) : undefined,
+    discountType: booking.discount_type ? String(booking.discount_type) : undefined,
     checkInAt: booking.check_in_at,
     checkOutAt: booking.check_out_at,
     paymentStatus: booking.payment_status,

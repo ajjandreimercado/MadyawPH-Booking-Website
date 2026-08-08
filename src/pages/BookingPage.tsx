@@ -4,13 +4,13 @@ import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
   Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, CreditCard, Landmark
 } from 'lucide-react';
-import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
-import { validatePromoCode } from '../services/api';
+import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
+import { validatePromoCode, validateMembershipId } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
-import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing } from '../lib/bookingFlow';
+import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
+import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { format, addDays } from 'date-fns';
 
@@ -80,6 +80,7 @@ export default function BookingPage() {
   const urlGuests = Number(searchParams.get('guests') ?? 2);
 
   const [property, setProperty] = useState<Property | null>(null);
+  const [hotel, setHotel] = useState<Hotel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -103,6 +104,10 @@ export default function BookingPage() {
   const [promoCode, setPromoCode] = useState('');
   const [promoDiscountAmt, setPromoDiscountAmt] = useState(0);
   const [promoStatus, setPromoStatus] = useState<string | null>(null);
+  const [membershipId, setMembershipId] = useState('');
+  const [memberDiscountAmt, setMemberDiscountAmt] = useState(0);
+  const [memberStatus, setMemberStatus] = useState<string | null>(null);
+  const [memberPoints, setMemberPoints] = useState<number | null>(null);
 
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
@@ -132,11 +137,20 @@ export default function BookingPage() {
   const discountAmt = pricing?.discountAmount ?? 0;
   // Server compares PWD/senior vs promo on the pre-discount subtotal and keeps the larger.
   const staySubtotal = (pricing?.totalPrice ?? 0) + discountAmt;
-  const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt);
+  const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt, memberDiscountAmt);
   const total = Math.max(0, staySubtotal - effectiveDiscount);
-  // 50% deposit now; remainder paid at hotel check-out.
-  const halfPayment = Math.floor(total / 2);
-  const balanceDue = Math.max(0, total - halfPayment);
+  const paymentMode = hotel?.onlinePaymentMode === 'full' ? 'full' : 'half';
+  const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
+  const isFullPayment = paymentMode === 'full';
+  const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
+    ? 'Madyaw member'
+    : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
+      ? 'Promo discount'
+      : discountType === 'pwd'
+        ? 'PWD Discount (20%)'
+        : discountType === 'senior citizen'
+          ? 'Senior Citizen Discount (20%)'
+          : '';
 
   // ── Derive food amenities from property ─────────────────────────────────────
   const foodAmenities = (() => {
@@ -151,7 +165,21 @@ export default function BookingPage() {
     if (!propertyId) return;
     setIsLoading(true);
     fetchPropertyById(propertyId)
-      .then(p => { setProperty(p); setIsLoading(false); })
+      .then(async (p) => {
+        setProperty(p);
+        const hotelId = p.hotelId;
+        if (hotelId) {
+          try {
+            const h = await fetchHotelById(hotelId);
+            setHotel(h);
+          } catch {
+            setHotel(null);
+          }
+        } else {
+          setHotel(null);
+        }
+        setIsLoading(false);
+      })
       .catch(() => { setIsLoading(false); showToast({ title: 'Unable to load room', type: 'error' }); });
   }, [propertyId]);
 
@@ -189,6 +217,30 @@ export default function BookingPage() {
     }, 400);
     return () => window.clearTimeout(timer);
   }, [promoCode, staySubtotal]);
+
+  useEffect(() => {
+    const id = membershipId.trim();
+    if (!id || staySubtotal <= 0) {
+      setMemberDiscountAmt(0);
+      setMemberStatus(null);
+      setMemberPoints(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void validateMembershipId(id, staySubtotal).then((result) => {
+        if (result.valid && typeof result.discountAmount === 'number' && result.discountAmount > 0) {
+          setMemberDiscountAmt(result.discountAmount);
+          setMemberPoints(typeof result.pointsBalance === 'number' ? result.pointsBalance : null);
+          setMemberStatus(result.message ?? `Member discount — you save ₱${result.discountAmount.toLocaleString()}`);
+        } else {
+          setMemberDiscountAmt(0);
+          setMemberPoints(typeof result.pointsBalance === 'number' ? result.pointsBalance : null);
+          setMemberStatus(result.message ?? 'Invalid membership ID');
+        }
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [membershipId, staySubtotal]);
 
   const toggleComplimentary = (item: string) => {
     setSelectedComplimentary(prev =>
@@ -247,6 +299,7 @@ export default function BookingPage() {
         discountAmount: discountAmt,
         discountReason,
         promoCode: promoCode.trim() || undefined,
+        membershipId: membershipId.trim() || undefined,
         validIdFile,
         specialRequests: [
           `Valid ID uploaded: ${validIdFile.name}`,
@@ -601,6 +654,28 @@ export default function BookingPage() {
               </div>
 
               <div className="mt-4">
+                <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Madyaw Membership ID</label>
+                <input
+                  id="booking-membership"
+                  type="text"
+                  value={membershipId}
+                  onChange={e => setMembershipId(e.target.value.toUpperCase())}
+                  placeholder="e.g. SHID-XXXXXXXX"
+                  className="input-field uppercase"
+                  autoComplete="off"
+                />
+                <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                  Enter your Membership ID to apply the Madyaw member discount. Discount depends on your points wallet and the member rate set in the hotel app.
+                </p>
+                {memberStatus && (
+                  <p className={`mt-1.5 text-xs font-bold ${memberDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>
+                    {memberDiscountAmt > 0 ? '✓ ' : ''}{memberStatus}
+                    {memberPoints != null && memberDiscountAmt > 0 ? '' : ''}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4">
                 <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Promo Code</label>
                 <input
                   id="booking-promo"
@@ -611,7 +686,7 @@ export default function BookingPage() {
                   className="input-field uppercase"
                 />
                 <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                  If both a PWD/senior discount and a promo apply, the larger discount is used.
+                  If PWD/senior, promo, and member discounts all apply, the largest discount is used.
                 </p>
                 {promoStatus && (
                   <p className={`mt-1.5 text-xs font-bold ${promoDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>
@@ -626,26 +701,34 @@ export default function BookingPage() {
             {/* Section: Payment Method */}
             <section>
               <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Smartphone className="w-4 h-4" /> Half Payment First
+                <Smartphone className="w-4 h-4" /> {isFullPayment ? 'Full Payment' : 'Half Payment First'}
               </h2>
               <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                Your request includes a 50% deposit amount for the hotel ledger. Online card capture is optional when available; the remaining balance is paid at hotel check-out.
+                {isFullPayment
+                  ? 'This hotel requires the full stay amount for online bookings. Online card capture is optional when available.'
+                  : 'Your request includes a 50% deposit amount for the hotel ledger. Online card capture is optional when available; the remaining balance is paid at hotel check-out.'}
               </p>
-              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={`mb-4 grid grid-cols-1 ${isFullPayment ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
                 <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Half deposit (50%)</p>
-                  <p className="font-serif font-bold text-xl text-brand-primary">₱{halfPayment.toLocaleString()}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
+                    {isFullPayment ? 'Full payment (100%)' : `Half deposit (${depositPercent}%)`}
+                  </p>
+                  <p className="font-serif font-bold text-xl text-brand-primary">₱{amountDue.toLocaleString()}</p>
                 </div>
-                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
-                  <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
-                </div>
+                {!isFullPayment && (
+                  <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
+                    <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
+                  </div>
+                )}
                 <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Stay total</p>
                   <p className="font-serif font-bold text-xl text-brand-dark">₱{total.toLocaleString()}</p>
                 </div>
               </div>
-              <p className="text-xs text-brand-dark/50 font-bold mb-3">Preferred payment method for the half deposit</p>
+              <p className="text-xs text-brand-dark/50 font-bold mb-3">
+                Preferred payment method for the {isFullPayment ? 'full stay payment' : 'half deposit'}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {PAYMENT_METHODS.map(method => (
                   <button
@@ -670,8 +753,9 @@ export default function BookingPage() {
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  Submitting this request tells the hotel a 50% deposit of ₱{halfPayment.toLocaleString()} applies to your stay
-                  (ledger preference — not an automatic card charge on submit). The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                  {isFullPayment
+                    ? `Submitting this request tells the hotel a full payment of ₱${amountDue.toLocaleString()} applies to your stay (ledger preference — not an automatic card charge on submit).`
+                    : `Submitting this request tells the hotel a 50% deposit of ₱${amountDue.toLocaleString()} applies to your stay (ledger preference — not an automatic card charge on submit). The remaining ₱${balanceDue.toLocaleString()} is collected at hotel check-out.`}
                 </p>
               </div>
             </section>
@@ -755,11 +839,7 @@ export default function BookingPage() {
               </div>
               {effectiveDiscount > 0 && (
                 <div className="flex justify-between text-sm font-bold text-brand-success">
-                  <span>
-                    {promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
-                      ? 'Promo discount'
-                      : discountType === 'pwd' ? 'PWD Discount (20%)' : 'Senior Citizen Discount (20%)'}
-                  </span>
+                  <span>{activeDiscountLabel || 'Discount'}</span>
                   <span>−₱{effectiveDiscount.toLocaleString()}</span>
                 </div>
               )}
@@ -768,18 +848,23 @@ export default function BookingPage() {
                 <span className="text-brand-dark">₱{total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">Half deposit (50%)</span>
-                <span className="text-brand-primary">₱{halfPayment.toLocaleString()}</span>
+                <span className="text-brand-primary">
+                  {isFullPayment ? 'Full payment (100%)' : 'Half deposit (50%)'}
+                </span>
+                <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
-              </div>
+              {!isFullPayment && (
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Balance at hotel check-out</span>
+                  <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
+                </div>
+              )}
             </div>
 
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
-              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}Half payment only — balance at check-out
+              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
+              {isFullPayment ? 'Full payment required by this hotel' : 'Half payment only — balance at check-out'}
             </p>
           </aside>
 

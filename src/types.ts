@@ -32,6 +32,9 @@ export interface Hotel {
   imageUrl?: string;
   latitude?: number;
   longitude?: number;
+  /** Hotel-app setting: half (50%) or full stay for online bookings. */
+  onlinePaymentMode?: 'half' | 'full';
+  depositPercent?: number;
 }
 
 export interface RoomCategory {
@@ -113,6 +116,10 @@ export interface BookingRequest {
   amountPaid?: number;
   balanceDue?: number;
   depositAmount?: number;
+  onlinePaymentMode?: 'half' | 'full';
+  depositPercent?: number;
+  membershipId?: string;
+  discountType?: string;
   discountAmount?: number;
   discountReason?: string;
   checkInAt?: string;

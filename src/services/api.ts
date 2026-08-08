@@ -75,6 +75,8 @@ export interface BookingCreatePayload {
   discountAmount?: number;
   specialRequests?: string;
   promoCode?: string;
+  /** Madyaw Club membership ID (SHID-…) from the hotel app. */
+  membershipId?: string;
   /** Required on the live Booking Details page; optional only for unused legacy callers. */
   validIdFile?: File;
 }
@@ -183,6 +185,24 @@ function normalizeBookingResponse<T extends BookingRequest>(booking: T & {
       ?? booking.amountPaid
       ?? (booking as { amount_paid?: number }).amount_paid
       ?? 0,
+    onlinePaymentMode: booking.onlinePaymentMode
+      ?? (booking as { online_payment_mode?: 'half' | 'full' }).online_payment_mode
+      ?? (
+        Number(booking.totalPrice ?? booking.totalAmount ?? 0) > 0
+        && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0)
+          >= Number(booking.totalPrice ?? booking.totalAmount ?? 0)
+          ? 'full'
+          : 'half'
+      ),
+    depositPercent: booking.depositPercent
+      ?? (booking as { deposit_percent?: number }).deposit_percent
+      ?? (
+        Number(booking.totalPrice ?? booking.totalAmount ?? 0) > 0
+        && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0)
+          >= Number(booking.totalPrice ?? booking.totalAmount ?? 0)
+          ? 100
+          : 50
+      ),
     confirmationSentAt: booking.confirmationSentAt ?? (booking as { confirmation_sent_at?: string }).confirmation_sent_at ?? null,
     confirmationSendStatus: booking.confirmationSendStatus ?? (booking as { confirmation_send_status?: 'none' | 'sent' | 'failed' }).confirmation_send_status ?? 'none',
     confirmationSendError: booking.confirmationSendError ?? (booking as { confirmation_send_error?: string }).confirmation_send_error ?? '',
@@ -256,6 +276,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.discountAmount != null) form.append('discountAmount', String(payload.discountAmount));
   if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
+  if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);
 
   const response = await api.post<BookingRequest>('/bookings', form);
@@ -324,7 +345,13 @@ export async function fetchDestinations(): Promise<Destination[]> {
 
 export interface FiltersResponse {
   roomTypes: string[];
+  categoryNames?: string[];
   amenities: string[];
+  bedConfigurations?: string[];
+  priceMin?: number;
+  priceMax?: number;
+  supportsFreeCancellation?: boolean;
+  supportsBreakfastIncluded?: boolean;
 }
 
 export async function fetchFilters(): Promise<FiltersResponse> {
@@ -521,6 +548,34 @@ export async function validatePromoCode(code: string, bookingAmount: number): Pr
       return error.response.data as PromoValidationResult;
     }
     return { valid: false, message: 'Unable to validate promo code.' };
+  }
+}
+
+export interface MemberValidationResult {
+  valid: boolean;
+  membershipId?: string;
+  memberName?: string;
+  pointsBalance?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  message?: string;
+}
+
+export async function validateMembershipId(
+  membershipId: string,
+  bookingAmount: number,
+): Promise<MemberValidationResult> {
+  try {
+    const response = await api.post<MemberValidationResult>('/members/validate', {
+      membershipId,
+      bookingAmount,
+    });
+    return response.data;
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.data) {
+      return error.response.data as MemberValidationResult;
+    }
+    return { valid: false, message: 'Unable to validate membership ID.' };
   }
 }
 

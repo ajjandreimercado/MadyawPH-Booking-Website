@@ -21,6 +21,21 @@ const hotelSchema = new Schema(
     access_username: { type: String },
     access_password: { type: String },
     image_url: { type: String },
+    // Hotel-app admin setting: half vs full for website/online bookings.
+    // Multiple aliases are read by resolveHotelOnlinePaymentMode(); these are the common ones.
+    online_payment_mode: { type: String },
+    online_payment_type: { type: String },
+    website_payment_mode: { type: String },
+    booking_payment_mode: { type: String },
+    deposit_percent: { type: Number },
+    require_full_payment: { type: Boolean },
+    settings: { type: Mixed },
+    payment_settings: { type: Mixed },
+    // Hotel-app amenity / facility catalogs (field names vary by app version).
+    amenities: [{ type: String }],
+    facilities: [{ type: String }],
+    features: [{ type: String }],
+    hotel_amenities: [{ type: String }],
   },
   schemaOptions,
 );
@@ -32,6 +47,9 @@ const roomCategorySchema = new Schema(
     description: { type: String, required: true },
     default_price: { type: Number, required: true },
     image_url: { type: String, required: true },
+    amenities: [{ type: String }],
+    facilities: [{ type: String }],
+    features: [{ type: String }],
   },
   schemaOptions,
 );
@@ -49,6 +67,9 @@ const roomSchema = new Schema(
     price_per_night: { type: Number, required: true },
     status: { type: String, required: true },
     amenities: [{ type: String }],
+    facilities: [{ type: String }],
+    features: [{ type: String }],
+    hotel_amenities: [{ type: String }],
     image_url: { type: String, required: true },
     description: { type: String },
     free_cancellation: { type: Boolean, default: false },
@@ -99,6 +120,9 @@ const bookingSchema = new Schema(
     amount_paid: { type: Number },
     balance_due: { type: Number },
     deposit_amount: { type: Number },
+    // Snapshot of hotel policy at booking time (half | full)
+    online_payment_mode: { type: String },
+    deposit_percent: { type: Number },
     totalPrice: { type: Number, required: true },
     total_amount: { type: Number, required: true },
     serviceFee: { type: Number, default: 0 },
@@ -116,6 +140,8 @@ const bookingSchema = new Schema(
     discount_value: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
     discount_reason: { type: String, default: '' },
+    // Madyaw member ID from hotel-app member_subscription_requests.member_shid_id
+    member_shid_id: { type: String, default: '' },
     requestedAt: { type: Date },
     expiresAt: { type: Date },
     check_in_at: { type: Date },
@@ -454,6 +480,39 @@ const personalAccessTokenSchema = new Schema(
   schemaOptions,
 );
 
+/** Hotel-app Madyaw Club members (shared Mongo). Never expose password hashes. */
+const memberSubscriptionSchema = new Schema(
+  {
+    full_name: { type: String },
+    email: { type: String, index: true },
+    phone: { type: String },
+    username: { type: String },
+    password: { type: String, select: false },
+    amount: { type: Number },
+    payment_reference: { type: String },
+    status: { type: String, index: true },
+    member_shid_id: { type: String, index: true },
+    member_valid_until: { type: Date },
+    points_balance: { type: Number, default: 0 },
+    points_ledger: { type: Mixed },
+    reviewed_at: { type: Date },
+    reviewed_by_user_id: { type: String },
+  },
+  schemaOptions,
+);
+
+const platformSettingsSchema = new Schema(
+  {
+    key: { type: String, index: true },
+    member_booking_discount_percent: { type: Number, default: 0 },
+    member_monthly_fee: { type: Number, default: 0 },
+    min_check_in_payment_percent: { type: Number },
+    credit_wallet_qr_url: { type: String },
+    member_subscription_qr_url: { type: String },
+  },
+  schemaOptions,
+);
+
 // 3rd argument explicitly sets the MongoDB collection name, overriding Mongoose's auto-pluralization.
 // Atlas uses snake_case for some collections (room_categories, room_transfers) but Mongoose
 // would generate camelCase plurals (roomcategories, roomtransfers) — we must override these.
@@ -481,3 +540,13 @@ export const UserSettingModel = model('UserSetting', userSettingSchema); // → 
 export const HotelCreditModel = model('HotelCredit', hotelCreditSchema); // → 'hotelcredits'
 export const PersonalAccessTokenModel = model('PersonalAccessToken', personalAccessTokenSchema); // → 'personalaccesstokens'
 export const PromoCodeModel = model('PromoCode', promoCodeSchema); // → 'promocodes'
+export const MemberSubscriptionModel = model(
+  'MemberSubscriptionRequest',
+  memberSubscriptionSchema,
+  'member_subscription_requests',
+);
+export const PlatformSettingsModel = model(
+  'PlatformSetting',
+  platformSettingsSchema,
+  'platform_settings',
+);

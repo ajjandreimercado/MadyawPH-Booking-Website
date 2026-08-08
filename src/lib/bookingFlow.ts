@@ -99,6 +99,25 @@ export function calculateBookingPricing(
   };
 }
 
+export type OnlinePaymentMode = 'half' | 'full';
+
+export function computeOnlinePaymentDue(
+  totalAmount: number,
+  mode: OnlinePaymentMode = 'half',
+): { mode: OnlinePaymentMode; depositPercent: number; amountDue: number; balanceDue: number } {
+  const total = Math.max(0, Math.round(Number(totalAmount) || 0));
+  if (mode === 'full') {
+    return { mode: 'full', depositPercent: 100, amountDue: total, balanceDue: 0 };
+  }
+  const amountDue = Math.floor(total / 2);
+  return {
+    mode: 'half',
+    depositPercent: 50,
+    amountDue,
+    balanceDue: Math.max(0, total - amountDue),
+  };
+}
+
 export const BOOKING_REQUEST_EXPIRY_SECONDS = 90;
 export const BOOKING_RECHECK_DELAY_MS = 2600;
 export const BOOKING_PAYMENT_PROCESSING_MS = 1600;

@@ -174,22 +174,30 @@ export default function BookingConfirmationPage() {
               <span className="text-brand-dark">₱{(booking.totalPrice ?? 0).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm font-bold pt-1">
-              <span className="text-brand-primary">Half deposit (50%)</span>
+              <span className="text-brand-primary">
+                {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
+                  ? 'Full payment (100%)'
+                  : 'Half deposit (50%)'}
+              </span>
               <span className="text-brand-primary">
                 ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
               </span>
             </div>
-            <div className="flex justify-between text-sm font-bold">
-              <span className="text-brand-dark/60">Balance at hotel check-out</span>
-              <span>
-                ₱{(
-                  booking.balanceDue
-                  ?? Math.max(0, (booking.totalPrice ?? 0) - (booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)))
-                ).toLocaleString()}
-              </span>
-            </div>
+            {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) !== 'full' && (
+              <div className="flex justify-between text-sm font-bold">
+                <span className="text-brand-dark/60">Balance at hotel check-out</span>
+                <span>
+                  ₱{(
+                    booking.balanceDue
+                    ?? Math.max(0, (booking.totalPrice ?? 0) - (booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)))
+                  ).toLocaleString()}
+                </span>
+              </div>
+            )}
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
-              The 50% deposit is shown for the hotel ledger. Any online payment capture is separate when offered; the balance is collected at hotel check-out.
+              {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
+                ? 'This hotel requires full payment for online bookings. Any online payment capture is separate when offered.'
+                : 'The 50% deposit is shown for the hotel ledger. Any online payment capture is separate when offered; the balance is collected at hotel check-out.'}
             </p>
           </div>
         </motion.div>

@@ -9,8 +9,11 @@ import {
   sendBookingConfirmationNotification,
   sendBookingDeclinedNotification,
 } from './notificationService';
-import { ensureWebsiteHalfPaymentLedger } from '../utils/websiteBillingLedger';
-import { computeHalfPayment } from '../utils/halfPayment';
+import { ensureWebsiteOnlinePaymentLedger } from '../utils/websiteBillingLedger';
+import {
+  computeOnlinePaymentDue,
+  resolveOnlinePaymentModeFromBooking,
+} from '../utils/halfPayment';
 import { toStayDate } from '../utils/hotelAppBookingFields';
 import {
   normalizeHotelDecisionStatus,
@@ -108,15 +111,22 @@ async function writeLedgerAfterApproval(booking: {
   balance_due?: number;
   paymentMethod?: string;
   payment_method?: string;
+  online_payment_mode?: string;
+  deposit_percent?: number;
 }) {
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
-  const recordedHalf = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
-  const { halfPayment, balanceDue } = computeHalfPayment(stayTotal);
-  const half = recordedHalf > 0 && recordedHalf < stayTotal ? recordedHalf : halfPayment;
-  const balance = Math.max(0, stayTotal - half);
+  const mode = resolveOnlinePaymentModeFromBooking(booking);
+  const fallback = computeOnlinePaymentDue(stayTotal, mode);
+  const recorded = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
+  const amountDue = recorded > 0
+    ? (mode === 'full'
+      ? Math.min(recorded, stayTotal) || fallback.amountDue
+      : (recorded < stayTotal ? recorded : fallback.amountDue))
+    : fallback.amountDue;
+  const balance = Math.max(0, stayTotal - amountDue);
 
   try {
-    await ensureWebsiteHalfPaymentLedger({
+    await ensureWebsiteOnlinePaymentLedger({
       bookingId: String(booking._id),
       hotelId: String(booking.hotel_id ?? ''),
       roomId: String(booking.room_id ?? ''),
@@ -124,12 +134,14 @@ async function writeLedgerAfterApproval(booking: {
       nights: Number(booking.nights ?? 1),
       roomRate: Number(booking.roomRate ?? 0),
       stayTotal,
-      halfPayment: half,
+      amountDue,
       balanceDue: balance,
       paymentMethod: String(booking.payment_method ?? booking.paymentMethod ?? ''),
+      mode,
+      depositPercent: Number(booking.deposit_percent ?? fallback.depositPercent),
     });
   } catch (error) {
-    console.error('[HotelSync] Failed to write half-payment ledger after approval:', error);
+    console.error('[HotelSync] Failed to write online-payment ledger after approval:', error);
   }
 }
 

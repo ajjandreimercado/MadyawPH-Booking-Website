@@ -3,38 +3,12 @@ import { PropertyModel } from '../data/mongoModels';
 import { serializeProperty } from '../utils/serialize';
 // OWASP A03/A04: public rate limiter + input validators
 import { publicReadLimiter } from '../middleware/rateLimiters';
-import { parseNumericParam, validateCsvAllowlist, validateId } from '../utils/validators';
+import { parseNumericParam, validateId } from '../utils/validators';
+import { buildAmenityRoomClause, isSafeFilterValue } from '../utils/searchFilters';
 
 const propertyRoutes = Router();
 
 // ─── Allowlists (OWASP A03) ───────────────────────────────────────────────────
-// Only these exact strings are ever inserted into MongoDB $in/$all queries.
-// Any value not in these lists is silently dropped — fail-safe for search filters.
-
-const ALLOWED_ROOM_TYPES = [
-  'standard-room',
-  'deluxe-suite',
-  'family-suite',
-  'villa-retreat',
-] as const;
-
-const ALLOWED_AMENITIES = [
-  'wifi',
-  'pool',
-  'gym',
-  'spa',
-  'parking',
-  'restaurant',
-  'bar',
-  'beach-access',
-  'air-conditioning',
-  'kitchen',
-  'laundry',
-  'pet-friendly',
-  'breakfast-included',
-  'airport-shuttle',
-  'concierge',
-] as const;
 
 const ALLOWED_SORT_VALUES = ['price', 'rating', 'default'] as const;
 
@@ -102,14 +76,23 @@ propertyRoutes.get('/', publicReadLimiter, async (req, res) => {
     filter.price_per_night = priceFilter;
   }
 
-  // OWASP A03: allowlist-validated CSV — only known room types reach the DB $in query
-  const typeList = validateCsvAllowlist(types, ALLOWED_ROOM_TYPES);
-  if (typeList.length > 0) {
-    filter.room_type = { $in: typeList };
-  } else if (typeof types === 'string' && types.trim() !== '') {
-    // The raw CSV was present but all values were rejected — inform the caller
-    // (fail gracefully: return empty, do not error, per search-filter UX norms)
-    console.warn(`[WARN] GET /properties: all 'types' values rejected by allowlist: ${types}`);
+  // Accept hotel-app room types (Double/Single/Suite) with safe literal matching.
+  if (typeof types === 'string' && types.trim() !== '') {
+    const requestedTypes = types.split(',').map((item) => item.trim()).filter((item) => isSafeFilterValue(item));
+    if (requestedTypes.length > 0) {
+      filter.$and = [
+        ...((filter.$and as Record<string, unknown>[] | undefined) ?? []),
+        {
+          $or: requestedTypes.flatMap((typeValue) => {
+            const pattern = new RegExp(`^${typeValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+            return [
+              { room_type: pattern },
+              { category_name: pattern },
+            ];
+          }),
+        },
+      ];
+    }
   }
 
   // rating field is a no-op in the current schema (frontend computes it from display data)
@@ -117,10 +100,18 @@ propertyRoutes.get('/', publicReadLimiter, async (req, res) => {
     // Intentionally not applied — the new room collection does not persist a rating field.
   }
 
-  // OWASP A03: allowlist-validated amenities CSV
-  const amenityList = validateCsvAllowlist(amenities, ALLOWED_AMENITIES);
-  if (amenityList.length > 0) {
-    filter.amenities = { $all: amenityList };
+  // Amenity filters: match hotel-app amenity labels + boolean room flags.
+  if (typeof amenities === 'string' && amenities.trim() !== '') {
+    const requestedAmenities = amenities.split(',').map((item) => item.trim()).filter(Boolean);
+    const amenityClauses = requestedAmenities
+      .map((amenity) => buildAmenityRoomClause(amenity))
+      .filter((clause): clause is Record<string, unknown> => Boolean(clause));
+    if (amenityClauses.length > 0) {
+      filter.$and = [
+        ...((filter.$and as Record<string, unknown>[] | undefined) ?? []),
+        ...amenityClauses,
+      ];
+    }
   }
 
   // OWASP A03: sort must be one of the explicit allowlist values

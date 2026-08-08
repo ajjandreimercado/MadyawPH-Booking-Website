@@ -84,7 +84,10 @@ jest.mock('../data/mongoModels', () => ({
     findOne: jest.fn(),
     create: jest.fn(),
   },
-  HotelModel: { find: jest.fn(), findById: jest.fn() },
+  HotelModel: {
+    find: jest.fn(),
+    findById: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+  },
   RoomCategoryModel: { find: jest.fn(), findById: jest.fn() },
   ExternalReservationModel: {
     create: jest.fn().mockResolvedValue({}),
@@ -256,6 +259,8 @@ describe('POST /api/bookings', () => {
       expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('partial');
+      expect(created.online_payment_mode).toBe('half');
+      expect(created.deposit_percent).toBe(50);
       expect(created.amountPaid).toBeGreaterThan(0);
       expect(created.amountPaid).toBeLessThan(created.totalPrice);
       expect(created.amount_paid).toBe(created.amountPaid);
@@ -284,6 +289,8 @@ describe('POST /api/bookings', () => {
         ? JSON.parse(externalDoc.metadata)
         : externalDoc.metadata;
       expect(meta.payment_status).toBe('partial');
+      expect(meta.deposit_percent).toBe(50);
+      expect(meta.online_payment_mode).toBe('half');
       expect(meta.amount_paid).toBe(created.amountPaid);
       expect(meta.valid_id_uploaded).toBe(true);
 

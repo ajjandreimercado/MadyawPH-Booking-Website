@@ -11,6 +11,7 @@ import propertyRoutes from './routes/propertyRoutes';
 import roomCategoryRoutes from './routes/roomCategoryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import promoCodeRoutes from './routes/promoCodeRoutes';
+import memberRoutes from './routes/memberRoutes';
 import { requestLogger, getUptimeMs } from './middleware/logger';
 // Centralised rate limiters — user-keyed with graceful 429s (OWASP A04/A07)
 import { apiLimiter } from './middleware/rateLimiters';
@@ -103,6 +104,7 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/promo-codes', promoCodeRoutes);
+app.use('/api/members', memberRoutes);
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────
 app.use((_req, res) => {

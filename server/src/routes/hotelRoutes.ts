@@ -9,6 +9,12 @@ import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
+import {
+  buildAmenityRoomClause,
+  collectAmenityValues,
+  isSafeFilterValue,
+  uniqueSortedLabels,
+} from '../utils/searchFilters';
 
 const hotelRoutes = Router();
 
@@ -195,19 +201,31 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     roomFilter.price_per_night = { ...(roomFilter.price_per_night as object ?? {}), $lte: parsedMax };
   }
 
-  const ALLOWED_TYPES = ['standard-room', 'deluxe-suite', 'family-suite', 'villa-retreat'];
-  if (typeof type === 'string' && ALLOWED_TYPES.includes(type)) {
-    roomFilter.room_type = type;
+  // Accept hotel-app room types (Double / Single / Suite) — not only website slug names.
+  if (typeof type === 'string' && type.trim() && isSafeFilterValue(type)) {
+    const typePattern = new RegExp(`^${type.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    roomFilter.$and = [
+      ...((roomFilter.$and as Record<string, unknown>[] | undefined) ?? []),
+      {
+        $or: [
+          { room_type: typePattern },
+          { category_name: typePattern },
+        ],
+      },
+    ];
   }
 
-  const ALLOWED_AMENITIES = [
-    'wifi', 'pool', 'gym', 'spa', 'parking', 'restaurant', 'bar', 'beach-access',
-    'air-conditioning', 'kitchen', 'laundry', 'pet-friendly', 'breakfast-included',
-    'airport-shuttle', 'concierge',
-  ];
   if (typeof amenities === 'string' && amenities.trim()) {
-    const list = amenities.split(',').map((a) => a.trim()).filter((a) => ALLOWED_AMENITIES.includes(a));
-    if (list.length > 0) roomFilter.amenities = { $all: list };
+    const selected = amenities.split(',').map((a) => a.trim()).filter(Boolean);
+    const amenityClauses = selected
+      .map((amenity) => buildAmenityRoomClause(amenity))
+      .filter((clause): clause is Record<string, unknown> => Boolean(clause));
+    if (amenityClauses.length > 0) {
+      roomFilter.$and = [
+        ...((roomFilter.$and as Record<string, unknown>[] | undefined) ?? []),
+        ...amenityClauses,
+      ];
+    }
   }
 
   if (freeCancellation === 'true') roomFilter.free_cancellation = true;
@@ -365,15 +383,103 @@ hotelRoutes.get('/destinations', publicReadLimiter, async (_req, res) => {
 });
 
 // ─── GET /filters ─────────────────────────────────────────────────────────────
-// Aggregates active room types and amenities from properties
+// Aggregates live room types / amenities / price range from hotel-app room data
 
 hotelRoutes.get('/filters', publicReadLimiter, async (_req, res) => {
   try {
-    const [roomTypes, amenities] = await Promise.all([
-      PropertyModel.distinct('room_type'),
-      PropertyModel.distinct('amenities'),
+    const [rooms, hotels, categories, priceStats, freeCancelCount, breakfastCount] = await Promise.all([
+      PropertyModel.find({}, {
+        room_type: 1,
+        category_name: 1,
+        amenities: 1,
+        facilities: 1,
+        features: 1,
+        hotel_amenities: 1,
+        bed_configuration: 1,
+        free_cancellation: 1,
+        breakfast_included: 1,
+        description: 1,
+      }).lean(),
+      HotelModel.find({}, {
+        amenities: 1,
+        facilities: 1,
+        features: 1,
+        hotel_amenities: 1,
+        settings: 1,
+      }).lean(),
+      RoomCategoryModel.find({}, {
+        name: 1,
+        amenities: 1,
+        facilities: 1,
+        features: 1,
+      }).lean(),
+      PropertyModel.aggregate([
+        { $match: { price_per_night: { $gt: 0 } } },
+        {
+          $group: {
+            _id: null,
+            minPrice: { $min: '$price_per_night' },
+            maxPrice: { $max: '$price_per_night' },
+          },
+        },
+      ]),
+      PropertyModel.countDocuments({ free_cancellation: true }),
+      PropertyModel.countDocuments({ breakfast_included: true }),
     ]);
-    return res.json({ roomTypes, amenities });
+
+    const roomTypes = uniqueSortedLabels(
+      rooms.map((room) => room.room_type).filter(Boolean),
+    );
+
+    const categoryNames = uniqueSortedLabels(
+      [
+        ...rooms.map((room) => room.category_name),
+        ...categories.map((category) => category.name),
+      ].filter(Boolean),
+    );
+
+    const amenityValues = collectAmenityValues(
+      ...rooms.map((room) => room.amenities),
+      ...rooms.map((room) => room.facilities),
+      ...rooms.map((room) => room.features),
+      ...rooms.map((room) => room.hotel_amenities),
+      ...hotels.map((hotel) => hotel.amenities),
+      ...hotels.map((hotel) => hotel.facilities),
+      ...hotels.map((hotel) => hotel.features),
+      ...hotels.map((hotel) => hotel.hotel_amenities),
+      ...hotels.map((hotel) => (hotel.settings as { amenities?: unknown } | undefined)?.amenities),
+      ...categories.map((category) => category.amenities),
+      ...categories.map((category) => category.facilities),
+      ...categories.map((category) => category.features),
+    );
+
+    if (freeCancelCount > 0) amenityValues.push('Free Cancellation');
+    if (breakfastCount > 0) amenityValues.push('Breakfast Included');
+
+    // Dedicated checkboxes cover these — keep the amenity list for other hotel features.
+    const amenities = uniqueSortedLabels(amenityValues).filter((label) => {
+      const key = label.trim().toLowerCase().replace(/[\s_/]+/g, '-');
+      return key !== 'free-cancellation'
+        && key !== 'breakfast-included'
+        && key !== 'breakfast'
+        && key !== 'free-breakfast';
+    });
+    const bedConfigurations = uniqueSortedLabels(
+      rooms.map((room) => room.bed_configuration).filter(Boolean),
+    );
+
+    const price = priceStats[0] as { minPrice?: number; maxPrice?: number } | undefined;
+
+    return res.json({
+      roomTypes,
+      categoryNames,
+      amenities,
+      bedConfigurations,
+      priceMin: Number(price?.minPrice ?? 0) || undefined,
+      priceMax: Number(price?.maxPrice ?? 0) || undefined,
+      supportsFreeCancellation: freeCancelCount > 0,
+      supportsBreakfastIncluded: breakfastCount > 0,
+    });
   } catch (error) {
     console.error('Error fetching filters:', error);
     return res.status(500).json({ message: 'Failed to fetch filters' });
