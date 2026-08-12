@@ -5,10 +5,12 @@
  *
  * Guests enter their Membership ID (SHID-…). Discount applies only when the
  * membership is approved/valid and the points wallet has a positive balance.
+ * Anti-abuse: each Membership ID may use the points wallet discount once per
+ * Asia/Manila calendar day (website bookings with discount_type "member").
  * Website records the membership on the booking; the hotel app owns points ledger updates.
  */
 
-import { MemberSubscriptionModel, PlatformSettingsModel } from '../data/mongoModels';
+import { BookingModel, MemberSubscriptionModel, PlatformSettingsModel } from '../data/mongoModels';
 
 export interface MemberDiscountResult {
   valid: boolean;
@@ -20,8 +22,30 @@ export interface MemberDiscountResult {
   message: string;
 }
 
+const MANILA_TZ = 'Asia/Manila';
+
 function normalizeMembershipId(raw: string | undefined | null): string {
   return String(raw ?? '').trim().toUpperCase();
+}
+
+/** Start of the current calendar day in Asia/Manila, as a UTC Date. */
+export function startOfManilaDay(now: Date = new Date()): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MANILA_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year = parts.find((p) => p.type === 'year')?.value ?? '1970';
+  const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '01';
+  return new Date(`${year}-${month}-${day}T00:00:00+08:00`);
+}
+
+/** Exclusive end of the current Asia/Manila calendar day. */
+export function endOfManilaDay(now: Date = new Date()): Date {
+  const start = startOfManilaDay(now);
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000);
 }
 
 async function getMemberDiscountPercent(): Promise<number> {
@@ -35,11 +59,38 @@ async function getMemberDiscountPercent(): Promise<number> {
   return Math.min(100, Math.max(0, percent));
 }
 
+/**
+ * True when this Membership ID already used a member points discount today
+ * (Asia/Manila). Declined/cancelled bookings do not count.
+ */
+export async function hasMemberDiscountUsedToday(
+  membershipId: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const id = normalizeMembershipId(membershipId);
+  if (!id) return false;
+
+  const dayStart = startOfManilaDay(now);
+  const dayEnd = endOfManilaDay(now);
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const existing = await BookingModel.exists({
+    discount_type: 'member',
+    member_shid_id: new RegExp(`^${escaped}$`, 'i'),
+    created_at: { $gte: dayStart, $lt: dayEnd },
+    status: { $nin: ['declined', 'cancelled'] },
+  });
+
+  return Boolean(existing);
+}
+
 export async function resolveMemberDiscount(
   rawMembershipId: string | undefined,
   bookingAmount: number,
+  options?: { now?: Date },
 ): Promise<MemberDiscountResult> {
   const membershipId = normalizeMembershipId(rawMembershipId);
+  const now = options?.now ?? new Date();
   if (!membershipId) {
     return {
       valid: false,
@@ -69,12 +120,16 @@ export async function resolveMemberDiscount(
     };
   }
 
+  const canonicalId = String(member.member_shid_id ?? membershipId).toUpperCase();
+  const memberName = member.full_name ? String(member.full_name) : undefined;
+  const pointsBalanceRaw = Math.max(0, Math.round(Number(member.points_balance ?? 0) || 0));
+
   const status = String(member.status ?? '').toLowerCase();
   if (status && status !== 'approved') {
     return {
       valid: false,
-      membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-      pointsBalance: Number(member.points_balance ?? 0) || 0,
+      membershipId: canonicalId,
+      pointsBalance: pointsBalanceRaw,
       discountPercent: 0,
       discountAmount: 0,
       message: 'This membership is not active yet.',
@@ -84,11 +139,11 @@ export async function resolveMemberDiscount(
   const validUntilRaw = member.member_valid_until;
   if (validUntilRaw) {
     const validUntil = new Date(validUntilRaw as string | Date);
-    if (!Number.isNaN(validUntil.getTime()) && validUntil.getTime() < Date.now()) {
+    if (!Number.isNaN(validUntil.getTime()) && validUntil.getTime() < now.getTime()) {
       return {
         valid: false,
-        membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-        pointsBalance: Number(member.points_balance ?? 0) || 0,
+        membershipId: canonicalId,
+        pointsBalance: pointsBalanceRaw,
         discountPercent: 0,
         discountAmount: 0,
         message: 'This membership has expired. Please renew to use member discounts.',
@@ -96,12 +151,12 @@ export async function resolveMemberDiscount(
     }
   }
 
-  const pointsBalance = Math.max(0, Math.round(Number(member.points_balance ?? 0) || 0));
+  const pointsBalance = pointsBalanceRaw;
   if (pointsBalance <= 0) {
     return {
       valid: false,
-      membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-      memberName: member.full_name ? String(member.full_name) : undefined,
+      membershipId: canonicalId,
+      memberName,
       pointsBalance: 0,
       discountPercent: 0,
       discountAmount: 0,
@@ -109,12 +164,25 @@ export async function resolveMemberDiscount(
     };
   }
 
+  // Once-per-day wallet use (Manila calendar day) to limit shared-ID abuse.
+  if (await hasMemberDiscountUsedToday(canonicalId, now)) {
+    return {
+      valid: false,
+      membershipId: canonicalId,
+      memberName,
+      pointsBalance,
+      discountPercent: 0,
+      discountAmount: 0,
+      message: 'This membership already used its points discount today. Try again tomorrow.',
+    };
+  }
+
   const discountPercent = await getMemberDiscountPercent();
   if (discountPercent <= 0) {
     return {
       valid: false,
-      membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-      memberName: member.full_name ? String(member.full_name) : undefined,
+      membershipId: canonicalId,
+      memberName,
       pointsBalance,
       discountPercent: 0,
       discountAmount: 0,
@@ -130,8 +198,8 @@ export async function resolveMemberDiscount(
   if (discountAmount <= 0) {
     return {
       valid: false,
-      membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-      memberName: member.full_name ? String(member.full_name) : undefined,
+      membershipId: canonicalId,
+      memberName,
       pointsBalance,
       discountPercent,
       discountAmount: 0,
@@ -141,11 +209,11 @@ export async function resolveMemberDiscount(
 
   return {
     valid: true,
-    membershipId: String(member.member_shid_id ?? membershipId).toUpperCase(),
-    memberName: member.full_name ? String(member.full_name) : undefined,
+    membershipId: canonicalId,
+    memberName,
     pointsBalance,
     discountPercent,
     discountAmount,
-    message: `Madyaw member ${discountPercent}% discount — you save ₱${discountAmount.toLocaleString()} (${pointsBalance.toLocaleString()} pts available).`,
+    message: `Madyaw member ${discountPercent}% discount — you save ₱${discountAmount.toLocaleString()} (${pointsBalance.toLocaleString()} pts available). Once per day.`,
   };
 }

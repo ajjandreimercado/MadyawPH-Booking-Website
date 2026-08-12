@@ -665,7 +665,7 @@ export default function BookingPage() {
                   autoComplete="off"
                 />
                 <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                  Enter your Membership ID to apply the Madyaw member discount. Discount depends on your points wallet and the member rate set in the hotel app.
+                  Enter your Membership ID to apply the Madyaw member discount. Points wallet discount can be used once per day. Amount depends on your balance and the member rate set in the hotel app.
                 </p>
                 {memberStatus && (
                   <p className={`mt-1.5 text-xs font-bold ${memberDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>

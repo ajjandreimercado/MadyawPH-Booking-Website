@@ -242,7 +242,7 @@ export default function HomePage() {
           <p className="text-brand-secondary font-bold text-xs uppercase tracking-[0.2em] mb-4">The Madyaw Standard</p>
           <h2 className="text-3xl md:text-5xl font-serif font-bold text-brand-cream mb-8 leading-tight">Elevating Island Hospitality</h2>
           <p className="text-brand-cream/80 font-sans font-medium leading-relaxed text-lg mb-16 max-w-2xl mx-auto">
-            <strong className="text-brand-secondary">Madyaw</strong> represents the ultimate curated collection of hidden gems and globally recognized luxury sanctuaries across the Philippines. Rooted in true coastal hospitality.
+            <strong className="text-brand-secondary">Madyaw</strong> is a curated collection of places to stay across the Philippines, connecting guests with unique homes, stays, and local experiences.
           </p>
           
           <div className="border-t border-brand-primary/20 pt-12">
