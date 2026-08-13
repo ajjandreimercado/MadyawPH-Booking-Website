@@ -63,10 +63,9 @@ async function main() {
       { source: 'web', guest_name: { $exists: false } },
       { source: 'web', created_at: { $exists: false } },
       { source: 'web', summary_only: { $exists: false } },
-      { source: 'web', summary_only: { $nin: [true, false] } },
-      // Any booking with invalid summary_only breaks hotel-app Reports & analytics
+      { source: 'web', summary_only: { $nin: [0, 1, true, false] } },
       { summary_only: { $exists: false } },
-      { summary_only: { $nin: [true, false] } },
+      { summary_only: { $nin: [0, 1, true, false] } },
     ],
   };
 
@@ -119,8 +118,8 @@ async function main() {
     if (!doc.billing_mode) {
       set.billing_mode = 'nightly';
     }
-    if (typeof doc.summary_only !== 'boolean') {
-      set.summary_only = false;
+    if (doc.summary_only !== 0 && doc.summary_only !== 1) {
+      set.summary_only = doc.summary_only === true || doc.summary_only === '1' ? 1 : 0;
     }
 
     if (Object.keys(set).length === 0) continue;

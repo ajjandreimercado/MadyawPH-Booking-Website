@@ -14,6 +14,7 @@ import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { resolveMemberDiscount } from '../utils/memberDiscount';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields, toStayDate } from '../utils/hotelAppBookingFields';
+import { coerceSummaryOnly } from '../utils/bookingHotelFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import {
   computeOnlinePaymentDue,
@@ -918,9 +919,7 @@ bookingRoutes.post('/:bookingId/review-availability', requireAuth, async (req, r
     );
 
     booking.status = overlap ? 'declined' : 'accepted';
-    if (typeof booking.summary_only !== 'boolean') {
-      booking.summary_only = false;
-    }
+    booking.summary_only = coerceSummaryOnly(booking.summary_only);
     console.log(`[MongoDB Action] Collection: bookings, Action: save (update status), ID: ${booking._id}, New Status: ${booking.status}`);
     await booking.save();
 
@@ -1019,10 +1018,8 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
     queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));
   }
 
-  // Heal missing hotel-app required boolean so saves/reports don't fail validation.
-  if (typeof booking.summary_only !== 'boolean') {
-    booking.summary_only = false;
-  }
+  // Heal summary_only as 0|1 so hotel-app reports pass Laravel boolean validation.
+  booking.summary_only = coerceSummaryOnly(booking.summary_only);
 
   console.log(`[MongoDB Action] Collection: bookings, Action: save, ID: ${booking._id}`);
   await booking.save();
@@ -1090,9 +1087,7 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
 
   // Hotel app lists typically hide `cancelled` (not only `declined`).
   booking.status = 'cancelled';
-  if (typeof booking.summary_only !== 'boolean') {
-    booking.summary_only = false;
-  }
+  booking.summary_only = coerceSummaryOnly(booking.summary_only);
   await booking.save();
 
   // Keep Online Bookings queue in sync when a website request is cancelled.

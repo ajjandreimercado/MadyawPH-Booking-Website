@@ -1,4 +1,5 @@
 import mongoose, { Schema, model } from 'mongoose';
+import { coerceSummaryOnly } from '../utils/bookingHotelFields';
 
 const { Types } = mongoose;
 const Mixed = Schema.Types.Mixed;
@@ -134,8 +135,9 @@ const bookingSchema = new Schema(
     // Snake_case payment alias (hotel app); website still uses paymentMethod
     payment_method: { type: String },
     status: { type: String, required: true },
-    // Hotel report/forms require an explicit boolean (missing value fails validation).
-    summary_only: { type: Boolean, default: false },
+    // Hotel reports: persist 0|1 (not BSON false). PHP/Laravel boolean validation
+    // rejects empty string, and some Mongo PHP layers coerce BSON false → "".
+    summary_only: { type: Number, enum: [0, 1], default: 0 },
     discount_type: { type: String, default: '' },
     discount_value: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
@@ -174,11 +176,9 @@ const bookingSchema = new Schema(
   schemaOptions,
 );
 
-// Hotel reports validate summary_only as strict boolean — heal legacy/missing values on save.
+// Hotel reports need integer 0|1 — never BSON false / missing / "".
 bookingSchema.pre('save', function summaryOnlyPreSave() {
-  if (typeof this.summary_only !== 'boolean') {
-    this.summary_only = false;
-  }
+  this.summary_only = coerceSummaryOnly(this.summary_only);
 });
 
 /** Binary Valid ID files — kept off `bookings` so hotel list/login queries stay fast. */

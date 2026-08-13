@@ -249,7 +249,7 @@ describe('POST /api/bookings', () => {
       // Hotel management app expects these shared-DB fields
       expect(created.guest_name).toBe(VALID_PAYLOAD.guestName);
       expect(created.guest_email).toBe(VALID_PAYLOAD.guestEmail);
-      expect(created.summary_only).toBe(false);
+      expect(created.summary_only).toBe(0);
       expect(created.booking_type).toBe('online');
       expect(created.booking_source).toBe('website-customer');
       expect(created.check_in_date).toBeUndefined();

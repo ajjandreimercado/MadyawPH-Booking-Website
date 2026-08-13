@@ -32,7 +32,7 @@ describe('hotelAppBookingFields', () => {
 
     expect(fields.guest_name).toBe('Alice Santos');
     expect(fields.guest_email).toBe('alice@example.com');
-    expect(fields.summary_only).toBe(false);
+    expect(fields.summary_only).toBe(0);
     expect(fields.booking_type).toBe('online');
     expect(fields.booking_source).toBe('website-customer');
     expect(fields.billing_mode).toBe('nightly');

@@ -15,6 +15,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { toStayDate } from '../utils/hotelAppBookingFields';
+import { coerceSummaryOnly } from '../utils/bookingHotelFields';
 import {
   normalizeHotelDecisionStatus,
   type HotelDecisionKind,
@@ -68,7 +69,7 @@ async function persistBookingDecision(
     status?: string;
     check_in_date?: Date | string | null;
     check_out_date?: Date | string | null;
-    summary_only?: boolean;
+    summary_only?: number | boolean;
   },
   fields: Record<string, unknown>,
 ): Promise<void> {
@@ -215,7 +216,7 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       status: 'reserved',
       check_in_date: booking.check_in_date,
       check_out_date: booking.check_out_date,
-      summary_only: typeof booking.summary_only === 'boolean' ? booking.summary_only : false,
+      summary_only: coerceSummaryOnly(booking.summary_only),
     });
     await writeLedgerAfterApproval(booking);
 
@@ -250,7 +251,7 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     : 'declined';
   await persistBookingDecision(booking, {
     status: nextStatus,
-    summary_only: typeof booking.summary_only === 'boolean' ? booking.summary_only : false,
+      summary_only: coerceSummaryOnly(booking.summary_only),
   });
 
   queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));

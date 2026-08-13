@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 import { MONGODB_URI } from './env';
-import { BookingModel } from '../data/mongoModels';
 import { invalidSummaryOnlyFilter } from '../utils/bookingHotelFields';
 
 async function healBookingsSummaryOnly(): Promise<void> {
@@ -8,12 +7,18 @@ async function healBookingsSummaryOnly(): Promise<void> {
     return;
   }
   try {
-    const result = await BookingModel.updateMany(
-      invalidSummaryOnlyFilter(),
-      { $set: { summary_only: false } },
+    const bookings = mongoose.connection.collection('bookings');
+    const setTrue = await bookings.updateMany(
+      { summary_only: { $in: [true, '1', 'true'] } },
+      { $set: { summary_only: 1 } },
     );
-    if (result.modifiedCount > 0) {
-      console.log(`[INFO] Healed summary_only on ${result.modifiedCount} booking(s) for hotel-app reports.`);
+    const setFalse = await bookings.updateMany(
+      invalidSummaryOnlyFilter(),
+      { $set: { summary_only: 0 } },
+    );
+    const changed = (setTrue.modifiedCount ?? 0) + (setFalse.modifiedCount ?? 0);
+    if (changed > 0) {
+      console.log(`[INFO] Healed summary_only on ${changed} booking(s) for hotel-app reports.`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
