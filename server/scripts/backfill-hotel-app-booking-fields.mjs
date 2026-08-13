@@ -63,6 +63,10 @@ async function main() {
       { source: 'web', guest_name: { $exists: false } },
       { source: 'web', created_at: { $exists: false } },
       { source: 'web', summary_only: { $exists: false } },
+      { source: 'web', summary_only: { $nin: [true, false] } },
+      // Any booking with invalid summary_only breaks hotel-app Reports & analytics
+      { summary_only: { $exists: false } },
+      { summary_only: { $nin: [true, false] } },
     ],
   };
 

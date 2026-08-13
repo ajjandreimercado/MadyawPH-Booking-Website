@@ -139,6 +139,7 @@ export async function ensureWebsiteOnlinePaymentLedger(input: {
         totalPrice: stayTotal,
         serviceFee: 0,
         hotel_ledger_synced: true,
+        summary_only: false,
       },
     },
   );

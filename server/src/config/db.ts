@@ -1,5 +1,25 @@
 import mongoose from 'mongoose';
 import { MONGODB_URI } from './env';
+import { BookingModel } from '../data/mongoModels';
+import { invalidSummaryOnlyFilter } from '../utils/bookingHotelFields';
+
+async function healBookingsSummaryOnly(): Promise<void> {
+  if (process.env.NODE_ENV === 'test' || process.env.SKIP_SUMMARY_ONLY_HEAL === '1') {
+    return;
+  }
+  try {
+    const result = await BookingModel.updateMany(
+      invalidSummaryOnlyFilter(),
+      { $set: { summary_only: false } },
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`[INFO] Healed summary_only on ${result.modifiedCount} booking(s) for hotel-app reports.`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[WARN] Could not heal booking summary_only fields:', message);
+  }
+}
 
 export async function connectDatabase(): Promise<void> {
   try {
@@ -14,6 +34,7 @@ export async function connectDatabase(): Promise<void> {
     // Log the host only — never log the full URI (it contains credentials).
     const safeUri = MONGODB_URI.replace(/:\/\/[^@]*@/, '://***:***@');
     console.log(`[INFO] Connected to MongoDB: ${safeUri}`);
+    await healBookingsSummaryOnly();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown database connection error.';
     console.error('[FATAL] Failed to connect to MongoDB:', message);

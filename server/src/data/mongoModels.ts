@@ -174,6 +174,13 @@ const bookingSchema = new Schema(
   schemaOptions,
 );
 
+// Hotel reports validate summary_only as strict boolean — heal legacy/missing values on save.
+bookingSchema.pre('save', function summaryOnlyPreSave() {
+  if (typeof this.summary_only !== 'boolean') {
+    this.summary_only = false;
+  }
+});
+
 /** Binary Valid ID files — kept off `bookings` so hotel list/login queries stay fast. */
 const bookingValidIdSchema = new Schema(
   {
