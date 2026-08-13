@@ -62,10 +62,8 @@ async function main() {
       { source: 'web', check_in_date: { $exists: false } },
       { source: 'web', guest_name: { $exists: false } },
       { source: 'web', created_at: { $exists: false } },
-      { source: 'web', summary_only: { $exists: false } },
-      { source: 'web', summary_only: { $nin: [0, 1, true, false] } },
-      { summary_only: { $exists: false } },
-      { summary_only: { $nin: [0, 1, true, false] } },
+      { source: 'web', summary_only: { $nin: [true, false] } },
+      { source: 'web', room_id: { $type: 'objectId' } },
     ],
   };
 
@@ -118,8 +116,13 @@ async function main() {
     if (!doc.billing_mode) {
       set.billing_mode = 'nightly';
     }
-    if (doc.summary_only !== 0 && doc.summary_only !== 1) {
-      set.summary_only = doc.summary_only === true || doc.summary_only === '1' ? 1 : 0;
+    if (typeof doc.summary_only !== 'boolean') {
+      set.summary_only = doc.summary_only === 1 || doc.summary_only === '1';
+    }
+    // Hotel bookings store room_id as a string; a raw ObjectId hides the booking
+    // from hotel-side room lookups and per-room reports.
+    if (doc.room_id != null && typeof doc.room_id !== 'string') {
+      set.room_id = String(doc.room_id);
     }
 
     if (Object.keys(set).length === 0) continue;

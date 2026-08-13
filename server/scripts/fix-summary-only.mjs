@@ -1,9 +1,9 @@
 /**
- * Heal hotel-app Reports error:
- * "The summary only field must be true or false."
+ * Normalize website-written booking documents to the hotel app's own shape.
  *
- * Writes integer 0|1 (not BSON false). Laravel's boolean rule accepts 0/1;
- * some PHP Mongo layers turn BSON false into "" which then fails validation.
+ *   summary_only -> strict boolean (never null / "" / missing / int)
+ *   room_id      -> string form of the room ObjectId (hotel bookings use strings,
+ *                   so a raw ObjectId makes hotel room lookups miss website bookings)
  *
  * Usage:
  *   node scripts/fix-summary-only.mjs           # dry-run
@@ -21,36 +21,45 @@ const APPLY = process.env.CONFIRM_FIX === 'YES';
 
 if (!MONGODB_URI) throw new Error('MONGODB_URI is required.');
 
-const needsHeal = { summary_only: { $nin: [0, 1] } };
-
 async function main() {
   await mongoose.connect(MONGODB_URI, DB_NAME ? { dbName: DB_NAME } : undefined);
   const bookings = mongoose.connection.collection('bookings');
 
-  const toTrue = await bookings.countDocuments({ summary_only: { $in: [true, '1', 'true'] } });
-  const toFalse = await bookings.countDocuments(needsHeal);
-  console.log(
-    APPLY
-      ? `[fix-summary-only] Healing ${toFalse} booking(s) to 0|1 (${toTrue} currently truthy)…`
-      : `[fix-summary-only] Dry-run: ${toFalse} booking(s) would be rewritten as integer 0|1. Set CONFIRM_FIX=YES to apply.`,
-  );
+  const truthy = { summary_only: { $in: [1, '1', 'true'] } };
+  const notBoolean = { summary_only: { $nin: [true, false] } };
+  const objectIdRoom = { room_id: { $type: 'objectId' } };
 
-  if (APPLY && toFalse > 0) {
-    const setTrue = await bookings.updateMany(
-      { summary_only: { $in: [true, '1', 'true'] } },
-      { $set: { summary_only: 1 } },
-    );
-    const setFalse = await bookings.updateMany(
-      { summary_only: { $nin: [0, 1] } },
-      { $set: { summary_only: 0 } },
-    );
-    console.log(`[fix-summary-only] Set 1: ${setTrue.modifiedCount}. Set 0: ${setFalse.modifiedCount}.`);
+  console.log('[normalize] summary_only truthy-but-not-true :', await bookings.countDocuments(truthy));
+  console.log('[normalize] summary_only not a boolean       :', await bookings.countDocuments(notBoolean));
+  console.log('[normalize] room_id stored as ObjectId       :', await bookings.countDocuments(objectIdRoom));
+
+  if (!APPLY) {
+    console.log('[normalize] Dry-run only. Set CONFIRM_FIX=YES to apply.');
+  } else {
+    const setTrue = await bookings.updateMany(truthy, { $set: { summary_only: true } });
+    const setFalse = await bookings.updateMany(notBoolean, { $set: { summary_only: false } });
+    console.log(`[normalize] summary_only -> true: ${setTrue.modifiedCount}, false: ${setFalse.modifiedCount}`);
+
+    let rooms = 0;
+    const cursor = bookings.find(objectIdRoom).project({ room_id: 1 });
+    for await (const doc of cursor) {
+      await bookings.updateOne(
+        { _id: doc._id },
+        { $set: { room_id: String(doc.room_id) } },
+      );
+      rooms += 1;
+    }
+    console.log(`[normalize] room_id -> string: ${rooms}`);
   }
 
-  const types = await bookings.aggregate([
+  const summaryTypes = await bookings.aggregate([
     { $group: { _id: { $type: '$summary_only' }, n: { $sum: 1 } } },
   ]).toArray();
-  console.log('[fix-summary-only] BSON types now:', JSON.stringify(types));
+  const roomTypes = await bookings.aggregate([
+    { $group: { _id: { $type: '$room_id' }, n: { $sum: 1 } } },
+  ]).toArray();
+  console.log('[normalize] summary_only types:', JSON.stringify(summaryTypes));
+  console.log('[normalize] room_id types    :', JSON.stringify(roomTypes));
 
   await mongoose.disconnect();
 }

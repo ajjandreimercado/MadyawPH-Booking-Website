@@ -69,7 +69,7 @@ async function persistBookingDecision(
     status?: string;
     check_in_date?: Date | string | null;
     check_out_date?: Date | string | null;
-    summary_only?: number | boolean;
+    summary_only?: boolean | number;
   },
   fields: Record<string, unknown>,
 ): Promise<void> {

@@ -14,7 +14,7 @@ import { resolvePromoDiscount, incrementPromoUse } from '../utils/promo';
 import { resolveMemberDiscount } from '../utils/memberDiscount';
 import { signReceiptToken, verifyReceiptToken } from '../utils/receiptToken';
 import { buildHotelAppBookingFields, toStayDate } from '../utils/hotelAppBookingFields';
-import { coerceSummaryOnly } from '../utils/bookingHotelFields';
+import { coerceSummaryOnly, toHotelRoomId } from '../utils/bookingHotelFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import {
   computeOnlinePaymentDue,
@@ -629,7 +629,7 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
     hotel_id: String(property.hotel_id ?? ''),
-    room_id: property._id,
+    room_id: toHotelRoomId(property._id),
     propertyId: propertyIdResult.value,
     propertyName: propertyNameResult.value ?? property.display_name,
     guestName: guestNameResult.value,

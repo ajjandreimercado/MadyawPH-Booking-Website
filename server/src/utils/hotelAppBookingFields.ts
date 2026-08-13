@@ -5,7 +5,7 @@
  * Hotel app reads (examples):
  *   guest_name, guest_email, check_in_date/check_out_date (Date @ Asia/Manila midnight),
  *   created_at, booking_type ("online"|"local"), booking_source, payment_method,
- *   summary_only (0|1 integer flag required by hotel reports)
+ *   summary_only (website-only boolean flag; hotel docs omit it)
  */
 
 /** Parse yyyy-MM-dd as Asia/Manila start-of-day (matches hotel app Date storage). */
@@ -33,7 +33,7 @@ export interface HotelAppBookingFields {
   booking_source: 'website-customer';
   payment_method: string;
   billing_mode: 'nightly';
-  summary_only: 0 | 1;
+  summary_only: boolean;
 }
 
 /**
@@ -72,6 +72,6 @@ export function buildHotelAppBookingFields(input: {
     booking_source: 'website-customer',
     payment_method: input.paymentMethod,
     billing_mode: 'nightly',
-    summary_only: 0,
+    summary_only: false,
   };
 }

@@ -1,5 +1,5 @@
 import mongoose, { Schema, model } from 'mongoose';
-import { coerceSummaryOnly } from '../utils/bookingHotelFields';
+import { coerceSummaryOnly, toHotelRoomId } from '../utils/bookingHotelFields';
 
 const { Types } = mongoose;
 const Mixed = Schema.Types.Mixed;
@@ -89,7 +89,8 @@ const bookingSchema = new Schema(
   {
     booking_reference: { type: String, required: true, index: true, unique: true },
     hotel_id: { type: String, required: true, index: true },
-    room_id: { type: Schema.Types.Mixed, required: true },
+    // Hotel bookings store room_id as a string (never a raw ObjectId).
+    room_id: { type: String, required: true },
     propertyId: { type: String, required: true, index: true },
     propertyName: { type: String },
     guestName: { type: String, required: true },
@@ -135,9 +136,8 @@ const bookingSchema = new Schema(
     // Snake_case payment alias (hotel app); website still uses paymentMethod
     payment_method: { type: String },
     status: { type: String, required: true },
-    // Hotel reports: persist 0|1 (not BSON false). PHP/Laravel boolean validation
-    // rejects empty string, and some Mongo PHP layers coerce BSON false → "".
-    summary_only: { type: Number, enum: [0, 1], default: 0 },
+    // Website-only flag (hotel bookings omit it) — keep it a real boolean, never null.
+    summary_only: { type: Boolean, default: false },
     discount_type: { type: String, default: '' },
     discount_value: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
@@ -176,9 +176,12 @@ const bookingSchema = new Schema(
   schemaOptions,
 );
 
-// Hotel reports need integer 0|1 — never BSON false / missing / "".
-bookingSchema.pre('save', function summaryOnlyPreSave() {
+bookingSchema.pre('save', function normalizeHotelSharedFields() {
   this.summary_only = coerceSummaryOnly(this.summary_only);
+  // Hotel bookings key rooms by the string form of the room ObjectId.
+  if (this.room_id != null && typeof this.room_id !== 'string') {
+    this.room_id = toHotelRoomId(this.room_id);
+  }
 });
 
 /** Binary Valid ID files — kept off `bookings` so hotel list/login queries stay fast. */

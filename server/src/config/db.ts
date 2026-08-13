@@ -9,12 +9,12 @@ async function healBookingsSummaryOnly(): Promise<void> {
   try {
     const bookings = mongoose.connection.collection('bookings');
     const setTrue = await bookings.updateMany(
-      { summary_only: { $in: [true, '1', 'true'] } },
-      { $set: { summary_only: 1 } },
+      { summary_only: { $in: [1, '1', 'true'] } },
+      { $set: { summary_only: true } },
     );
     const setFalse = await bookings.updateMany(
       invalidSummaryOnlyFilter(),
-      { $set: { summary_only: 0 } },
+      { $set: { summary_only: false } },
     );
     const changed = (setTrue.modifiedCount ?? 0) + (setFalse.modifiedCount ?? 0);
     if (changed > 0) {
