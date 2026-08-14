@@ -32,6 +32,12 @@ services:
         sync: false   # Set manually in Render dashboard when online payments are enabled
       - key: HOTEL_WEBHOOK_SECRET
         sync: false   # Shared secret for hotel-app POST /api/bookings/hotel-events
+      - key: MESSENGER_PAGE_ACCESS_TOKEN
+        sync: false   # Meta Messenger Page token (Messenger API Setup)
+      - key: MESSENGER_VERIFY_TOKEN
+        sync: false   # Your chosen webhook verify string (must match Meta dashboard)
+      - key: MADYAW_PUBLIC_URL
+        sync: false   # e.g. https://madyaw.com — links in Messenger replies
       - key: ENABLE_EXTERNAL_RESERVATION_WATCHER
         value: "true" # Mongo change stream sync when hotel updates external_reservations
 

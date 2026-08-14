@@ -141,6 +141,14 @@ export const hotelWebhookLimiter = makeLimiter({
   message: { message: 'Too many hotel webhook events. Please try again later.' },
 });
 
+/** Meta Messenger webhook — generous limit; Meta bursts on delivery. */
+export const messengerWebhookLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 5_000 : 600,
+  keyGenerator: (req) => req.ip ?? 'unknown',
+  message: { message: 'Too many Messenger webhook events. Please try again later.' },
+});
+
 // ─── Password reset limiter (for future use) ─────────────────────────────────
 /**
  * Extra-strict limiter for password reset endpoints (when implemented).

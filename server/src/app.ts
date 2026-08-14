@@ -12,6 +12,7 @@ import roomCategoryRoutes from './routes/roomCategoryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import promoCodeRoutes from './routes/promoCodeRoutes';
 import memberRoutes from './routes/memberRoutes';
+import messengerRoutes from './routes/messengerRoutes';
 import { requestLogger, getUptimeMs } from './middleware/logger';
 // Centralised rate limiters — user-keyed with graceful 429s (OWASP A04/A07)
 import { apiLimiter } from './middleware/rateLimiters';
@@ -80,6 +81,9 @@ app.use(express.json({ limit: '10kb' }));
 
 // ─── Request logger ───────────────────────────────────────────────────────────
 app.use(requestLogger);
+
+// ─── Meta Messenger webhook (before apiLimiter — Meta verification must not 429) ─
+app.use('/api/messenger', messengerRoutes);
 
 // ─── Global rate limiter (protects all /api/* routes) ───────────────────────
 // Imported from rateLimiters.ts — user-keyed (userId fallback to IP),

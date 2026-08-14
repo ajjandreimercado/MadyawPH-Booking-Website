@@ -83,6 +83,28 @@ export function getHotelWebhookSecret(): string {
   return optionalEnv('HOTEL_WEBHOOK_SECRET');
 }
 
+/** Meta Messenger Page access token (server-only). */
+export function getMessengerPageAccessToken(): string {
+  return optionalEnv('MESSENGER_PAGE_ACCESS_TOKEN');
+}
+
+/** Meta webhook verify token — you choose this string; must match Meta dashboard. */
+export function getMessengerVerifyToken(): string {
+  return optionalEnv('MESSENGER_VERIFY_TOKEN');
+}
+
+/** Public website origin for "Book on website" links in Messenger. */
+export function getMadyawPublicUrl(): string {
+  const raw = optionalEnv('MADYAW_PUBLIC_URL');
+  if (raw) return raw.replace(/\/+$/, '');
+  const firstOrigin = CLIENT_ORIGINS[0];
+  return firstOrigin ? firstOrigin.replace(/\/+$/, '') : 'https://madyaw.com';
+}
+
+export function isMessengerEnabled(): boolean {
+  return Boolean(getMessengerPageAccessToken() && getMessengerVerifyToken());
+}
+
 /**
  * Mongo change stream on external_reservations (Atlas replica set).
  * Default: on in production, off in test. Set ENABLE_EXTERNAL_RESERVATION_WATCHER=false to disable.
