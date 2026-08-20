@@ -329,7 +329,11 @@ export default function HotelDetailPage() {
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-bold text-brand-dark/60">
-                  <MapPin className="w-4 h-4 text-brand-primary" />{hotel.location}
+                  <span className="inline-flex items-center gap-1 shrink-0 text-brand-primary">
+                    <MapPin className="w-4 h-4" aria-hidden="true" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Location</span>
+                  </span>
+                  <span className="text-brand-dark/60">{hotel.location}</span>
                 </p>
                 <button
                   type="button"
