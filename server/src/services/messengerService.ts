@@ -10,10 +10,15 @@ export interface MessengerSendPayload {
   message: Record<string, unknown>;
 }
 
+type SenderActionPayload = {
+  recipient: { id: string };
+  sender_action: 'mark_seen' | 'typing_on' | 'typing_off';
+};
+
 export async function sendMessengerPayload(
   pageAccessToken: string,
   payload: MessengerSendPayload,
-): Promise<void> {
+): Promise<boolean> {
   const url = `${GRAPH_API}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const response = await fetch(url, {
     method: 'POST',
@@ -24,6 +29,26 @@ export async function sendMessengerPayload(
   if (!response.ok) {
     const body = await response.text();
     console.error('[Messenger] Send failed:', response.status, body.slice(0, 500));
+    return false;
+  }
+
+  return true;
+}
+
+async function sendSenderAction(
+  pageAccessToken: string,
+  payload: SenderActionPayload,
+): Promise<void> {
+  const url = `${GRAPH_API}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.error('[Messenger] Sender action failed:', response.status, body.slice(0, 500));
   }
 }
 
@@ -83,17 +108,15 @@ export async function sendButtonTemplate(
 }
 
 export async function markSeen(recipientId: string, pageAccessToken: string): Promise<void> {
-  await sendMessengerPayload(pageAccessToken, {
+  await sendSenderAction(pageAccessToken, {
     recipient: { id: recipientId },
     sender_action: 'mark_seen',
-    message: {},
-  } as MessengerSendPayload);
+  });
 }
 
 export async function typingOn(recipientId: string, pageAccessToken: string): Promise<void> {
-  await sendMessengerPayload(pageAccessToken, {
+  await sendSenderAction(pageAccessToken, {
     recipient: { id: recipientId },
     sender_action: 'typing_on',
-    message: {},
-  } as MessengerSendPayload);
+  });
 }

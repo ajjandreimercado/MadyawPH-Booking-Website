@@ -44,8 +44,12 @@ messengerRoutes.post('/webhook', messengerWebhookLimiter, (req: Request, res: Re
   };
 
   if (body.object !== 'page' || !Array.isArray(body.entry)) {
+    console.warn('[Messenger] Ignored webhook payload:', body.object ?? 'unknown');
     return undefined;
   }
+
+  const eventCount = body.entry.reduce((n, entry) => n + (entry.messaging?.length ?? 0), 0);
+  console.log('[Messenger] Webhook received:', eventCount, 'event(s)');
 
   void (async () => {
     try {
@@ -53,7 +57,7 @@ messengerRoutes.post('/webhook', messengerWebhookLimiter, (req: Request, res: Re
         for (const event of entry.messaging ?? []) {
           await handleMessengerEvent(event as {
             sender?: { id?: string };
-            message?: { text?: string };
+            message?: { text?: string; is_echo?: boolean; quick_reply?: { payload?: string } };
             postback?: { payload?: string };
           });
         }

@@ -116,6 +116,36 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
 
     const fuseResults = fuse.search(destStr);
     const matchedHotelIds = new Set<string>();
+    const escaped = destStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const flexiblePattern = escaped.replace(/\s+/g, '').split('').join('\\s*');
+    const rx = new RegExp(flexiblePattern, 'i');
+    const cityRx = new RegExp(`^${escaped}$`, 'i');
+
+    // Exact city / location hits first so featured destination cards resolve reliably.
+    for (const hotel of allHotels) {
+      const h = hotel as {
+        _id: unknown;
+        city?: string;
+        location?: string;
+        name?: string;
+        neighborhood?: string;
+      };
+      const hId = String(h._id);
+      const city = String(h.city ?? '');
+      const location = String(h.location ?? '');
+      const name = String(h.name ?? '');
+      const neighborhood = String(h.neighborhood ?? '');
+      if (
+        cityRx.test(city)
+        || rx.test(city)
+        || rx.test(location)
+        || rx.test(name)
+        || rx.test(neighborhood)
+      ) {
+        matchedHotelIds.add(hId);
+        hotelScores[hId] = Math.max(hotelScores[hId] ?? 0, 100);
+      }
+    }
 
     fuseResults.forEach((result) => {
       const h = result.item as {
@@ -144,7 +174,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
         finalScore = (relevanceScore * 0.6) + (proximityScore * 1.5);
       }
 
-      hotelScores[hId] = finalScore;
+      hotelScores[hId] = Math.max(hotelScores[hId] ?? 0, finalScore);
     });
 
     if (geocodeParams) {
@@ -171,24 +201,18 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     }
 
     const matchedIds = Array.from(matchedHotelIds);
-    const escaped = destStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const flexiblePattern = escaped.replace(/\s+/g, '').split('').join('\\s*');
-    const rx = new RegExp(flexiblePattern, 'i');
 
-    if (geocodeParams && matchedIds.length > 0) {
+    if (matchedIds.length > 0) {
+      // Prefer hotel-scoped results when we know which hotels match the destination.
       roomFilter.hotel_id = { $in: matchedIds };
     } else {
-      const orClauses: Record<string, unknown>[] = [
+      roomFilter.$or = [
         { hotel_name: rx },
         { display_name: rx },
         { category_name: rx },
         { room_type: rx },
         { hotel_location: rx },
       ];
-      if (matchedIds.length > 0) {
-        orClauses.push({ hotel_id: { $in: matchedIds } });
-      }
-      roomFilter.$or = orClauses;
     }
   }
 
@@ -360,12 +384,39 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
 });
 
 // ─── GET /destinations ──────────────────────────────────────────────────────────
-// Aggregates distinct cities from hotels to power the dynamic homepage destinations
+// Aggregates distinct cities that have at least one bookable room (price > 0).
+// Hotels with no inventory must not appear as featured destinations.
 
 hotelRoutes.get('/destinations', publicReadLimiter, async (_req, res) => {
   try {
     const destinations = await HotelModel.aggregate([
-      { $match: { city: { $exists: true, $ne: '' } } },
+      {
+        $match: {
+          city: { $exists: true, $nin: [null, ''] },
+        },
+      },
+      {
+        $addFields: {
+          hotelIdStr: { $toString: '$_id' },
+        },
+      },
+      {
+        $lookup: {
+          from: PropertyModel.collection.name,
+          let: { hotelId: '$hotelIdStr' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: [{ $toString: '$hotel_id' }, '$$hotelId'] },
+                price_per_night: { $gt: 0 },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'bookableRooms',
+        },
+      },
+      { $match: { 'bookableRooms.0': { $exists: true } } },
       { $group: { _id: '$city', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 4 },

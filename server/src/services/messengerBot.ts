@@ -227,21 +227,36 @@ export async function handleMessengerText(psid: string, text: string): Promise<v
 
 export async function handleMessengerEvent(event: {
   sender?: { id?: string };
-  message?: { text?: string };
+  message?: { text?: string; is_echo?: boolean; quick_reply?: { payload?: string } };
   postback?: { payload?: string };
 }): Promise<void> {
   const psid = event.sender?.id;
   if (!psid) return;
 
+  // Ignore echoes of messages sent by the Page itself.
+  if (event.message?.is_echo) return;
+
   if (event.postback?.payload) {
+    console.log('[Messenger] Postback from', psid, event.postback.payload);
     await handleMessengerPostback(psid, event.postback.payload);
+    return;
+  }
+
+  const quickReplyPayload = event.message?.quick_reply?.payload;
+  if (quickReplyPayload) {
+    console.log('[Messenger] Quick reply from', psid, quickReplyPayload);
+    await handleMessengerPostback(psid, quickReplyPayload);
     return;
   }
 
   const text = event.message?.text?.trim();
   if (text) {
+    console.log('[Messenger] Text from', psid);
     await handleMessengerText(psid, text);
+    return;
   }
+
+  console.log('[Messenger] Ignored event from', psid, '(no text/postback)');
 }
 
 /** @internal test helper */

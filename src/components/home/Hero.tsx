@@ -160,11 +160,20 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="text-center w-full"
         >
-          <p className="hidden sm:block text-brand-cream/70 text-sm font-bold uppercase tracking-widest mb-3">Discover Luxury Stays</p>
-          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-serif text-brand-cream mb-3 sm:mb-4 drop-shadow-lg leading-tight">
-            Find Your Sanctuary
+          <p className="hidden sm:block text-brand-secondary text-sm font-bold uppercase tracking-[0.25em] mb-4 drop-shadow-md">
+            Discover Luxury Stays
+          </p>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-brand-cream mb-4 sm:mb-5 leading-[1.05] tracking-tight [text-shadow:0_2px_24px_rgba(0,0,0,0.55),0_1px_2px_rgba(0,0,0,0.8)]">
+            Find Your{' '}
+            <span className="relative inline-block text-brand-secondary">
+              Sanctuary
+              <span
+                aria-hidden="true"
+                className="absolute left-0 right-0 -bottom-1 sm:-bottom-1.5 h-1 sm:h-1.5 rounded-full bg-brand-secondary/90"
+              />
+            </span>
           </h1>
-          <p className="text-sm sm:text-lg md:text-xl text-brand-cream/85 font-sans font-light max-w-2xl mx-auto drop-shadow px-1 leading-relaxed">
+          <p className="text-sm sm:text-lg md:text-xl text-brand-cream font-sans font-medium max-w-2xl mx-auto px-1 leading-relaxed [text-shadow:0_1px_12px_rgba(0,0,0,0.45)]">
             Hand-picked resorts, villas, and hotels across the Philippines and beyond.
           </p>
         </motion.div>
