@@ -125,7 +125,7 @@ export default function HomePage() {
           <section>
             <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Explore Philippines</p>
+                <p className="section-eyebrow">Explore Philippines</p>
                 <h2 className="section-title">Featured Destinations</h2>
               </div>
               <button type="button" onClick={() => navigate('/search')}
@@ -146,7 +146,7 @@ export default function HomePage() {
           <section>
             <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Handpicked for you</p>
+                <p className="section-eyebrow">Handpicked for you</p>
                 <h2 className="section-title">Featured Properties</h2>
               </div>
               <button type="button" onClick={() => navigate('/search')}
@@ -222,12 +222,12 @@ export default function HomePage() {
         {/* Trust Indicators */}
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {[
-            { icon: <ShieldCheck className="w-8 h-8 text-brand-secondary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your data is protected with bank-grade encryption.' },
-            { icon: <CreditCard className="w-8 h-8 text-brand-secondary" strokeWidth={1.5} />, title: 'Multiple Payment Options', desc: 'GCash, Maya, credit/debit cards, and bank transfer.' },
-            { icon: <MessageSquareQuote className="w-8 h-8 text-brand-secondary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'All reviews are from verified, completed stays.' },
+            { icon: <ShieldCheck className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your data is protected with bank-grade encryption.' },
+            { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Multiple Payment Options', desc: 'GCash, Maya, credit/debit cards, and bank transfer.' },
+            { icon: <MessageSquareQuote className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'All reviews are from verified, completed stays.' },
           ].map(item => (
             <div key={item.title} className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-8 flex flex-col items-start hover:shadow-luxury-hover transition-shadow">
-              <div className="mb-5 p-3 rounded-2xl bg-brand-primary/5 text-brand-secondary">
+              <div className="mb-5 p-3 rounded-2xl bg-brand-gold/15 text-brand-primary">
                 {item.icon}
               </div>
               <h3 className="font-serif font-bold text-xl text-brand-dark mb-2">{item.title}</h3>
@@ -242,14 +242,14 @@ export default function HomePage() {
         {/* Subtle background texture */}
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
         <div className="max-w-4xl mx-auto px-4 text-center relative z-10">
-          <p className="text-brand-secondary font-bold text-xs uppercase tracking-[0.2em] mb-4">The Madyaw Standard</p>
-          <h2 className="text-3xl md:text-5xl font-serif font-bold text-brand-cream mb-8 leading-tight">Elevating Island Hospitality</h2>
+          <p className="text-brand-gold font-bold text-xs uppercase tracking-[0.2em] mb-4">The Madyaw Standard</p>
+          <h2 className="text-3xl md:text-5xl font-display font-semibold text-brand-cream mb-8 leading-tight">Elevating Island Hospitality</h2>
           <p className="text-brand-cream/80 font-sans font-medium leading-relaxed text-lg mb-16 max-w-2xl mx-auto">
-            <strong className="text-brand-secondary">Madyaw</strong> is a curated collection of places to stay across the Philippines, connecting guests with unique homes, stays, and local experiences.
+            <strong className="text-brand-gold">Madyaw</strong> is a curated collection of places to stay across the Philippines, connecting guests with unique homes, stays, and local experiences.
           </p>
           
-          <div className="border-t border-brand-primary/20 pt-12">
-            <p className="text-3xl font-serif font-bold text-brand-secondary mb-1">100%</p>
+          <div className="border-t border-brand-gold/25 pt-12">
+            <p className="text-3xl font-display font-semibold text-brand-gold mb-1">100%</p>
             <p className="text-xs font-bold text-brand-cream/60 uppercase tracking-widest">Curated Stays</p>
           </div>
         </div>

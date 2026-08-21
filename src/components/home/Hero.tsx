@@ -149,8 +149,8 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </div>
           ))}
         </motion.div>
-        <div className="absolute inset-0 bg-gradient-to-b from-brand-dark/55 via-brand-dark/25 to-brand-dark/90 mix-blend-multiply" />
-        <div className="absolute inset-0 bg-brand-primary/10 mix-blend-overlay" />
+        <div className="absolute inset-0 bg-gradient-to-b from-brand-dark/70 via-brand-dark/50 to-brand-dark/88" />
+        <div className="absolute inset-0 bg-brand-dark/20" />
       </div>
 
       {/* Content — normal document flow so nothing overlaps */}
@@ -160,16 +160,16 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="text-center w-full"
         >
-          <p className="hidden sm:block text-brand-secondary text-sm font-bold uppercase tracking-[0.25em] mb-4 drop-shadow-md">
+          <p className="hidden sm:block text-brand-warning text-sm font-bold uppercase tracking-[0.25em] mb-4 [text-shadow:0_1px_8px_rgba(0,0,0,0.65)]">
             Discover Luxury Stays
           </p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-brand-cream mb-4 sm:mb-5 leading-[1.05] tracking-tight [text-shadow:0_2px_24px_rgba(0,0,0,0.55),0_1px_2px_rgba(0,0,0,0.8)]">
             Find Your{' '}
-            <span className="relative inline-block font-display italic font-semibold text-brand-secondary tracking-normal">
+            <span className="relative inline-block font-display italic font-semibold text-[#F5D08A] tracking-normal [text-shadow:0_2px_18px_rgba(0,0,0,0.85),0_1px_0_rgba(0,0,0,0.9)]">
               Sanctuary
               <span
                 aria-hidden="true"
-                className="absolute left-0 right-0 -bottom-1 sm:-bottom-2 h-1 sm:h-1.5 rounded-full bg-brand-secondary/90"
+                className="absolute left-0 right-0 -bottom-1 sm:-bottom-2 h-1 sm:h-1.5 rounded-full bg-[#F5D08A]"
               />
             </span>
           </h1>

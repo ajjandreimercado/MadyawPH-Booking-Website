@@ -30,7 +30,7 @@ export default function Navbar() {
   };
 
   const linkClass =
-    'text-[10px] font-bold tracking-widest uppercase transition-colors text-brand-cream/80 hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark rounded-sm';
+    'text-[10px] font-bold tracking-widest uppercase transition-colors text-brand-cream/80 hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark rounded-sm';
 
   return (
     <nav
@@ -49,7 +49,7 @@ export default function Navbar() {
             alt="Madyaw logo"
             className="h-12 w-12 rounded-2xl bg-brand-cream p-1.5 object-contain shadow-sm ring-1 ring-white/10"
           />
-          <span className="text-2xl font-serif font-bold tracking-tight text-brand-cream">Madyaw</span>
+          <span className="text-2xl font-display italic font-semibold tracking-tight text-brand-cream">Madyaw</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-10">

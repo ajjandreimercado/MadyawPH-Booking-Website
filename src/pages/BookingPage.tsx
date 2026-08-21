@@ -347,7 +347,7 @@ export default function BookingPage() {
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
-          <h1 className="text-2xl sm:text-3xl font-serif font-bold text-brand-dark mb-1">Booking Details</h1>
+          <h1 className="text-2xl sm:text-3xl font-display font-semibold text-brand-dark mb-1">Booking Details</h1>
           <p className="text-brand-dark/60 font-bold text-sm px-2 break-words">{roomLabel}</p>
         </div>
 

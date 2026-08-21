@@ -101,7 +101,7 @@ export default function BookingConfirmationPage() {
               ? <Clock className="w-12 h-12 text-brand-warning" />
               : <CheckCircle2 className="w-12 h-12 text-brand-success" />}
           </motion.div>
-          <h1 className="text-4xl font-serif font-bold text-brand-dark mb-2">
+          <h1 className="text-4xl font-display font-semibold text-brand-dark mb-2">
             {isPending ? 'Reservation Request Received' : 'Reservation Updated'}
           </h1>
           <p className="text-brand-dark/70 font-medium text-sm mt-1 max-w-md mx-auto leading-relaxed">

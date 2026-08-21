@@ -325,7 +325,7 @@ export default function HotelDetailPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-brand-dark mb-2">{hotel.name}</h1>
+            <h1 className="text-3xl font-display font-semibold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-bold text-brand-dark/60">{hotel.location}</p>
@@ -335,7 +335,7 @@ export default function HotelDetailPage() {
                   disabled={isOpeningMaps}
                   title="Open location in Google Maps"
                   aria-label="Open location in Google Maps"
-                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-brand-primary/20 bg-brand-primary/5 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-brand-gold/40 bg-brand-gold/15 text-brand-dark hover:bg-brand-primary hover:text-white hover:border-brand-primary transition-colors disabled:opacity-60"
                 >
                   {isOpeningMaps
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

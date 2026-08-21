@@ -224,7 +224,7 @@ export default function AuthModal({
 
           <div className="p-8 md:p-10 relative">
             <div className="text-center mb-8">
-              <h2 className="text-3xl font-serif font-bold text-brand-dark mb-3">{authMode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
+              <h2 className="text-3xl font-display font-semibold text-brand-dark mb-3">{authMode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
               <p className="text-brand-dark font-sans font-bold text-sm">
                 {authMode === 'login' ? 'Please sign in to continue your journey.' : 'Create your account to start booking.'}
               </p>

@@ -636,7 +636,7 @@ export default function SearchResultsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-serif font-bold text-brand-dark">
+            <h1 className="text-2xl font-display font-semibold text-brand-dark">
               {nearMe
                 ? 'Hotels near you'
                 : searchAnchor

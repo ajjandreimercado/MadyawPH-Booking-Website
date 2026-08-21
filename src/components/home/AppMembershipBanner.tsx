@@ -40,14 +40,14 @@ function StoreButton({
 export default function AppMembershipBanner() {
   return (
     <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-brand-primary to-brand-hover p-8 md:p-12">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-brand-secondary/20 blur-3xl" />
+      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-brand-gold/20 blur-3xl" />
       <div className="relative z-10 flex flex-col items-center gap-8 md:flex-row md:items-center md:justify-between">
         <div className="max-w-xl text-center md:text-left">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1">
-            <Sparkles className="h-3.5 w-3.5 text-brand-secondary" />
+            <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
             <p className="text-[10px] font-bold uppercase tracking-widest text-brand-cream/80">Madyaw Members</p>
           </div>
-          <h2 className="mb-3 font-serif text-3xl font-bold leading-tight text-brand-cream md:text-4xl">
+          <h2 className="mb-3 font-display text-3xl font-semibold leading-tight text-brand-cream md:text-4xl">
             Install the app. Become a member. Get discounts.
           </h2>
           <p className="text-sm font-medium leading-relaxed text-brand-cream/75">

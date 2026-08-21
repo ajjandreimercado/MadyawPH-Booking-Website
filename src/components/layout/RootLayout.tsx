@@ -59,7 +59,7 @@ export default function RootLayout() {
                   alt="Madyaw logo"
                   className="h-12 w-12 rounded-xl bg-brand-cream p-1.5 object-contain shadow-md"
                 />
-                <span className="text-2xl font-serif font-bold tracking-tight text-brand-cream">Madyaw</span>
+                <span className="text-2xl font-display italic font-semibold tracking-tight text-brand-cream">Madyaw</span>
               </Link>
               <p className="text-sm leading-relaxed text-brand-cream/70">
                 Curating the finest coastal escapes and luxury sanctuaries across the Philippines. Your journey to exceptional hospitality begins here.
@@ -68,21 +68,21 @@ export default function RootLayout() {
 
             {/* Quick Links */}
             <div className="col-span-1">
-              <h3 className="font-serif font-bold text-lg text-brand-secondary mb-4">Discover</h3>
+              <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Discover</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
-                <li><SafeLink href="/search" className="hover:text-brand-secondary transition-colors">Browse Stays</SafeLink></li>
-                <li><SafeLink href="/search?near=1" className="hover:text-brand-secondary transition-colors">Hotels Near Me</SafeLink></li>
+                <li><SafeLink href="/search" className="hover:text-brand-gold transition-colors">Browse Stays</SafeLink></li>
+                <li><SafeLink href="/search?near=1" className="hover:text-brand-gold transition-colors">Hotels Near Me</SafeLink></li>
               </ul>
             </div>
 
             {/* Support */}
             <div className="col-span-1 md:col-span-2 lg:col-span-2">
-              <h3 className="font-serif font-bold text-lg text-brand-secondary mb-4">Support</h3>
+              <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Support</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70 sm:columns-2 sm:gap-x-8">
-                <li className="break-inside-avoid"><SafeLink href="/help" className="hover:text-brand-secondary transition-colors">Help Center</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/cancellation" className="hover:text-brand-secondary transition-colors">Cancellation Options</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/safety" className="hover:text-brand-secondary transition-colors">Safety Information</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/contact" className="hover:text-brand-secondary transition-colors">Contact Us</SafeLink></li>
+                <li className="break-inside-avoid"><SafeLink href="/help" className="hover:text-brand-gold transition-colors">Help Center</SafeLink></li>
+                <li className="break-inside-avoid"><SafeLink href="/cancellation" className="hover:text-brand-gold transition-colors">Cancellation Options</SafeLink></li>
+                <li className="break-inside-avoid"><SafeLink href="/safety" className="hover:text-brand-gold transition-colors">Safety Information</SafeLink></li>
+                <li className="break-inside-avoid"><SafeLink href="/contact" className="hover:text-brand-gold transition-colors">Contact Us</SafeLink></li>
               </ul>
             </div>
           </div>
@@ -90,8 +90,8 @@ export default function RootLayout() {
           <div className="pt-8 border-t border-brand-primary/20 flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-bold text-brand-cream/50">
             <p>© {new Date().getFullYear()} Madyaw. All rights reserved.</p>
             <div className="flex gap-6">
-              <SafeLink href="/privacy" className="hover:text-brand-secondary transition-colors">Privacy Policy</SafeLink>
-              <SafeLink href="/terms" className="hover:text-brand-secondary transition-colors">Terms of Service</SafeLink>
+              <SafeLink href="/privacy" className="hover:text-brand-gold transition-colors">Privacy Policy</SafeLink>
+              <SafeLink href="/terms" className="hover:text-brand-gold transition-colors">Terms of Service</SafeLink>
             </div>
           </div>
         </div>
