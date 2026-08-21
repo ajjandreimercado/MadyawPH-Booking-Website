@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useScroll } from '../hooks/useScroll';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote, Navigation } from 'lucide-react';
+import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import type { Hotel } from '../types';
@@ -328,24 +328,19 @@ export default function HotelDetailPage() {
             <h1 className="text-3xl font-serif font-bold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
-                <p className="flex items-center gap-1.5 text-sm font-bold text-brand-dark/60">
-                  <span className="inline-flex items-center gap-1 shrink-0 text-brand-primary">
-                    <MapPin className="w-4 h-4" aria-hidden="true" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Location</span>
-                  </span>
-                  <span className="text-brand-dark/60">{hotel.location}</span>
-                </p>
+                <p className="text-sm font-bold text-brand-dark/60">{hotel.location}</p>
                 <button
                   type="button"
                   onClick={() => void openDirections()}
                   disabled={isOpeningMaps}
-                  title="Open directions in Google Maps"
-                  aria-label="Open directions in Google Maps"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-primary/20 bg-brand-primary/5 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors disabled:opacity-60"
+                  title="Open location in Google Maps"
+                  aria-label="Open location in Google Maps"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-brand-primary/20 bg-brand-primary/5 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors disabled:opacity-60"
                 >
                   {isOpeningMaps
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <Navigation className="w-4 h-4" />}
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <MapPin className="w-3.5 h-3.5" aria-hidden="true" />}
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Location</span>
                 </button>
               </div>
               {hotel.contactNumber && (

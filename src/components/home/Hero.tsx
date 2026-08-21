@@ -19,9 +19,9 @@ interface HeroSlide {
 }
 
 const HERO_SLIDES: HeroSlide[] = [
-  { src: 'https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&q=80&w=2000', alt: 'Beautiful beach house at sunset' },
-  { src: 'https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&q=80&w=2000', alt: 'Luxury resort with infinity pool' },
-  { src: 'https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&q=80&w=2000', alt: 'Tropical villa interior' },
+  { src: '/hero/slide-1.png', alt: 'Tricycles along a city street in Butuan' },
+  { src: '/hero/slide-2.png', alt: 'Plaza with the Philippine flag and shade trees' },
+  { src: '/hero/slide-3.png', alt: 'Steel bridge over a river in the Philippines' },
 ];
 
 export default function Hero({ initialDestination = '' }: HeroProps) {
@@ -165,11 +165,11 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           </p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-brand-cream mb-4 sm:mb-5 leading-[1.05] tracking-tight [text-shadow:0_2px_24px_rgba(0,0,0,0.55),0_1px_2px_rgba(0,0,0,0.8)]">
             Find Your{' '}
-            <span className="relative inline-block text-brand-secondary">
+            <span className="relative inline-block font-display italic font-semibold text-brand-secondary tracking-normal">
               Sanctuary
               <span
                 aria-hidden="true"
-                className="absolute left-0 right-0 -bottom-1 sm:-bottom-1.5 h-1 sm:h-1.5 rounded-full bg-brand-secondary/90"
+                className="absolute left-0 right-0 -bottom-1 sm:-bottom-2 h-1 sm:h-1.5 rounded-full bg-brand-secondary/90"
               />
             </span>
           </h1>

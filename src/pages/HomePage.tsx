@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { MapPin, ArrowRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
 import Hero from '../components/home/Hero';
+import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
 
 const DESTINATION_IMAGES: Record<string, string> = {
@@ -158,6 +159,8 @@ export default function HomePage() {
             </div>
           </section>
         )}
+
+        <AppMembershipBanner />
 
         {/* Popular Deals Banner */}
         {featuredPromo && (
