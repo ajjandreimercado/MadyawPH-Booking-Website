@@ -24,14 +24,14 @@ interface RecentlyViewedItem {
   imageUrl?: string;
 }
 
-function DestinationCard({ dest, onClick, tall }: { dest: Destination; onClick: () => void; tall?: boolean }) {
+function DestinationCard({ dest, onClick, wide }: { dest: Destination; onClick: () => void; wide?: boolean }) {
   return (
     <motion.button
       type="button"
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.99 }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`relative rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left ${tall ? 'h-56 sm:h-72 lg:h-80' : 'h-52 sm:h-56'}`}
+      className={`relative rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left ${wide ? 'h-56 sm:h-72' : 'h-52'}`}
     >
       <img src={getDestinationImage(dest.name)} alt={dest.name}
         className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
@@ -140,12 +140,12 @@ export default function HomePage() {
                 View all <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className="fluid-card-grid">
+            <div className={destinations.length === 1 ? '' : 'grid grid-cols-2 lg:grid-cols-4 gap-4'}>
               {destinations.map(dest => (
                 <DestinationCard
                   key={dest.name}
                   dest={dest}
-                  tall={destinations.length <= 2}
+                  wide={destinations.length === 1}
                   onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)}
                 />
               ))}
@@ -171,8 +171,6 @@ export default function HomePage() {
             </div>
           </section>
         )}
-
-        <AppMembershipBanner />
 
         {/* Popular Deals Banner */}
         {featuredPromo && (
@@ -203,14 +201,14 @@ export default function HomePage() {
               <Clock className="w-5 h-5 text-brand-primary" />
               <h2 className="section-title">Recently Viewed</h2>
             </div>
-            <div className="fluid-card-grid">
+            <div className="flex gap-6 overflow-x-auto pb-4 pt-2 -mx-4 px-4 sm:mx-0 sm:px-0">
               {recentlyViewed.map(item => (
                 <motion.button
                   key={item.id}
                   whileHover={{ y: -4 }}
                   type="button"
                   onClick={() => navigate(`/hotels/${item.id}`)}
-                  className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left hover:border-brand-primary/30 hover:shadow-luxury-hover transition-all"
+                  className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-all"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
                     {item.imageUrl ? (
@@ -247,6 +245,8 @@ export default function HomePage() {
             </div>
           ))}
         </section>
+
+        <AppMembershipBanner />
       </div>
 
       {/* About Footer */}
