@@ -17,6 +17,7 @@ const BookingConfirmationPage = lazy(() => import('./pages/BookingConfirmationPa
 const DestinationsPage = lazy(() => import('./pages/DestinationsPage'));
 const ExperiencesPage = lazy(() => import('./pages/ExperiencesPage'));
 const ClubPage = lazy(() => import('./pages/ClubPage'));
+const BecomeMemberPage = lazy(() => import('./pages/BecomeMemberPage'));
 const HelpCenterPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.HelpCenterPage })));
 const CancellationPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.CancellationPage })));
 const SafetyPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.SafetyPage })));
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/destinations" element={<Suspense fallback={<PageLoader />}><DestinationsPage /></Suspense>} />
         <Route path="/experiences" element={<Suspense fallback={<PageLoader />}><ExperiencesPage /></Suspense>} />
         <Route path="/club" element={<Suspense fallback={<PageLoader />}><ClubPage /></Suspense>} />
+        <Route path="/become-a-member" element={<Suspense fallback={<PageLoader />}><BecomeMemberPage /></Suspense>} />
         <Route path="/help" element={<Suspense fallback={<PageLoader />}><HelpCenterPage /></Suspense>} />
         <Route path="/cancellation" element={<Suspense fallback={<PageLoader />}><CancellationPage /></Suspense>} />
         <Route path="/safety" element={<Suspense fallback={<PageLoader />}><SafetyPage /></Suspense>} />

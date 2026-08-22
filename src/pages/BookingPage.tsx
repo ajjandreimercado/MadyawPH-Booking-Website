@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
   Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, CreditCard, Landmark
@@ -667,6 +667,12 @@ export default function BookingPage() {
                 <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
                   Enter your Membership ID to apply the Madyaw member discount. Points wallet discount can be used once per day. Amount depends on your balance and the member rate set in the hotel app.
                 </p>
+                <Link
+                  to="/become-a-member"
+                  className="mt-2 inline-block text-sm font-bold text-brand-primary hover:text-brand-hover underline underline-offset-2"
+                >
+                  Be a member
+                </Link>
                 {memberStatus && (
                   <p className={`mt-1.5 text-xs font-bold ${memberDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>
                     {memberDiscountAmt > 0 ? '✓ ' : ''}{memberStatus}

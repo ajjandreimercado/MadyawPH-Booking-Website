@@ -133,7 +133,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   return (
     // Mobile: grow with content (fixed vh was clipping headline under the nav and
     // painting the search card over the trust line / next section).
-    <div className="relative flex flex-col justify-start md:justify-center pt-28 pb-10 sm:pt-32 sm:pb-12 md:min-h-[82vh] md:pt-28 md:pb-16">
+    <div className="relative flex flex-col justify-start md:justify-center pt-24 pb-8 sm:pt-28 sm:pb-10 md:min-h-[min(82vh,56rem)] md:pt-28 md:pb-14 landscape:min-h-0 landscape:py-24">
       {/* Background Slider */}
       <div className="absolute inset-0 z-0 overflow-hidden bg-brand-dark">
         <motion.div
@@ -154,7 +154,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
       </div>
 
       {/* Content — normal document flow so nothing overlaps */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-5 sm:gap-6 md:gap-8">
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-4 sm:gap-6 md:gap-8">
         <motion.div
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
@@ -184,9 +184,9 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           transition={{ duration: 0.8, delay: 0.4 }}
           className="w-full bg-brand-cream/97 backdrop-blur-xl rounded-2xl shadow-2xl border border-brand-primary/10 p-4 sm:p-5"
         >
-          <div className="flex flex-col xl:flex-row items-stretch xl:items-end gap-4">
+          <div className="grid grid-cols-1 min-[520px]:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,11rem)_minmax(0,11rem)_minmax(0,14rem)_auto] items-end gap-4">
             {/* Destination */}
-            <div className="flex-1 group min-w-0">
+            <div className="min-[520px]:col-span-2 xl:col-span-1 group min-w-0">
               <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 text-brand-dark/50">Destination</label>
               <div className="flex items-center gap-2 border-b-2 border-brand-secondary/30 pb-2 group-focus-within:border-brand-primary transition-colors">
                 <MapPin className="w-4 h-4 text-brand-primary shrink-0" />
@@ -203,7 +203,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </div>
 
             {/* Check-in */}
-            <div className="flex-1 xl:max-w-[180px] group">
+            <div className="group min-w-0">
               <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 text-brand-dark/50">Check-in</label>
               <div className="flex items-center gap-2 border-b-2 border-brand-secondary/30 pb-2 group-focus-within:border-brand-primary transition-colors">
                 <Calendar className="w-4 h-4 text-brand-primary shrink-0" />
@@ -221,7 +221,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </div>
 
             {/* Check-out */}
-            <div className="flex-1 xl:max-w-[180px] group">
+            <div className="group min-w-0">
               <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 text-brand-dark/50">Check-out</label>
               <div className="flex items-center gap-2 border-b-2 border-brand-secondary/30 pb-2 group-focus-within:border-brand-primary transition-colors">
                 <Calendar className="w-4 h-4 text-brand-primary shrink-0" />
@@ -236,7 +236,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </div>
 
             {/* Guests */}
-            <div ref={guestPanelRef} className="flex-1 xl:max-w-[220px] relative">
+            <div ref={guestPanelRef} className="relative min-w-0">
               <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 text-brand-dark/50">Guests & Rooms</label>
               <button
                 type="button"
@@ -272,7 +272,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
               id="hero-search-btn"
               onClick={() => void handleSearch()}
               disabled={isLocating}
-              className="w-full xl:w-auto px-10 py-4 bg-brand-primary text-brand-cream rounded-xl font-bold tracking-widest uppercase text-xs flex items-center justify-center gap-2 hover:bg-brand-hover transition-all duration-300 active:scale-95 shadow-lg disabled:opacity-70"
+              className="w-full min-[520px]:col-span-2 xl:col-span-1 xl:w-auto px-8 py-4 bg-brand-primary text-brand-cream rounded-xl font-bold tracking-widest uppercase text-xs flex items-center justify-center gap-2 hover:bg-brand-hover transition-all duration-300 active:scale-95 shadow-lg disabled:opacity-70"
             >
               {isLocating ? <Loader2 className="w-4 h-4 animate-spin" /> : <SearchIcon className="w-4 h-4" />}
               <span>{isLocating ? 'Locating…' : 'Search'}</span>

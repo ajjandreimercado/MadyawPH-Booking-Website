@@ -32,6 +32,7 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
   }
 
   body {
@@ -87,6 +88,17 @@
 @layer utilities {
   .glassmorphic {
     @apply bg-brand-surface/80 backdrop-blur-md border-b border-brand-primary/10;
+  }
+
+  .page-shell {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Fills leftover width when there are few real cards — no fake items. */
+  .fluid-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16.5rem), 1fr));
+    gap: 1.25rem;
   }
 }
 

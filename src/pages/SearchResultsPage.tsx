@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useScroll } from '../hooks/useScroll';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -439,12 +438,10 @@ export default function SearchResultsPage() {
     searchParams.get('breakfastIncluded') === 'true',
   ].filter(Boolean).length;
 
-  const scrolled = useScroll(20);
-
   return (
     <div className="min-h-screen bg-brand-background">
       {/* Search Header */}
-      <div className={`sticky z-30 bg-brand-surface border-b border-brand-primary/10 shadow-sm transition-all duration-300 ${scrolled ? 'top-0' : 'top-[88px] sm:top-24'}`}>
+      <div className="sticky z-30 top-[68px] sm:top-[76px] bg-brand-surface border-b border-brand-primary/10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             <div className="relative flex-1 min-w-[12rem] max-w-full sm:max-w-sm">
@@ -658,7 +655,7 @@ export default function SearchResultsPage() {
         </div>
 
         {isLoading ? (
-          <div className={`grid gap-5 ${view === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+          <div className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="bg-brand-cream rounded-2xl border border-brand-primary/10 overflow-hidden animate-pulse">
                 <div className="h-48 bg-brand-secondary/15" />
@@ -681,7 +678,7 @@ export default function SearchResultsPage() {
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            <motion.div layout className={`grid gap-5 ${view === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+            <motion.div layout className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
               {hotels.map(hotel => (
                 <HotelCard
                   key={hotel.id}

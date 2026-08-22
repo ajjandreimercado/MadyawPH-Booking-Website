@@ -50,9 +50,9 @@ export default function RootLayout() {
 
       <footer className="border-t border-brand-primary/10 bg-brand-dark text-brand-cream mt-auto pt-16 pb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 lg:gap-8 mb-16">
+          <div className="grid grid-cols-1 min-[520px]:grid-cols-2 xl:grid-cols-4 gap-10 xl:gap-8 mb-12">
             {/* Brand Block */}
-            <div className="col-span-1 md:col-span-2 lg:col-span-1">
+            <div className="min-[520px]:col-span-2 xl:col-span-1">
               <Link to="/" className="flex items-center gap-4 group mb-6">
                 <img
                   src={madyawLogoUrl}
@@ -66,23 +66,30 @@ export default function RootLayout() {
               </p>
             </div>
 
-            {/* Quick Links */}
-            <div className="col-span-1">
+            <div>
               <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Discover</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
                 <li><SafeLink href="/search" className="hover:text-brand-gold transition-colors">Browse Stays</SafeLink></li>
                 <li><SafeLink href="/search?near=1" className="hover:text-brand-gold transition-colors">Hotels Near Me</SafeLink></li>
+                <li><SafeLink href="/become-a-member" className="hover:text-brand-gold transition-colors">Be a Member</SafeLink></li>
               </ul>
             </div>
 
-            {/* Support */}
-            <div className="col-span-1 md:col-span-2 lg:col-span-2">
+            <div>
               <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Support</h3>
-              <ul className="space-y-3 text-sm font-bold text-brand-cream/70 sm:columns-2 sm:gap-x-8">
-                <li className="break-inside-avoid"><SafeLink href="/help" className="hover:text-brand-gold transition-colors">Help Center</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/cancellation" className="hover:text-brand-gold transition-colors">Cancellation Options</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/safety" className="hover:text-brand-gold transition-colors">Safety Information</SafeLink></li>
-                <li className="break-inside-avoid"><SafeLink href="/contact" className="hover:text-brand-gold transition-colors">Contact Us</SafeLink></li>
+              <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
+                <li><SafeLink href="/help" className="hover:text-brand-gold transition-colors">Help Center</SafeLink></li>
+                <li><SafeLink href="/cancellation" className="hover:text-brand-gold transition-colors">Cancellation Options</SafeLink></li>
+                <li><SafeLink href="/contact" className="hover:text-brand-gold transition-colors">Contact Us</SafeLink></li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Policies</h3>
+              <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
+                <li><SafeLink href="/safety" className="hover:text-brand-gold transition-colors">Safety Information</SafeLink></li>
+                <li><SafeLink href="/privacy" className="hover:text-brand-gold transition-colors">Privacy Policy</SafeLink></li>
+                <li><SafeLink href="/terms" className="hover:text-brand-gold transition-colors">Terms of Service</SafeLink></li>
               </ul>
             </div>
           </div>

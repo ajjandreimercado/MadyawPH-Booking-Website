@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useScroll } from '../hooks/useScroll';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
@@ -131,12 +130,11 @@ function StickyBookingWidget({
   onCheckOutChange: (value: string) => void;
   onGuestsChange: (value: number) => void;
 }) {
-  const scrolled = useScroll(20);
   const nights = Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000));
   const lowestCat = categories.filter(c => c.availableRooms > 0).sort((a, b) => a.defaultPrice - b.defaultPrice)[0];
 
   return (
-    <div className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-lg p-6 transition-all duration-300 lg:sticky ${scrolled ? 'lg:top-6' : 'lg:top-28'}`}>
+    <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-lg p-6 lg:sticky lg:top-28">
       <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Starting from</p>
       {categories.length === 0 ? (
         <div className="mb-4">
@@ -327,8 +325,8 @@ export default function HotelDetailPage() {
           <div>
             <h1 className="text-3xl font-display font-semibold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-brand-dark/60">{hotel.location}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-bold text-brand-dark/60 min-w-0 break-words">{hotel.location}</p>
                 <button
                   type="button"
                   onClick={() => void openDirections()}

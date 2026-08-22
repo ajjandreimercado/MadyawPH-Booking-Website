@@ -24,14 +24,14 @@ interface RecentlyViewedItem {
   imageUrl?: string;
 }
 
-function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
+function DestinationCard({ dest, onClick, tall }: { dest: Destination; onClick: () => void; tall?: boolean }) {
   return (
     <motion.button
       type="button"
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
       onClick={onClick}
-      className="relative h-52 rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left"
+      className={`relative rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left ${tall ? 'h-56 sm:h-72 lg:h-80' : 'h-52 sm:h-56'}`}
     >
       <img src={getDestinationImage(dest.name)} alt={dest.name}
         className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
@@ -73,8 +73,8 @@ function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
       </div>
       <div className="p-5">
         <h3 className="font-serif font-bold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
-        <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mb-3">
-          <MapPin className="w-3.5 h-3.5" />{hotel.location}
+        <p className="flex items-start gap-1.5 text-xs font-bold text-brand-dark/50 mb-3 line-clamp-2">
+          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />{hotel.location}
         </p>
         <div className="flex items-center justify-end">
           <button
@@ -94,12 +94,19 @@ export default function HomePage() {
   const navigate = useNavigate();
 
   const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
+  const [hotelTotal, setHotelTotal] = useState(0);
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [featuredPromo, setFeaturedPromo] = useState<FeaturedPromo | null>(null);
   const [recentlyViewed, setRecentlyViewed] = useState<RecentlyViewedItem[]>([]);
 
   useEffect(() => {
-    searchHotels({ limit: 4 }).then(res => setHotels(res.data)).catch(() => setHotels([]));
+    searchHotels({ limit: 4 }).then(res => {
+      setHotels(res.data);
+      setHotelTotal(res.total);
+    }).catch(() => {
+      setHotels([]);
+      setHotelTotal(0);
+    });
     fetchDestinations().then(setDestinations).catch(() => setDestinations([]));
     fetchFeaturedPromo().then(setFeaturedPromo).catch(() => setFeaturedPromo(null));
   }, []);
@@ -118,24 +125,29 @@ export default function HomePage() {
     <div className="w-full">
       <Hero initialDestination="" />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-20">
+      <div className="page-shell py-12 sm:py-16 space-y-12 sm:space-y-16">
 
         {/* Featured Destinations */}
         {destinations.length > 0 && (
           <section>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-end justify-between gap-4 mb-6">
               <div>
                 <p className="section-eyebrow">Explore Philippines</p>
                 <h2 className="section-title">Featured Destinations</h2>
               </div>
               <button type="button" onClick={() => navigate('/search')}
-                className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors">
+                className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors shrink-0">
                 View all <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="fluid-card-grid">
               {destinations.map(dest => (
-                <DestinationCard key={dest.name} dest={dest} onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)} />
+                <DestinationCard
+                  key={dest.name}
+                  dest={dest}
+                  tall={destinations.length <= 2}
+                  onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)}
+                />
               ))}
             </div>
           </section>
@@ -144,17 +156,17 @@ export default function HomePage() {
         {/* Featured Properties */}
         {featuredHotels.length > 0 && (
           <section>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-end justify-between gap-4 mb-6">
               <div>
                 <p className="section-eyebrow">Handpicked for you</p>
                 <h2 className="section-title">Featured Properties</h2>
               </div>
               <button type="button" onClick={() => navigate('/search')}
-                className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors">
+                className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors shrink-0">
                 All properties <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="fluid-card-grid">
               {featuredHotels.map(hotel => <FeaturedHotelCard key={hotel.id} hotel={hotel} />)}
             </div>
           </section>
@@ -191,14 +203,14 @@ export default function HomePage() {
               <Clock className="w-5 h-5 text-brand-primary" />
               <h2 className="section-title">Recently Viewed</h2>
             </div>
-            <div className="flex gap-6 overflow-x-auto pb-4 pt-2 -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="fluid-card-grid">
               {recentlyViewed.map(item => (
                 <motion.button
                   key={item.id}
                   whileHover={{ y: -4 }}
                   type="button"
                   onClick={() => navigate(`/hotels/${item.id}`)}
-                  className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-all"
+                  className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left hover:border-brand-primary/30 hover:shadow-luxury-hover transition-all"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
                     {item.imageUrl ? (
@@ -220,7 +232,7 @@ export default function HomePage() {
         )}
 
         {/* Trust Indicators */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <section className="fluid-card-grid">
           {[
             { icon: <ShieldCheck className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your data is protected with bank-grade encryption.' },
             { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Multiple Payment Options', desc: 'GCash, Maya, credit/debit cards, and bank transfer.' },
@@ -238,19 +250,32 @@ export default function HomePage() {
       </div>
 
       {/* About Footer */}
-      <section className="relative bg-brand-dark py-24 overflow-hidden">
-        {/* Subtle background texture */}
+      <section className="relative bg-brand-dark py-16 sm:py-20 overflow-hidden">
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
-        <div className="max-w-4xl mx-auto px-4 text-center relative z-10">
-          <p className="text-brand-gold font-bold text-xs uppercase tracking-[0.2em] mb-4">The Madyaw Standard</p>
-          <h2 className="text-3xl md:text-5xl font-display font-semibold text-brand-cream mb-8 leading-tight">Elevating Island Hospitality</h2>
-          <p className="text-brand-cream/80 font-sans font-medium leading-relaxed text-lg mb-16 max-w-2xl mx-auto">
-            <strong className="text-brand-gold">Madyaw</strong> is a curated collection of places to stay across the Philippines, connecting guests with unique homes, stays, and local experiences.
-          </p>
-          
-          <div className="border-t border-brand-gold/25 pt-12">
-            <p className="text-3xl font-display font-semibold text-brand-gold mb-1">100%</p>
-            <p className="text-xs font-bold text-brand-cream/60 uppercase tracking-widest">Curated Stays</p>
+        <div className="page-shell relative z-10">
+          <div className="max-w-3xl mx-auto text-center">
+            <p className="text-brand-gold font-bold text-xs uppercase tracking-[0.2em] mb-4">The Madyaw Standard</p>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-display font-semibold text-brand-cream mb-6 leading-tight">Elevating Island Hospitality</h2>
+            <p className="text-brand-cream/80 font-sans font-medium leading-relaxed text-base sm:text-lg">
+              <strong className="text-brand-gold">Madyaw</strong> is a curated collection of places to stay across the Philippines, connecting guests with unique homes, stays, and local experiences.
+            </p>
+          </div>
+
+          <div className="mt-12 grid grid-cols-1 min-[480px]:grid-cols-3 gap-6 border-t border-brand-gold/25 pt-10">
+            <div className="text-center">
+              <p className="text-3xl font-display font-semibold text-brand-gold">{hotelTotal || featuredHotels.length || '—'}</p>
+              <p className="mt-1 text-xs font-bold text-brand-cream/60 uppercase tracking-widest">Partner stays</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-display font-semibold text-brand-gold">{destinations.length || '—'}</p>
+              <p className="mt-1 text-xs font-bold text-brand-cream/60 uppercase tracking-widest">
+                {destinations.length === 1 ? 'Destination' : 'Destinations'}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-display font-semibold text-brand-gold">Web</p>
+              <p className="mt-1 text-xs font-bold text-brand-cream/60 uppercase tracking-widest">Request to book</p>
+            </div>
           </div>
         </div>
       </section>
