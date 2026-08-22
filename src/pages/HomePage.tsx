@@ -24,14 +24,14 @@ interface RecentlyViewedItem {
   imageUrl?: string;
 }
 
-function DestinationCard({ dest, onClick, wide }: { dest: Destination; onClick: () => void; wide?: boolean }) {
+function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
   return (
     <motion.button
       type="button"
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`relative rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left ${wide ? 'h-56 sm:h-72' : 'h-52'}`}
+      className="relative h-52 rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left"
     >
       <img src={getDestinationImage(dest.name)} alt={dest.name}
         className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
@@ -140,14 +140,9 @@ export default function HomePage() {
                 View all <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className={destinations.length === 1 ? '' : 'grid grid-cols-2 lg:grid-cols-4 gap-4'}>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {destinations.map(dest => (
-                <DestinationCard
-                  key={dest.name}
-                  dest={dest}
-                  wide={destinations.length === 1}
-                  onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)}
-                />
+                <DestinationCard key={dest.name} dest={dest} onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)} />
               ))}
             </div>
           </section>
