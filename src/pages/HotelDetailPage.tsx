@@ -335,7 +335,7 @@ export default function HotelDetailPage() {
                   disabled={isOpeningMaps}
                   title="Open location in Google Maps"
                   aria-label="Open location in Google Maps"
-                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-brand-gold/40 bg-brand-gold/15 text-brand-dark hover:bg-brand-primary hover:text-white hover:border-brand-primary transition-colors disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-brand-primary/20 bg-brand-primary/5 text-brand-primary hover:bg-brand-primary hover:text-white hover:border-brand-primary transition-colors disabled:opacity-60"
                 >
                   {isOpeningMaps
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

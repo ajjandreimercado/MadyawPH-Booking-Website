@@ -160,16 +160,16 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="text-center w-full"
         >
-          <p className="hidden sm:block text-brand-warning text-sm font-bold uppercase tracking-[0.25em] mb-4 [text-shadow:0_1px_8px_rgba(0,0,0,0.65)]">
+          <p className="hidden sm:block text-brand-gold text-sm font-bold uppercase tracking-[0.25em] mb-4 [text-shadow:0_1px_8px_rgba(0,0,0,0.65)]">
             Discover Luxury Stays
           </p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-brand-cream mb-4 sm:mb-5 leading-[1.05] tracking-tight [text-shadow:0_2px_24px_rgba(0,0,0,0.55),0_1px_2px_rgba(0,0,0,0.8)]">
             Find Your{' '}
-            <span className="relative inline-block font-display italic font-semibold text-[#F5D08A] tracking-normal [text-shadow:0_2px_18px_rgba(0,0,0,0.85),0_1px_0_rgba(0,0,0,0.9)]">
+            <span className="relative inline-block font-display italic font-semibold text-[#C5DCF5] tracking-normal [text-shadow:0_2px_18px_rgba(10,25,47,0.9),0_1px_0_rgba(10,25,47,0.95)]">
               Sanctuary
               <span
                 aria-hidden="true"
-                className="absolute left-0 right-0 -bottom-1 sm:-bottom-2 h-1 sm:h-1.5 rounded-full bg-[#F5D08A]"
+                className="absolute left-0 right-0 -bottom-1 sm:-bottom-2 h-1 sm:h-1.5 rounded-full bg-[#C5DCF5]"
               />
             </span>
           </h1>

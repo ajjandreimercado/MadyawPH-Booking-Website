@@ -227,7 +227,7 @@ export default function HomePage() {
             { icon: <MessageSquareQuote className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'All reviews are from verified, completed stays.' },
           ].map(item => (
             <div key={item.title} className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-8 flex flex-col items-start hover:shadow-luxury-hover transition-shadow">
-              <div className="mb-5 p-3 rounded-2xl bg-brand-gold/15 text-brand-primary">
+              <div className="mb-5 p-3 rounded-2xl bg-brand-primary/8 text-brand-primary">
                 {item.icon}
               </div>
               <h3 className="font-serif font-bold text-xl text-brand-dark mb-2">{item.title}</h3>

@@ -9,13 +9,13 @@
 
   --color-brand-dark: #0A192F;
   --color-brand-primary: #1D4E89;
-  --color-brand-secondary: #00B4D8;
-  --color-brand-gold: #E8C57A;
+  --color-brand-secondary: #4F8FCB;
+  --color-brand-gold: #9EC9EA;
   --color-brand-hover: #133968;
-  --color-brand-background: #F4F1EA;
-  --color-brand-surface: #FFFbf6;
-  --color-brand-ivory: #F8F4EC;
-  --color-brand-cream: #FFFDF8;
+  --color-brand-background: #F3F7FB;
+  --color-brand-surface: #FFFFFF;
+  --color-brand-ivory: #F0F5FA;
+  --color-brand-cream: #FFFFFF;
   --color-brand-success: #16a34a;
   --color-brand-warning: #D9A05B;
   --color-brand-danger: #9B2C2C;
@@ -124,7 +124,7 @@
   }
 
   .section-eyebrow {
-    @apply text-[10px] font-bold uppercase tracking-[0.22em] text-brand-warning mb-1;
+    @apply text-[10px] font-bold uppercase tracking-[0.22em] text-brand-primary mb-1;
   }
 
   .input-field {
