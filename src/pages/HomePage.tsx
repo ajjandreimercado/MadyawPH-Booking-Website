@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
 import { MapPin, ArrowRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
 import Hero from '../components/home/Hero';
 import AppMembershipBanner from '../components/home/AppMembershipBanner';
@@ -14,7 +13,7 @@ const DESTINATION_IMAGES: Record<string, string> = {
 };
 
 function getDestinationImage(name: string) {
-  return DESTINATION_IMAGES[name.toLowerCase()] || '/hero/slide-1.jpg';
+  return DESTINATION_IMAGES[name.toLowerCase()] || '/hero/slide-1.png';
 }
 
 interface RecentlyViewedItem {
@@ -26,44 +25,43 @@ interface RecentlyViewedItem {
 
 function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
   return (
-    <motion.button
+    <button
       type="button"
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className="relative h-52 rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left"
     >
       <img src={getDestinationImage(dest.name)} alt={dest.name}
-        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-        onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }}
+        loading="lazy"
+        decoding="async"
+        className="absolute inset-0 w-full h-full object-cover"
+        onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/80 via-brand-dark/20 to-transparent" />
       <div className="absolute bottom-4 left-4 text-left">
         <p className="text-brand-cream font-serif font-bold text-xl">{dest.name}</p>
         <p className="text-brand-cream/75 text-xs font-bold">{dest.count} {dest.count === 1 ? 'property' : 'properties'}</p>
       </div>
-    </motion.button>
+    </button>
   );
 }
 
 function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
   const navigate = useNavigate();
   return (
-    <motion.div
-      whileHover={{ y: -4 }}
+    <div
       className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer"
       onClick={() => navigate(`/hotels/${hotel.id}`)}
     >
       <div className="h-44 bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 flex items-center justify-center relative">
         {hotel.imageUrl || (hotel.images && hotel.images.length > 0) ? (
-          <img src={hotel.imageUrl || hotel.images[0]} alt={hotel.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
+          <img src={hotel.imageUrl || hotel.images[0]} alt={hotel.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }} />
         ) : (
           <MapPin className="w-12 h-12 text-brand-primary/30" />
         )}
-        <div className="absolute top-3 right-3 bg-brand-cream/90 backdrop-blur-sm px-2 py-1 rounded-lg shadow-sm">
+        <div className="absolute top-3 right-3 bg-brand-cream/90 px-2 py-1 rounded-lg shadow-sm">
           <p className="text-xs font-bold text-brand-dark"><span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>{hotel.minPrice?.toLocaleString() || 0}</p>
         </div>
-        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-brand-dark/80 backdrop-blur-sm text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-brand-dark/80 text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
           <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star" />
           {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
           {hotel.totalReviews > 0 && (
@@ -86,7 +84,7 @@ function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
           </button>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -198,16 +196,15 @@ export default function HomePage() {
             </div>
             <div className="flex gap-6 overflow-x-auto pb-4 pt-2 -mx-4 px-4 sm:mx-0 sm:px-0">
               {recentlyViewed.map(item => (
-                <motion.button
+                <button
                   key={item.id}
-                  whileHover={{ y: -4 }}
                   type="button"
                   onClick={() => navigate(`/hotels/${item.id}`)}
-                  className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-all"
+                  className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-colors"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
                     {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
+                      <img src={item.imageUrl} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }} />
                     ) : (
                       <div className="absolute inset-0 bg-gradient-to-br from-brand-primary/20 to-brand-secondary/20 flex items-center justify-center">
                         <MapPin className="w-8 h-8 text-brand-primary/40" />
@@ -218,7 +215,7 @@ export default function HomePage() {
                   <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mt-1.5">
                     <MapPin className="w-3.5 h-3.5" />{item.location}
                   </p>
-                </motion.button>
+                </button>
               ))}
             </div>
           </section>

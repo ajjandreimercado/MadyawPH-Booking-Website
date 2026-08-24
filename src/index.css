@@ -31,7 +31,6 @@
 
 @layer base {
   html {
-    scroll-behavior: smooth;
     overflow-x: hidden;
   }
 
@@ -120,7 +119,7 @@
   }
 
   .card-hover {
-    @apply transition-all duration-300 hover:shadow-luxury-hover hover:-translate-y-0.5 hover:border-brand-gold/40;
+    @apply transition-shadow duration-200 hover:shadow-luxury-hover hover:border-brand-gold/40;
   }
 
   .btn-primary {

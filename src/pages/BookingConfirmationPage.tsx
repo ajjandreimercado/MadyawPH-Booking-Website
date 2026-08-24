@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { CheckCircle2, Home, Download, MapPin, Calendar, Users, CreditCard, Loader2, Clock } from 'lucide-react';
-import { fetchBookingById } from '../services/api';
-import type { BookingRequest } from '../types';
+import { fetchBookingById, fetchHotelById } from '../services/api';
+import type { BookingRequest, Hotel } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
+import { qrForMethod } from '../lib/paymentQr';
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -30,6 +31,7 @@ export default function BookingConfirmationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [booking, setBooking] = useState<BookingRequest | null>(null);
+  const [hotel, setHotel] = useState<Hotel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -45,7 +47,17 @@ export default function BookingConfirmationPage() {
       return;
     }
     fetchBookingById(bookingId, guestEmail, receiptToken)
-      .then(b => { setBooking(b); setIsLoading(false); })
+      .then(async (b) => {
+        setBooking(b);
+        if (b.hotelId) {
+          try {
+            setHotel(await fetchHotelById(b.hotelId));
+          } catch {
+            setHotel(null);
+          }
+        }
+        setIsLoading(false);
+      })
       .catch(err => { setError(err instanceof Error ? err.message : 'Unable to load booking'); setIsLoading(false); });
   }, [bookingId, searchParams]);
 
@@ -197,8 +209,20 @@ export default function BookingConfirmationPage() {
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
               {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
                 ? 'This hotel requires full payment for online bookings. Any online payment capture is separate when offered.'
-                : 'The 50% deposit is shown for the hotel ledger. Any online payment capture is separate when offered; the balance is collected at hotel check-out.'}
+                : 'Scan the hotel QR below to pay the 50% deposit. The remaining balance is collected at hotel check-out.'}
             </p>
+            {qrForMethod(hotel, booking.paymentMethod) && (
+              <div className="mt-5 pt-5 border-t border-brand-primary/8 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-3">
+                  Pay half now · ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
+                </p>
+                <img
+                  src={qrForMethod(hotel, booking.paymentMethod)}
+                  alt="Hotel payment QR"
+                  className="mx-auto w-52 h-52 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
+                />
+              </div>
+            )}
           </div>
         </motion.div>
 

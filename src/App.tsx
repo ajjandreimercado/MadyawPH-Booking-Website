@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import RootLayout from './components/layout/RootLayout';
@@ -27,11 +27,8 @@ const TermsOfServicePage = lazy(() => import('./pages/SupportPages').then((m) =>
 
 function PageLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-brand-background">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="w-10 h-10 text-brand-primary animate-spin" />
-        <p className="text-sm font-bold text-brand-dark/60 uppercase tracking-widest">Loading…</p>
-      </div>
+    <div className="flex-grow flex items-center justify-center py-20 bg-brand-background">
+      <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
     </div>
   );
 }
@@ -41,6 +38,21 @@ function PageLoader() {
  * Hotel accept/cancel/email lives in the separate hotel management app (shared MongoDB).
  */
 export default function App() {
+  useEffect(() => {
+    const prefetch = () => {
+      void import('./pages/SearchResultsPage');
+      void import('./pages/HotelDetailPage');
+      void import('./pages/BookingPage');
+    };
+    const ric = window.requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric(prefetch, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = window.setTimeout(prefetch, 400);
+    return () => window.clearTimeout(t);
+  }, []);
+
   return (
     <Routes>
       <Route element={<RootLayout />}>

@@ -518,7 +518,9 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   const hotelDoc = hotelIdForPolicy
     ? await HotelModel.findById(hotelIdForPolicy).lean()
     : null;
-  const paymentMode = resolveHotelOnlinePaymentMode(hotelDoc);
+  // Wallet QR payments always collect half first; card methods follow the hotel setting.
+  const walletQrMethod = ['gcash', 'maya', 'bank-transfer'].includes(paymentMethodResult.value);
+  const paymentMode = walletQrMethod ? 'half' : resolveHotelOnlinePaymentMode(hotelDoc);
 
   let pricing;
 

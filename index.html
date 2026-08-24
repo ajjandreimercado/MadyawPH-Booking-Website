@@ -11,11 +11,14 @@
       - base-uri 'self' prevents base-tag hijacking attacks.
       - form-action 'self' limits form submissions to same origin.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://images.unsplash.com https://lh3.googleusercontent.com data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://madyaw-api.onrender.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://madyaw-api.onrender.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Madyaw Coastal — modern maritime bookings with trusted service and refined stays. Find and book coastal properties with ease." />
     <meta name="theme-color" content="#0f4c75" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="image" href="/hero/slide-1.png" fetchpriority="high" />
     <title>Madyaw Coastal — Book Your Stay</title>
   </head>
   <body>

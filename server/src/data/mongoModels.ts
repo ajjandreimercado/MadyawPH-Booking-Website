@@ -32,13 +32,25 @@ const hotelSchema = new Schema(
     require_full_payment: { type: Boolean },
     settings: { type: Mixed },
     payment_settings: { type: Mixed },
+    // Hotel-app QR uploads (names vary; extra keys kept via strict: false).
+    gcash_qr: { type: Mixed },
+    gcash_qr_url: { type: String },
+    maya_qr: { type: Mixed },
+    maya_qr_url: { type: String },
+    paymaya_qr: { type: Mixed },
+    payment_qr: { type: Mixed },
+    payment_qr_url: { type: String },
+    qr_code: { type: Mixed },
+    qr_code_url: { type: String },
+    qr_codes: { type: Mixed },
+    payment_methods: { type: Mixed },
     // Hotel-app amenity / facility catalogs (field names vary by app version).
     amenities: [{ type: String }],
     facilities: [{ type: String }],
     features: [{ type: String }],
     hotel_amenities: [{ type: String }],
   },
-  schemaOptions,
+  { ...schemaOptions, strict: false },
 );
 
 const roomCategorySchema = new Schema(

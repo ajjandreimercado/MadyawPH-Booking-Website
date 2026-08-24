@@ -63,24 +63,22 @@ function HotelCard({
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
     ...(hotel.images || [])
   ];
-  const displayImages = images.length > 0 ? images : ['/hero/slide-1.jpg'];
+  const displayImages = images.length > 0 ? images : ['/hero/slide-1.png'];
   const navigate = useNavigate();
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm card-hover overflow-hidden ${view === 'list' ? 'flex flex-col sm:flex-row gap-0' : ''}`}
+    <div
+      className={`bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden ${view === 'list' ? 'flex flex-col sm:flex-row gap-0' : ''}`}
     >
       {/* Image */}
       <div className={`relative overflow-hidden group ${view === 'list' ? 'w-full sm:w-56 md:w-64 shrink-0 h-48 sm:h-auto sm:min-h-[200px]' : 'h-52'}`}>
         <img
           src={displayImages[imgIndex]}
           alt={hotel.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
         />
         {displayImages.length > 1 && (
           <>
@@ -109,7 +107,7 @@ function HotelCard({
             Fully booked
           </span>
         )}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-brand-dark/80 backdrop-blur-sm text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-brand-dark/80 text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
           <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star" />
           {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
           {hotel.totalReviews > 0 && (
@@ -168,7 +166,7 @@ function HotelCard({
           </button>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -677,8 +675,7 @@ export default function SearchResultsPage() {
             </button>
           </div>
         ) : (
-          <AnimatePresence mode="popLayout">
-            <motion.div layout className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
+          <div className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
               {hotels.map(hotel => (
                 <HotelCard
                   key={hotel.id}
@@ -688,8 +685,7 @@ export default function SearchResultsPage() {
                   onSelect={() => {}}
                 />
               ))}
-            </motion.div>
-          </AnimatePresence>
+          </div>
         )}
 
         {/* Pagination */}

@@ -52,13 +52,20 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   }, [initialDestination]);
 
   useEffect(() => {
-    HERO_SLIDES.forEach(slide => { const img = new Image(); img.src = slide.src; });
-  }, []);
+    const next = HERO_SLIDES[(activeSlide + 1) % HERO_SLIDES.length];
+    const img = new Image();
+    img.src = next.src;
+  }, [activeSlide]);
 
   useEffect(() => {
-    const id = window.setInterval(() => setActiveSlide(c => (c + 1) % HERO_SLIDES.length), 5000);
+    if (prefersReducedMotion) return;
+    const tick = () => {
+      if (document.hidden) return;
+      setActiveSlide(c => (c + 1) % HERO_SLIDES.length);
+    };
+    const id = window.setInterval(tick, 7000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [prefersReducedMotion]);
 
   // Close guest panel on outside click
   useEffect(() => {
@@ -136,30 +143,25 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
     <div className="relative flex flex-col justify-start md:justify-center pt-24 pb-8 sm:pt-28 sm:pb-10 md:min-h-[min(82vh,56rem)] md:pt-28 md:pb-14 landscape:min-h-0 landscape:py-24">
       {/* Background Slider */}
       <div className="absolute inset-0 z-0 overflow-hidden bg-brand-dark">
-        <motion.div
-          className="flex h-full"
-          initial={false}
-          animate={{ x: `${-(activeSlide * 100) / HERO_SLIDES.length}%` }}
-          transition={{ duration: prefersReducedMotion ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
-          style={{ width: `${HERO_SLIDES.length * 100}%` }}
-        >
-          {HERO_SLIDES.map(slide => (
-            <div key={slide.src} className="relative h-full shrink-0" style={{ width: `${100 / HERO_SLIDES.length}%` }}>
-              <img src={slide.src} alt={slide.alt} aria-hidden="true" className="absolute inset-0 h-full w-full object-cover" />
-            </div>
-          ))}
-        </motion.div>
+        {HERO_SLIDES.map((slide, i) => (
+          <img
+            key={slide.src}
+            src={slide.src}
+            alt=""
+            aria-hidden="true"
+            fetchPriority={i === 0 ? 'high' : 'low'}
+            loading={i === 0 ? 'eager' : 'lazy'}
+            decoding="async"
+            className={`absolute inset-0 h-full w-full object-cover ${prefersReducedMotion ? '' : 'transition-opacity duration-700'} ${i === activeSlide ? 'opacity-100' : 'opacity-0'}`}
+          />
+        ))}
         <div className="absolute inset-0 bg-gradient-to-b from-brand-dark/70 via-brand-dark/50 to-brand-dark/88" />
         <div className="absolute inset-0 bg-brand-dark/20" />
       </div>
 
       {/* Content — normal document flow so nothing overlaps */}
       <div className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-4 sm:gap-6 md:gap-8">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="text-center w-full"
-        >
+        <div className="text-center w-full">
           <p className="hidden sm:block text-brand-gold text-sm font-bold uppercase tracking-[0.25em] mb-4 [text-shadow:0_1px_8px_rgba(0,0,0,0.65)]">
             Discover Luxury Stays
           </p>
@@ -176,14 +178,10 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
           <p className="text-sm sm:text-lg md:text-xl text-brand-cream font-sans font-medium max-w-2xl mx-auto px-1 leading-relaxed [text-shadow:0_1px_12px_rgba(0,0,0,0.45)]">
             Hand-picked resorts, villas, and hotels across the Philippines and beyond.
           </p>
-        </motion.div>
+        </div>
 
         {/* Search Widget */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.4 }}
-          className="w-full bg-brand-cream/97 backdrop-blur-xl rounded-2xl shadow-2xl border border-brand-primary/10 p-4 sm:p-5"
-        >
+        <div className="w-full bg-brand-cream rounded-2xl shadow-2xl border border-brand-primary/10 p-4 sm:p-5">
           <div className="grid grid-cols-1 min-[520px]:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,11rem)_minmax(0,11rem)_minmax(0,14rem)_auto] items-end gap-4">
             {/* Destination */}
             <div className="min-[520px]:col-span-2 xl:col-span-1 group min-w-0">
@@ -194,7 +192,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
                   id="hero-destination"
                   type="text"
                   value={destination}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setDestination(sanitize(e.target.value))}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setDestination(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && void handleSearch()}
                   placeholder="Where are you going? or “hotels near me”"
                   className="bg-transparent border-none outline-none text-brand-dark placeholder-brand-dark/35 text-base font-serif italic w-full min-w-0"
@@ -278,17 +276,14 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
               <span>{isLocating ? 'Locating…' : 'Search'}</span>
             </button>
           </div>
-        </motion.div>
+        </div>
 
         {/* Trust indicators — in-flow below search, never under the card */}
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}
-          className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-x-6 gap-y-2 text-brand-cream/80 text-xs font-bold px-2 text-center"
-        >
+        <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-x-6 gap-y-2 text-brand-cream/80 text-xs font-bold px-2 text-center">
           <span>✓ Free cancellation available</span>
           <span>✓ Best price guarantee</span>
           <span>✓ No booking fees</span>
-        </motion.div>
+        </div>
 
         {/* Slide dots sit in flow so they cannot cover copy */}
         <div className="flex justify-center gap-3 pt-1">

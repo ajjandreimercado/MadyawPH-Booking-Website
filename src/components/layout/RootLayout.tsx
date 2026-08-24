@@ -1,52 +1,33 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
-import { motion, AnimatePresence } from 'motion/react';
 import { madyawLogoUrl } from '../../lib/branding';
 import SafeLink from '../ui/SafeLink';
 
 export default function RootLayout() {
   const location = useLocation();
 
-  // Scroll behavior: scroll to top on route change, or to anchor if hash is present
   useEffect(() => {
-    const hash = location.hash;
-    // Delay slightly to allow route transition animation
-    const id = window.setTimeout(() => {
-      if (hash) {
-        try {
-          const el = document.querySelector(hash);
-          if (el) {
-            (el as HTMLElement).scrollIntoView({ behavior: 'smooth' });
-            return;
-          }
-        } catch {
-          // Ignore invalid selector syntax
+    if (location.hash) {
+      try {
+        const el = document.querySelector(location.hash);
+        if (el) {
+          (el as HTMLElement).scrollIntoView();
+          return;
         }
+      } catch {
+        // Ignore invalid selector syntax
       }
-
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 250);
-
-    return () => window.clearTimeout(id);
+    }
+    window.scrollTo(0, 0);
   }, [location.pathname, location.hash]);
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      <AnimatePresence mode="wait">
-        <motion.main
-          key={location.pathname}
-          aria-label="Main content"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-          className="flex-grow flex flex-col"
-        >
-          <Outlet />
-        </motion.main>
-      </AnimatePresence>
+      <main aria-label="Main content" className="flex-grow flex flex-col">
+        <Outlet />
+      </main>
 
       <footer className="border-t border-brand-primary/10 bg-brand-dark text-brand-cream mt-auto pt-16 pb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

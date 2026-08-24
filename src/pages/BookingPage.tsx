@@ -12,6 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
+import { qrForMethod } from '../lib/paymentQr';
 import { format, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -52,6 +53,8 @@ const BOOKING_DISCOUNT_OPTIONS = [
     label: opt.value === 'pwd' ? 'PWD — 20% off' : 'Senior Citizen — 20% off',
   })),
 ];
+
+const WALLET_QR_METHODS: BookingPaymentMethod[] = ['gcash', 'maya', 'bank-transfer'];
 
 const PAYMENT_METHODS: { id: BookingPaymentMethod; label: string; icon: typeof Smartphone }[] = [
   { id: 'gcash', label: PAYMENT_METHOD_OPTIONS.gcash.label, icon: Smartphone },
@@ -139,9 +142,18 @@ export default function BookingPage() {
   const staySubtotal = (pricing?.totalPrice ?? 0) + discountAmt;
   const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt, memberDiscountAmt);
   const total = Math.max(0, staySubtotal - effectiveDiscount);
-  const paymentMode = hotel?.onlinePaymentMode === 'full' ? 'full' : 'half';
+  const usesWalletQr = WALLET_QR_METHODS.includes(paymentMethod);
+  const paymentMode = usesWalletQr ? 'half' : (hotel?.onlinePaymentMode === 'full' ? 'full' : 'half');
   const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
   const isFullPayment = paymentMode === 'full';
+  const paymentQrUrl = qrForMethod(hotel, paymentMethod);
+  const paymentAccount = paymentMethod === 'gcash'
+    ? hotel?.paymentAccounts?.gcash
+    : paymentMethod === 'maya'
+      ? hotel?.paymentAccounts?.maya
+      : paymentMethod === 'bank-transfer'
+        ? hotel?.paymentAccounts?.bank
+        : undefined;
   const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
     ? 'Madyaw member'
     : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
@@ -756,6 +768,34 @@ export default function BookingPage() {
                   </button>
                 ))}
               </div>
+              {usesWalletQr && (
+                <div className="mt-4 rounded-2xl border border-brand-primary/15 bg-brand-background p-5 text-center">
+                  {paymentQrUrl ? (
+                    <>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-2">
+                        Scan to pay half now · ₱{amountDue.toLocaleString()}
+                      </p>
+                      <img
+                        src={paymentQrUrl}
+                        alt={`${PAYMENT_METHOD_OPTIONS[paymentMethod].label} payment QR`}
+                        className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
+                      />
+                      {paymentAccount && (
+                        <p className="mt-3 text-sm font-bold text-brand-dark">{paymentAccount}</p>
+                      )}
+                      <p className="mt-3 text-xs font-bold text-brand-dark/60 leading-relaxed">
+                        Pay the half deposit of ₱{amountDue.toLocaleString()} with {PAYMENT_METHOD_OPTIONS[paymentMethod].label}.
+                        The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
+                      This hotel has not uploaded a {PAYMENT_METHOD_OPTIONS[paymentMethod].label} QR yet.
+                      You can still submit the request — the hotel will send payment instructions after review.
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">

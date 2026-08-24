@@ -1,4 +1,5 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
+import { resolveHotelPaymentAccounts, resolveHotelPaymentQrs } from './paymentQr';
 
 type AnyDocument = { _id: unknown; [key: string]: unknown };
 
@@ -66,6 +67,8 @@ export function serializeHotel(hotel: AnyDocument) {
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
 
   const onlinePaymentMode = resolveHotelOnlinePaymentMode(hotel);
+  const paymentQrs = resolveHotelPaymentQrs(hotel);
+  const paymentAccounts = resolveHotelPaymentAccounts(hotel);
 
   return {
     id: toId(hotel._id),
@@ -79,6 +82,8 @@ export function serializeHotel(hotel: AnyDocument) {
     longitude: hasCoords ? longitude : undefined,
     onlinePaymentMode,
     depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
+    paymentQrs,
+    paymentAccounts,
   };
 }
 
