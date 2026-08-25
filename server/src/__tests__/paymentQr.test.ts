@@ -3,8 +3,8 @@ import { qrUrlForPaymentMethod, resolveHotelPaymentQrs } from '../utils/paymentQ
 describe('resolveHotelPaymentQrs', () => {
   it('reads a single uploaded QR as generic', () => {
     expect(resolveHotelPaymentQrs({
-      payment_qr_url: 'https://cdn.example.com/hotel-qr.png',
-    })).toEqual({ generic: 'https://cdn.example.com/hotel-qr.png' });
+      payment_qr_url: 'payment-qr/hotel-gcash.jpg',
+    })).toEqual({ generic: 'payment-qr/hotel-gcash.jpg' });
   });
 
   it('reads GCash / Maya aliases from nested settings', () => {

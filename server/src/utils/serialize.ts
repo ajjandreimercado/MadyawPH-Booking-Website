@@ -1,5 +1,9 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
-import { resolveHotelPaymentAccounts, resolveHotelPaymentQrs } from './paymentQr';
+import {
+  hasAnyPaymentQr,
+  mergePaymentAccounts,
+  mergePaymentQrs,
+} from './paymentQr';
 
 type AnyDocument = { _id: unknown; [key: string]: unknown };
 
@@ -60,19 +64,21 @@ export function serializeProperty(property: AnyDocument) {
   };
 }
 
-export function serializeHotel(hotel: AnyDocument) {
+export function serializeHotel(hotel: AnyDocument, extras?: { systemSettings?: unknown }) {
   const coordinates = hotel.coordinates as { latitude?: unknown; longitude?: unknown } | undefined;
   const latitude = typeof coordinates?.latitude === 'number' ? coordinates.latitude : Number(coordinates?.latitude);
   const longitude = typeof coordinates?.longitude === 'number' ? coordinates.longitude : Number(coordinates?.longitude);
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
 
-  const onlinePaymentMode = resolveHotelOnlinePaymentMode(hotel);
-  const paymentQrs = resolveHotelPaymentQrs(hotel);
-  const paymentAccounts = resolveHotelPaymentAccounts(hotel);
+  const onlinePaymentMode = resolveHotelOnlinePaymentMode(extras?.systemSettings ?? hotel);
+  const paymentQrs = mergePaymentQrs(hotel, extras?.systemSettings);
+  const paymentAccounts = mergePaymentAccounts(hotel, extras?.systemSettings);
+  const hotelId = toId(hotel._id);
+  const proxyPath = `/hotels/${encodeURIComponent(hotelId)}/payment-qr`;
 
   return {
-    id: toId(hotel._id),
-    _id: toId(hotel._id),
+    id: hotelId,
+    _id: hotelId,
     name: hotel.name,
     location: hotel.location,
     city: hotel.city ? String(hotel.city) : undefined,
@@ -82,7 +88,15 @@ export function serializeHotel(hotel: AnyDocument) {
     longitude: hasCoords ? longitude : undefined,
     onlinePaymentMode,
     depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
-    paymentQrs,
+    hasPaymentQr: hasAnyPaymentQr(paymentQrs),
+    paymentQrs: hasAnyPaymentQr(paymentQrs)
+      ? {
+          gcash: paymentQrs.gcash ? proxyPath : undefined,
+          maya: paymentQrs.maya ? proxyPath : undefined,
+          bank: paymentQrs.bank ? proxyPath : undefined,
+          generic: proxyPath,
+        }
+      : paymentQrs,
     paymentAccounts,
   };
 }

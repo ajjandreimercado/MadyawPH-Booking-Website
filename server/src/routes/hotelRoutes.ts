@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
+import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
@@ -563,7 +564,9 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   console.log(`[MongoDB Results] Collection: roomcategories, Retrieved: ${scopedCategories.length} documents`);
   console.log(`[MongoDB Results] Collection: rooms, Retrieved: ${scopedRooms.length} documents`);
 
-  const serializedHotel = serializeHotel(hotel as never);
+  const serializedHotel = serializeHotel(hotel as never, {
+    systemSettings: await loadHotelSystemSettings(String((hotel as { _id: unknown })._id)),
+  });
   const serializedCategories = scopedCategories.map((category) => serializeRoomCategory(category as never));
   const serializedRooms = scopedRooms.map((room) => serializeProperty(room as never));
 
@@ -641,7 +644,38 @@ hotelRoutes.get('/:hotelId', publicReadLimiter, async (req, res) => {
     return res.status(404).json({ message: 'Hotel not found.' });
   }
 
-  return res.json(serializeHotel(hotel as never));
+  const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
+  return res.json(serializeHotel(hotel as never, { systemSettings }));
+});
+
+hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
+  const idResult = validateId(req.params.hotelId, 'Hotel ID');
+  if (!idResult.ok) {
+    return res.status(400).json({ message: idResult.message });
+  }
+
+  const hotel = await HotelModel.findById(req.params.hotelId).lean();
+  if (!hotel) {
+    return res.status(404).json({ message: 'Hotel not found.' });
+  }
+
+  const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
+  const qrs = mergePaymentQrs(hotel, systemSettings);
+  const method = typeof req.query.method === 'string' ? req.query.method : 'gcash';
+  const rawPath = qrUrlForPaymentMethod(qrs, method) || qrs.generic;
+
+  if (!rawPath) {
+    return res.status(404).json({ message: 'No payment QR uploaded for this hotel.' });
+  }
+
+  const image = await fetchHotelPaymentQrImage(rawPath);
+  if (!image) {
+    return res.status(404).json({ message: 'Payment QR file is not publicly reachable. Set HOTEL_APP_PUBLIC_URL or HOTEL_STORAGE_PUBLIC_URL on the API.' });
+  }
+
+  res.setHeader('Content-Type', image.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return res.send(image.body);
 });
 
 export default hotelRoutes;

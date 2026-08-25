@@ -35,6 +35,7 @@ export interface Hotel {
   /** Hotel-app setting: half (50%) or full stay for online bookings. */
   onlinePaymentMode?: 'half' | 'full';
   depositPercent?: number;
+  hasPaymentQr?: boolean;
   /** QR images uploaded in the hotel app. */
   paymentQrs?: {
     gcash?: string;

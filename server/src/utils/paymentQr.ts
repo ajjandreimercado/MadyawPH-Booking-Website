@@ -1,7 +1,9 @@
 /**
- * Reads hotel-app uploaded payment QR images from a shared hotels document.
- * Field names vary by hotel-app version; unknown keys are ignored.
+ * Reads hotel-app uploaded payment QR images from a shared hotels document
+ * or `system_settings` (where the hotel app actually stores `payment_qr_url`).
  */
+
+import mongoose from 'mongoose';
 
 export interface HotelPaymentQrs {
   gcash?: string;
@@ -40,6 +42,10 @@ function asImageUrl(value: unknown): string | undefined {
       || trimmed.startsWith('https://')
       || trimmed.startsWith('data:image/')
       || trimmed.startsWith('/')
+      || /^[a-zA-Z0-9][a-zA-Z0-9._/-]*\.(png|jpe?g|webp|gif|svg)$/i.test(trimmed)
+      || trimmed.startsWith('payment-qr/')
+      || trimmed.startsWith('platform-qr/')
+      || trimmed.startsWith('storage/')
     ) {
       return trimmed;
     }
@@ -189,12 +195,14 @@ export function resolveHotelPaymentAccounts(hotel: unknown): HotelPaymentAccount
   const gcash = asAccountLabel(
     readNested(record, ['gcash_number'])
     ?? readNested(record, ['gcash_account'])
+    ?? readNested(record, ['payment_gcash_mobile'])
     ?? readNested(record, ['payment_settings', 'gcash_number'])
     ?? readNested(record, ['settings', 'gcash_number']),
   );
   const maya = asAccountLabel(
     readNested(record, ['maya_number'])
     ?? readNested(record, ['paymaya_number'])
+    ?? readNested(record, ['payment_maya_mobile'])
     ?? readNested(record, ['payment_settings', 'maya_number']),
   );
   const bank = asAccountLabel(
@@ -222,4 +230,94 @@ export function qrUrlForPaymentMethod(
     return qrs.bank || qrs.generic;
   }
   return qrs.generic;
+}
+
+export function mergePaymentQrs(...docs: unknown[]): HotelPaymentQrs {
+  const merged: HotelPaymentQrs = {};
+  for (const doc of docs) {
+    const next = resolveHotelPaymentQrs(doc);
+    if (next.gcash) merged.gcash = next.gcash;
+    if (next.maya) merged.maya = next.maya;
+    if (next.bank) merged.bank = next.bank;
+    if (next.generic) merged.generic = next.generic;
+  }
+  return merged;
+}
+
+export function mergePaymentAccounts(...docs: unknown[]): HotelPaymentAccounts {
+  const merged: HotelPaymentAccounts = {};
+  for (const doc of docs) {
+    const next = resolveHotelPaymentAccounts(doc);
+    if (next.gcash) merged.gcash = next.gcash;
+    if (next.maya) merged.maya = next.maya;
+    if (next.bank) merged.bank = next.bank;
+  }
+  return merged;
+}
+
+export function hasAnyPaymentQr(qrs: HotelPaymentQrs): boolean {
+  return Boolean(qrs.gcash || qrs.maya || qrs.bank || qrs.generic);
+}
+
+export async function loadHotelSystemSettings(hotelId: string): Promise<Record<string, unknown> | null> {
+  const db = mongoose.connection.db;
+  if (!db || !hotelId) return null;
+
+  const clauses: Record<string, unknown>[] = [{ hotel_id: hotelId }];
+  if (mongoose.isValidObjectId(hotelId)) {
+    clauses.push({ hotel_id: new mongoose.Types.ObjectId(hotelId) });
+  }
+
+  const doc = await db.collection('system_settings').findOne({ $or: clauses });
+  return doc ? (doc as Record<string, unknown>) : null;
+}
+
+export function sanitizeStoragePath(raw: string): string | null {
+  let path = raw.trim().replace(/\\/g, '/');
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
+    return path;
+  }
+  path = path.replace(/^\/+/, '');
+  if (path.startsWith('storage/')) path = path.slice('storage/'.length);
+  if (!path || path.includes('..') || path.includes(':')) return null;
+  if (!/^[a-zA-Z0-9._/-]+$/.test(path)) return null;
+  return path;
+}
+
+function storageFetchUrls(rawPath: string): string[] {
+  const urls: string[] = [];
+  if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
+    urls.push(rawPath);
+    return urls;
+  }
+  const path = sanitizeStoragePath(rawPath);
+  if (!path) return [];
+  const storage = (process.env.HOTEL_STORAGE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
+  const app = (process.env.HOTEL_APP_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
+  if (storage) urls.push(`${storage}/${path}`);
+  if (app) {
+    urls.push(`${app}/storage/${path}`);
+    urls.push(`${app}/${path}`);
+  }
+  return urls;
+}
+
+export async function fetchHotelPaymentQrImage(rawPath: string): Promise<{ body: Buffer; contentType: string } | null> {
+  const candidates = storageFetchUrls(rawPath);
+  for (const url of candidates) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+      if (!response.ok) continue;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) continue;
+      const body = Buffer.from(await response.arrayBuffer());
+      if (body.length < 32) continue;
+      return { body, contentType: contentType.startsWith('image/') ? contentType : 'image/jpeg' };
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }

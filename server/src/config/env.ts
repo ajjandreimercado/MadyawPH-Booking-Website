@@ -78,6 +78,14 @@ export function getEmailFrom(): string {
   return optionalEnv('EMAIL_FROM') || 'Madyaw Bookings <noreply@madyaw.com>';
 }
 
+export function getHotelAppPublicUrl(): string {
+  return optionalEnv('HOTEL_APP_PUBLIC_URL').replace(/\/+$/, '');
+}
+
+/** Optional CDN / S3 public prefix for hotel-app storage paths (no trailing slash). */
+export function getHotelStoragePublicUrl(): string {
+  return optionalEnv('HOTEL_STORAGE_PUBLIC_URL').replace(/\/+$/, '');
+}
 /** Shared secret for hotel-app → website webhook (Authorization: Bearer …). */
 export function getHotelWebhookSecret(): string {
   return optionalEnv('HOTEL_WEBHOOK_SECRET');

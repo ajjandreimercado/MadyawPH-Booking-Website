@@ -151,6 +151,8 @@ const DEPOSIT_PERCENT_PATHS: string[][] = [
   ['depositPercent'],
   ['online_deposit_percent'],
   ['onlineDepositPercent'],
+  ['online_booking_deposit_percent'],
+  ['onlineBookingDepositPercent'],
   ['settings', 'deposit_percent'],
   ['settings', 'depositPercent'],
   ['payment_settings', 'deposit_percent'],

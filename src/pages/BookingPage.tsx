@@ -779,6 +779,7 @@ export default function BookingPage() {
                         src={paymentQrUrl}
                         alt={`${PAYMENT_METHOD_OPTIONS[paymentMethod].label} payment QR`}
                         className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
+                        onError={(e) => { (e.currentTarget.style.display = 'none'); }}
                       />
                       {paymentAccount && (
                         <p className="mt-3 text-sm font-bold text-brand-dark">{paymentAccount}</p>
