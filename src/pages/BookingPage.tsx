@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, CreditCard, Landmark
+  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
 import { validatePromoCode, validateMembershipId } from '../services/api';
@@ -10,7 +10,7 @@ import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
-import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
+import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { paymentQrProxyUrl } from '../lib/paymentQr';
 import { format, addDays } from 'date-fns';
@@ -54,17 +54,6 @@ const BOOKING_DISCOUNT_OPTIONS = [
   })),
 ];
 
-const WALLET_QR_METHODS: BookingPaymentMethod[] = ['gcash', 'maya', 'bank-transfer'];
-
-const PAYMENT_METHODS: { id: BookingPaymentMethod; label: string; icon: typeof Smartphone }[] = [
-  { id: 'gcash', label: PAYMENT_METHOD_OPTIONS.gcash.label, icon: Smartphone },
-  { id: 'maya', label: PAYMENT_METHOD_OPTIONS.maya.label, icon: Smartphone },
-  { id: 'credit-card', label: PAYMENT_METHOD_OPTIONS['credit-card'].label, icon: CreditCard },
-  { id: 'debit-card', label: PAYMENT_METHOD_OPTIONS['debit-card'].label, icon: CreditCard },
-  { id: 'bank-transfer', label: PAYMENT_METHOD_OPTIONS['bank-transfer'].label, icon: Landmark },
-];
-
-// ── Food amenities that can be selected as complimentary ──────────────────────
 const DEFAULT_FOOD_AMENITIES = [
   'Breakfast', 'Lunch', 'Dinner', 'All-Day Dining', 'Welcome Drink',
   'Mini Bar', 'Room Service', 'Poolside Bar', 'Snack Basket',
@@ -114,9 +103,8 @@ export default function BookingPage() {
 
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
-
-  const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
+  const paymentMethod: BookingPaymentMethod = 'gcash';
 
   // ── Computed Values (must match server calculateBookingPricing) ─────────────
   const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
@@ -143,18 +131,9 @@ export default function BookingPage() {
   const staySubtotal = (pricing?.totalPrice ?? 0) + discountAmt;
   const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt, memberDiscountAmt);
   const total = Math.max(0, staySubtotal - effectiveDiscount);
-  const usesWalletQr = WALLET_QR_METHODS.includes(paymentMethod);
-  const paymentMode = usesWalletQr ? 'half' : (hotel?.onlinePaymentMode === 'full' ? 'full' : 'half');
+  const paymentMode = 'half' as const;
   const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
-  const isFullPayment = paymentMode === 'full';
   const paymentQrUrl = hotel?.paymentQrDataUrl || qrObjectUrl;
-  const paymentAccount = paymentMethod === 'gcash'
-    ? hotel?.paymentAccounts?.gcash
-    : paymentMethod === 'maya'
-      ? hotel?.paymentAccounts?.maya
-      : paymentMethod === 'bank-transfer'
-        ? hotel?.paymentAccounts?.bank
-        : undefined;
   const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
     ? 'Madyaw member'
     : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
@@ -204,14 +183,13 @@ export default function BookingPage() {
   }, [user]);
 
   useEffect(() => {
-    const useWallet = WALLET_QR_METHODS.includes(paymentMethod);
-    if (!hotel?.id || hotel.paymentQrDataUrl || !useWallet) {
+    if (!hotel?.id || hotel.paymentQrDataUrl) {
       setQrObjectUrl(undefined);
       return;
     }
     let objectUrl: string | undefined;
     let cancelled = false;
-    fetch(paymentQrProxyUrl(hotel.id, paymentMethod))
+    fetch(paymentQrProxyUrl(hotel.id))
       .then((res) => {
         if (!res.ok) throw new Error('qr');
         return res.blob();
@@ -228,7 +206,7 @@ export default function BookingPage() {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [hotel, paymentMethod]);
+  }, [hotel]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -346,7 +324,7 @@ export default function BookingPage() {
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
-          `Preferred payment: ${paymentMethod}`,
+          `Payment: hotel QR (50% deposit)`,
         ].filter(Boolean).join(' | ') || undefined,
       });
       appendBooking(booking);
@@ -744,98 +722,64 @@ export default function BookingPage() {
 
             <div className="h-px bg-brand-primary/8" />
 
-            {/* Section: Payment Method */}
+            {/* Section: Payment — hotel-app QR image only */}
             <section>
               <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Smartphone className="w-4 h-4" /> {isFullPayment ? 'Full Payment' : 'Half Payment First'}
+                <Smartphone className="w-4 h-4" /> Half Payment First
               </h2>
               <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                {isFullPayment
-                  ? 'This hotel requires the full stay amount for online bookings. Online card capture is optional when available.'
-                  : 'Your request includes a 50% deposit amount for the hotel ledger. Online card capture is optional when available; the remaining balance is paid at hotel check-out.'}
+                Scan the QR uploaded in the hotel app to pay the 50% deposit. The remaining balance is paid at hotel check-out.
               </p>
-              <div className={`mb-4 grid grid-cols-1 ${isFullPayment ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
-                    {isFullPayment ? 'Full payment (100%)' : `Half deposit (${depositPercent}%)`}
+                    Half deposit ({depositPercent}%)
                   </p>
                   <p className="font-serif font-bold text-xl text-brand-primary">₱{amountDue.toLocaleString()}</p>
                 </div>
-                {!isFullPayment && (
-                  <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
-                    <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
-                  </div>
-                )}
+                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
+                  <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
+                </div>
                 <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Stay total</p>
                   <p className="font-serif font-bold text-xl text-brand-dark">₱{total.toLocaleString()}</p>
                 </div>
               </div>
-              <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                Preferred payment method for the {isFullPayment ? 'full stay payment' : 'half deposit'}
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {PAYMENT_METHODS.map(method => (
-                  <button
-                    key={method.id}
-                    id={`payment-${method.id}`}
-                    type="button"
-                    onClick={() => setPaymentMethod(method.id)}
-                    className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all min-w-0 ${
-                      paymentMethod === method.id
-                        ? 'border-brand-primary bg-brand-primary/5 shadow-sm'
-                        : 'border-brand-primary/15 hover:border-brand-primary/40'
-                    }`}
-                  >
-                    <method.icon className={`w-5 h-5 shrink-0 ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark/40'}`} />
-                    <span className={`font-bold text-sm truncate ${paymentMethod === method.id ? 'text-brand-primary' : 'text-brand-dark'}`}>
-                      {method.label}
-                    </span>
-                    {paymentMethod === method.id && <CheckCircle2 className="w-4 h-4 text-brand-primary ml-auto shrink-0" />}
-                  </button>
-                ))}
+              <div className="rounded-2xl border border-brand-primary/15 bg-brand-background p-5 text-center">
+                {paymentQrUrl ? (
+                  <>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-2">
+                      Scan to pay half now · ₱{amountDue.toLocaleString()}
+                    </p>
+                    <img
+                      src={paymentQrUrl}
+                      alt="Hotel payment QR"
+                      className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
+                      referrerPolicy="no-referrer"
+                    />
+                    <p className="mt-3 text-xs font-bold text-brand-dark/60 leading-relaxed">
+                      Pay the half deposit of ₱{amountDue.toLocaleString()} using this hotel QR.
+                      The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                    </p>
+                  </>
+                ) : hotel?.hasPaymentQr ? (
+                  <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
+                    The hotel uploaded a payment QR, but the booking site cannot reach the image file yet.
+                    You can still submit the request — the hotel will send payment instructions after review.
+                  </p>
+                ) : (
+                  <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
+                    This hotel has not uploaded a payment QR yet.
+                    You can still submit the request — the hotel will send payment instructions after review.
+                  </p>
+                )}
               </div>
-              {usesWalletQr && (
-                <div className="mt-4 rounded-2xl border border-brand-primary/15 bg-brand-background p-5 text-center">
-                  {paymentQrUrl ? (
-                    <>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-2">
-                        Scan to pay half now · ₱{amountDue.toLocaleString()}
-                      </p>
-                      <img
-                        src={paymentQrUrl}
-                        alt={`${PAYMENT_METHOD_OPTIONS[paymentMethod].label} payment QR`}
-                        className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
-                        referrerPolicy="no-referrer"
-                      />
-                      {paymentAccount && (
-                        <p className="mt-3 text-sm font-bold text-brand-dark">{paymentAccount}</p>
-                      )}
-                      <p className="mt-3 text-xs font-bold text-brand-dark/60 leading-relaxed">
-                        Pay the half deposit of ₱{amountDue.toLocaleString()} with {PAYMENT_METHOD_OPTIONS[paymentMethod].label}.
-                        The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
-                      </p>
-                    </>
-                  ) : hotel?.hasPaymentQr ? (
-                    <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
-                      The hotel uploaded a payment QR, but the booking site cannot reach the image file yet.
-                      You can still submit the request — the hotel will send payment instructions after review.
-                    </p>
-                  ) : (
-                    <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
-                      This hotel has not uploaded a {PAYMENT_METHOD_OPTIONS[paymentMethod].label} QR yet.
-                      You can still submit the request — the hotel will send payment instructions after review.
-                    </p>
-                  )}
-                </div>
-              )}
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  {isFullPayment
-                    ? `Submitting this request tells the hotel a full payment of ₱${amountDue.toLocaleString()} applies to your stay (ledger preference — not an automatic card charge on submit).`
-                    : `Submitting this request tells the hotel a 50% deposit of ₱${amountDue.toLocaleString()} applies to your stay (ledger preference — not an automatic card charge on submit). The remaining ₱${balanceDue.toLocaleString()} is collected at hotel check-out.`}
+                  Submitting this request tells the hotel a 50% deposit of ₱{amountDue.toLocaleString()} applies to your stay.
+                  Payment is the hotel QR image only — not an automatic card charge. The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
                 </p>
               </div>
             </section>
@@ -928,23 +872,19 @@ export default function BookingPage() {
                 <span className="text-brand-dark">₱{total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">
-                  {isFullPayment ? 'Full payment (100%)' : 'Half deposit (50%)'}
-                </span>
+                <span className="text-brand-primary">Half deposit (50%)</span>
                 <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
               </div>
-              {!isFullPayment && (
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                  <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
-                </div>
-              )}
+              <div className="flex justify-between text-sm font-bold">
+                <span className="text-brand-dark/60">Balance at hotel check-out</span>
+                <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
+              </div>
             </div>
 
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
               {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
-              {isFullPayment ? 'Full payment required by this hotel' : 'Half payment only — balance at check-out'}
+              Half payment via hotel QR — balance at check-out
             </p>
           </aside>
 

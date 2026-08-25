@@ -5,7 +5,7 @@ import { CheckCircle2, Home, Download, MapPin, Calendar, Users, CreditCard, Load
 import { fetchBookingById, fetchHotelById } from '../services/api';
 import type { BookingRequest, Hotel } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
-import { qrForMethod } from '../lib/paymentQr';
+import { hotelPaymentQrSrc } from '../lib/paymentQr';
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -93,6 +93,7 @@ export default function BookingConfirmationPage() {
 
   const isPending = booking.status === 'pending' || booking.status === 'requested';
   const isConfirmed = booking.status === 'confirmed' || booking.status === 'reserved' || booking.status === 'booked' || booking.status === 'paid';
+  const paymentQrSrc = hotelPaymentQrSrc(hotel);
 
   return (
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
@@ -144,7 +145,7 @@ export default function BookingConfirmationPage() {
               { icon: Calendar, label: 'Check-in', value: booking.checkInDate },
               { icon: Calendar, label: 'Check-out', value: booking.checkOutDate },
               { icon: Users, label: 'Guests', value: `${booking.adults} adult${booking.adults !== 1 ? 's' : ''}${booking.children > 0 ? ` + ${booking.children} child${booking.children !== 1 ? 'ren' : ''}` : ''}` },
-              { icon: CreditCard, label: 'Preferred payment', value: booking.paymentMethod?.replace(/-/g, ' ') },
+              { icon: CreditCard, label: 'Payment', value: 'Hotel QR (50% deposit)' },
             ].map(item => (
               <div key={item.label} className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-xl bg-brand-primary/10 flex items-center justify-center shrink-0">
@@ -211,13 +212,13 @@ export default function BookingConfirmationPage() {
                 ? 'This hotel requires full payment for online bookings. Any online payment capture is separate when offered.'
                 : 'Scan the hotel QR below to pay the 50% deposit. The remaining balance is collected at hotel check-out.'}
             </p>
-            {qrForMethod(hotel, booking.paymentMethod) && (
+            {paymentQrSrc && (
               <div className="mt-5 pt-5 border-t border-brand-primary/8 text-center">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-3">
                   Pay half now · ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
                 </p>
                 <img
-                  src={qrForMethod(hotel, booking.paymentMethod)}
+                  src={paymentQrSrc}
                   alt="Hotel payment QR"
                   className="mx-auto w-52 h-52 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
                 />

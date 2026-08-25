@@ -1,4 +1,4 @@
-import type { BookingPaymentMethod, Hotel } from '../types';
+import type { Hotel } from '../types';
 import { API_BASE_URL } from '../services/api';
 
 export function resolveMediaUrl(url?: string): string | undefined {
@@ -9,20 +9,14 @@ export function resolveMediaUrl(url?: string): string | undefined {
   return url;
 }
 
-export function paymentQrProxyUrl(hotelId: string, method?: string): string {
+export function paymentQrProxyUrl(hotelId: string): string {
   const apiBase = API_BASE_URL.replace(/\/$/, '');
-  const params = method ? `?method=${encodeURIComponent(method)}` : '';
-  return `${apiBase}/hotels/${encodeURIComponent(hotelId)}/payment-qr${params}`;
+  return `${apiBase}/hotels/${encodeURIComponent(hotelId)}/payment-qr`;
 }
 
-export function qrForMethod(hotel: Hotel | null | undefined, method?: string): string | undefined {
+/** The hotel app stores one QR image. Prefer the API-embedded bytes. */
+export function hotelPaymentQrSrc(hotel: Hotel | null | undefined): string | undefined {
   if (!hotel) return undefined;
   if (hotel.paymentQrDataUrl) return hotel.paymentQrDataUrl;
-  const qrs = hotel.paymentQrs;
-  if (!qrs || !method) return resolveMediaUrl(qrs?.generic);
-  const key = method.toLowerCase() as BookingPaymentMethod;
-  if (key === 'gcash') return resolveMediaUrl(qrs.gcash || qrs.generic);
-  if (key === 'maya') return resolveMediaUrl(qrs.maya || qrs.generic);
-  if (key === 'bank-transfer') return resolveMediaUrl(qrs.bank || qrs.generic);
-  return resolveMediaUrl(qrs.generic);
+  return resolveMediaUrl(hotel.paymentQrs?.generic || hotel.paymentQrs?.gcash || hotel.paymentQrs?.maya || hotel.paymentQrs?.bank);
 }
