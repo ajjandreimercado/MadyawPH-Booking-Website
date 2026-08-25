@@ -38,6 +38,10 @@ services:
         sync: false   # Your chosen webhook verify string (must match Meta dashboard)
       - key: MADYAW_PUBLIC_URL
         sync: false   # e.g. https://madyaw.com — links in Messenger replies
+      - key: HOTEL_APP_PUBLIC_URL
+        sync: false   # Hotel HMS origin, no trailing slash — needed to load uploaded payment QR files
+      - key: HOTEL_STORAGE_PUBLIC_URL
+        sync: false   # Optional S3/Spaces public prefix for payment-qr/* files
       - key: ENABLE_EXTERNAL_RESERVATION_WATCHER
         value: "true" # Mongo change stream sync when hotel updates external_reservations
 

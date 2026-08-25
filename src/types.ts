@@ -36,6 +36,8 @@ export interface Hotel {
   onlinePaymentMode?: 'half' | 'full';
   depositPercent?: number;
   hasPaymentQr?: boolean;
+  /** Embedded QR bytes from the API when the file can be loaded. */
+  paymentQrDataUrl?: string;
   /** QR images uploaded in the hotel app. */
   paymentQrs?: {
     gcash?: string;

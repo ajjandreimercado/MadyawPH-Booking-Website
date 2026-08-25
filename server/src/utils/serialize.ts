@@ -64,7 +64,10 @@ export function serializeProperty(property: AnyDocument) {
   };
 }
 
-export function serializeHotel(hotel: AnyDocument, extras?: { systemSettings?: unknown }) {
+export function serializeHotel(
+  hotel: AnyDocument,
+  extras?: { systemSettings?: unknown; paymentQrDataUrl?: string },
+) {
   const coordinates = hotel.coordinates as { latitude?: unknown; longitude?: unknown } | undefined;
   const latitude = typeof coordinates?.latitude === 'number' ? coordinates.latitude : Number(coordinates?.latitude);
   const longitude = typeof coordinates?.longitude === 'number' ? coordinates.longitude : Number(coordinates?.longitude);
@@ -89,6 +92,7 @@ export function serializeHotel(hotel: AnyDocument, extras?: { systemSettings?: u
     onlinePaymentMode,
     depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
     hasPaymentQr: hasAnyPaymentQr(paymentQrs),
+    paymentQrDataUrl: extras?.paymentQrDataUrl,
     paymentQrs: hasAnyPaymentQr(paymentQrs)
       ? {
           gcash: paymentQrs.gcash ? proxyPath : undefined,

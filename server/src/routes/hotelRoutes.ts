@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
-import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod } from '../utils/paymentQr';
+import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
@@ -564,8 +564,15 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   console.log(`[MongoDB Results] Collection: roomcategories, Retrieved: ${scopedCategories.length} documents`);
   console.log(`[MongoDB Results] Collection: rooms, Retrieved: ${scopedRooms.length} documents`);
 
+  const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
+  const paymentQrDataUrl = await resolveDisplayablePaymentQr(
+    hotel,
+    systemSettings,
+    String((hotel as { _id: unknown })._id),
+  );
   const serializedHotel = serializeHotel(hotel as never, {
-    systemSettings: await loadHotelSystemSettings(String((hotel as { _id: unknown })._id)),
+    systemSettings,
+    paymentQrDataUrl,
   });
   const serializedCategories = scopedCategories.map((category) => serializeRoomCategory(category as never));
   const serializedRooms = scopedRooms.map((room) => serializeProperty(room as never));
@@ -645,7 +652,12 @@ hotelRoutes.get('/:hotelId', publicReadLimiter, async (req, res) => {
   }
 
   const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
-  return res.json(serializeHotel(hotel as never, { systemSettings }));
+  const paymentQrDataUrl = await resolveDisplayablePaymentQr(
+    hotel,
+    systemSettings,
+    String((hotel as { _id: unknown })._id),
+  );
+  return res.json(serializeHotel(hotel as never, { systemSettings, paymentQrDataUrl }));
 });
 
 hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
@@ -668,13 +680,14 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
     return res.status(404).json({ message: 'No payment QR uploaded for this hotel.' });
   }
 
-  const image = await fetchHotelPaymentQrImage(rawPath);
+  const image = await fetchHotelPaymentQrImage(rawPath, String((hotel as { _id: unknown })._id));
   if (!image) {
     return res.status(404).json({ message: 'Payment QR file is not publicly reachable. Set HOTEL_APP_PUBLIC_URL or HOTEL_STORAGE_PUBLIC_URL on the API.' });
   }
 
   res.setHeader('Content-Type', image.contentType);
   res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   return res.send(image.body);
 });
 

@@ -49,7 +49,7 @@ app.use(
     },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     permittedCrossDomainPolicies: { permittedPolicies: 'none' },
-    crossOriginEmbedderPolicy: true,
+    crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: { policy: 'same-origin' },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     // X-Frame-Options, X-Content-Type-Options, X-DNS-Prefetch-Control all on by default

@@ -4,6 +4,8 @@
  */
 
 import mongoose from 'mongoose';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 export interface HotelPaymentQrs {
   gcash?: string;
@@ -185,6 +187,12 @@ export function resolveHotelPaymentQrs(hotel: unknown): HotelPaymentQrs {
   if (maya) qrs.maya = maya;
   if (bank) qrs.bank = bank;
   if (generic) qrs.generic = generic;
+  if (!qrs.generic) {
+    const embedded = blobToBuffer(record.payment_qr ?? record.qr_image ?? record.qrImage);
+    if (embedded) {
+      qrs.generic = `data:image/jpeg;base64,${embedded.toString('base64')}`;
+    }
+  }
   return qrs;
 }
 
@@ -268,8 +276,11 @@ export async function loadHotelSystemSettings(hotelId: string): Promise<Record<s
     clauses.push({ hotel_id: new mongoose.Types.ObjectId(hotelId) });
   }
 
-  const doc = await db.collection('system_settings').findOne({ $or: clauses });
-  return doc ? (doc as Record<string, unknown>) : null;
+  for (const name of ['system_settings', 'systemsettings']) {
+    const doc = await db.collection(name).findOne({ $or: clauses });
+    if (doc) return doc as Record<string, unknown>;
+  }
+  return null;
 }
 
 export function sanitizeStoragePath(raw: string): string | null {
@@ -290,19 +301,138 @@ function storageFetchUrls(rawPath: string): string[] {
     urls.push(rawPath);
     return urls;
   }
-  const path = sanitizeStoragePath(rawPath);
-  if (!path) return [];
+  const storagePath = sanitizeStoragePath(rawPath);
+  if (!storagePath) return [];
   const storage = (process.env.HOTEL_STORAGE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
   const app = (process.env.HOTEL_APP_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
-  if (storage) urls.push(`${storage}/${path}`);
-  if (app) {
-    urls.push(`${app}/storage/${path}`);
-    urls.push(`${app}/${path}`);
+  const internal = (process.env.HOTEL_APP_INTERNAL_URL ?? '').trim().replace(/\/+$/, '');
+  const extras = (process.env.HOTEL_APP_PUBLIC_URLS ?? '')
+    .split(',')
+    .map((item) => item.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const localBases = process.env.NODE_ENV === 'production'
+    ? []
+    : ['http://127.0.0.1:8000', 'http://localhost:8000'];
+  const bases = [...new Set([storage, app, internal, ...extras, ...localBases].filter(Boolean))];
+  for (const base of bases) {
+    if (base === storage && storage) {
+      urls.push(`${storage}/${storagePath}`);
+      continue;
+    }
+    urls.push(`${base}/storage/${storagePath}`);
+    urls.push(`${base}/${storagePath}`);
+    urls.push(`${base}/public/storage/${storagePath}`);
   }
   return urls;
 }
 
-export async function fetchHotelPaymentQrImage(rawPath: string): Promise<{ body: Buffer; contentType: string } | null> {
+async function readQrFromDisk(storagePath: string): Promise<Buffer | null> {
+  const roots = [
+    (process.env.HOTEL_STORAGE_PATH ?? '').trim(),
+    path.resolve(process.cwd(), 'storage/app/public'),
+    path.resolve(process.cwd(), '../storage/app/public'),
+  ].filter(Boolean);
+  for (const root of roots) {
+    const candidate = path.resolve(root, storagePath);
+    if (!candidate.startsWith(path.resolve(root))) continue;
+    try {
+      const buf = await fs.readFile(candidate);
+      if (buf.length >= 32) return buf;
+    } catch {
+      // try next root
+    }
+  }
+  return null;
+}
+
+function blobToBuffer(value: unknown): Buffer | null {
+  if (!value) return null;
+  if (Buffer.isBuffer(value)) return value.length >= 32 ? value : null;
+  if (value instanceof Uint8Array) return value.length >= 32 ? Buffer.from(value) : null;
+  if (value instanceof mongoose.mongo.Binary) {
+    const buf = Buffer.from(value.buffer);
+    return buf.length >= 32 ? buf : null;
+  }
+  if (typeof value === 'object' && value) {
+    const rec = value as { buffer?: unknown; _bsontype?: string };
+    if (Buffer.isBuffer(rec.buffer)) return rec.buffer.length >= 32 ? rec.buffer : null;
+    if (rec.buffer instanceof Uint8Array) {
+      return rec.buffer.length >= 32 ? Buffer.from(rec.buffer) : null;
+    }
+  }
+  if (typeof value === 'string' && value.length > 64) {
+    const trimmed = value.startsWith('data:image/') ? value.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '') : value;
+    try {
+      const buf = Buffer.from(trimmed, 'base64');
+      return buf.length >= 32 ? buf : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function parseDataUrl(raw: string): { body: Buffer; contentType: string } | null {
+  const match = raw.trim().match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return null;
+  const body = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  return body.length >= 32 ? { body, contentType: match[1] } : null;
+}
+
+async function readCachedQr(hotelId: string, storagePath: string): Promise<{ body: Buffer; contentType: string } | null> {
+  const settings = await loadHotelSystemSettings(hotelId);
+  if (!settings) return null;
+  const cachedPath = typeof settings.payment_qr_blob_path === 'string' ? settings.payment_qr_blob_path : '';
+  if (cachedPath && cachedPath !== storagePath) return null;
+  const body = blobToBuffer(settings.payment_qr_blob ?? settings.payment_qr_base64);
+  if (!body) return null;
+  const contentType = typeof settings.payment_qr_blob_type === 'string' ? settings.payment_qr_blob_type : 'image/jpeg';
+  return { body, contentType };
+}
+
+async function writeCachedQr(hotelId: string, storagePath: string, image: { body: Buffer; contentType: string }): Promise<void> {
+  const db = mongoose.connection.db;
+  if (!db) return;
+  const clauses: Record<string, unknown>[] = [{ hotel_id: hotelId }];
+  if (mongoose.isValidObjectId(hotelId)) {
+    clauses.push({ hotel_id: new mongoose.Types.ObjectId(hotelId) });
+  }
+  for (const name of ['system_settings', 'systemsettings']) {
+    const result = await db.collection(name).updateOne(
+      { $or: clauses },
+      {
+        $set: {
+          payment_qr_blob: new mongoose.mongo.Binary(image.body),
+          payment_qr_blob_type: image.contentType,
+          payment_qr_blob_path: storagePath,
+        },
+      },
+    );
+    if (result.matchedCount > 0) return;
+  }
+}
+
+export async function fetchHotelPaymentQrImage(rawPath: string, hotelId?: string): Promise<{ body: Buffer; contentType: string } | null> {
+  if (rawPath.startsWith('data:image/')) {
+    return parseDataUrl(rawPath);
+  }
+
+  const storagePath = rawPath.startsWith('http')
+    ? rawPath
+    : sanitizeStoragePath(rawPath);
+  if (!storagePath) return null;
+
+  if (hotelId && !storagePath.startsWith('http')) {
+    const cached = await readCachedQr(hotelId, storagePath);
+    if (cached) return cached;
+    const fromDisk = await readQrFromDisk(storagePath);
+    if (fromDisk) {
+      const image = { body: fromDisk, contentType: storagePath.endsWith('.png') ? 'image/png' : 'image/jpeg' };
+      await writeCachedQr(hotelId, storagePath, image).catch(() => undefined);
+      return image;
+    }
+  }
+
   const candidates = storageFetchUrls(rawPath);
   for (const url of candidates) {
     try {
@@ -314,10 +444,31 @@ export async function fetchHotelPaymentQrImage(rawPath: string): Promise<{ body:
       if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) continue;
       const body = Buffer.from(await response.arrayBuffer());
       if (body.length < 32) continue;
-      return { body, contentType: contentType.startsWith('image/') ? contentType : 'image/jpeg' };
+      const image = { body, contentType: contentType.startsWith('image/') ? contentType : 'image/jpeg' };
+      if (hotelId && !storagePath.startsWith('http')) {
+        await writeCachedQr(hotelId, storagePath, image).catch(() => undefined);
+      }
+      return image;
     } catch {
       // try next candidate
     }
   }
   return null;
+}
+
+export function paymentQrToDataUrl(image: { body: Buffer; contentType: string }): string {
+  return `data:${image.contentType};base64,${image.body.toString('base64')}`;
+}
+
+export async function resolveDisplayablePaymentQr(
+  hotel: unknown,
+  systemSettings: unknown,
+  hotelId: string,
+): Promise<string | undefined> {
+  const qrs = mergePaymentQrs(hotel, systemSettings);
+  const raw = qrs.generic || qrs.gcash || qrs.maya || qrs.bank;
+  if (!raw) return undefined;
+  if (raw.startsWith('data:image/')) return raw;
+  const image = await fetchHotelPaymentQrImage(raw, hotelId);
+  return image ? paymentQrToDataUrl(image) : undefined;
 }

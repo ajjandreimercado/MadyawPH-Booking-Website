@@ -12,7 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, PAYMENT_METHOD_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { qrForMethod } from '../lib/paymentQr';
+import { paymentQrProxyUrl } from '../lib/paymentQr';
 import { format, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -116,6 +116,7 @@ export default function BookingPage() {
   const [checkOut, setCheckOut] = useState(urlCheckOut);
 
   const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
+  const [qrObjectUrl, setQrObjectUrl] = useState<string>();
 
   // ── Computed Values (must match server calculateBookingPricing) ─────────────
   const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
@@ -146,7 +147,7 @@ export default function BookingPage() {
   const paymentMode = usesWalletQr ? 'half' : (hotel?.onlinePaymentMode === 'full' ? 'full' : 'half');
   const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
   const isFullPayment = paymentMode === 'full';
-  const paymentQrUrl = qrForMethod(hotel, paymentMethod);
+  const paymentQrUrl = hotel?.paymentQrDataUrl || qrObjectUrl;
   const paymentAccount = paymentMethod === 'gcash'
     ? hotel?.paymentAccounts?.gcash
     : paymentMethod === 'maya'
@@ -201,6 +202,33 @@ export default function BookingPage() {
     if (user.email) setEmail(prev => prev.trim() ? prev : user.email);
     if (user.name) setFullName(prev => prev.trim() ? prev : user.name);
   }, [user]);
+
+  useEffect(() => {
+    const useWallet = WALLET_QR_METHODS.includes(paymentMethod);
+    if (!hotel?.id || hotel.paymentQrDataUrl || !useWallet) {
+      setQrObjectUrl(undefined);
+      return;
+    }
+    let objectUrl: string | undefined;
+    let cancelled = false;
+    fetch(paymentQrProxyUrl(hotel.id, paymentMethod))
+      .then((res) => {
+        if (!res.ok) throw new Error('qr');
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled || !blob.type.startsWith('image/')) return;
+        objectUrl = URL.createObjectURL(blob);
+        setQrObjectUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setQrObjectUrl(undefined);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [hotel, paymentMethod]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -779,7 +807,7 @@ export default function BookingPage() {
                         src={paymentQrUrl}
                         alt={`${PAYMENT_METHOD_OPTIONS[paymentMethod].label} payment QR`}
                         className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
-                        onError={(e) => { (e.currentTarget.style.display = 'none'); }}
+                        referrerPolicy="no-referrer"
                       />
                       {paymentAccount && (
                         <p className="mt-3 text-sm font-bold text-brand-dark">{paymentAccount}</p>
@@ -789,6 +817,11 @@ export default function BookingPage() {
                         The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
                       </p>
                     </>
+                  ) : hotel?.hasPaymentQr ? (
+                    <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
+                      The hotel uploaded a payment QR, but the booking site cannot reach the image file yet.
+                      You can still submit the request — the hotel will send payment instructions after review.
+                    </p>
                   ) : (
                     <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
                       This hotel has not uploaded a {PAYMENT_METHOD_OPTIONS[paymentMethod].label} QR yet.

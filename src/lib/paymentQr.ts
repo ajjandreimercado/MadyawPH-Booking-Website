@@ -9,13 +9,15 @@ export function resolveMediaUrl(url?: string): string | undefined {
   return url;
 }
 
+export function paymentQrProxyUrl(hotelId: string, method?: string): string {
+  const apiBase = API_BASE_URL.replace(/\/$/, '');
+  const params = method ? `?method=${encodeURIComponent(method)}` : '';
+  return `${apiBase}/hotels/${encodeURIComponent(hotelId)}/payment-qr${params}`;
+}
+
 export function qrForMethod(hotel: Hotel | null | undefined, method?: string): string | undefined {
   if (!hotel) return undefined;
-  if (hotel.hasPaymentQr) {
-    const apiBase = API_BASE_URL.replace(/\/$/, '');
-    const params = method ? `?method=${encodeURIComponent(method)}` : '';
-    return `${apiBase}/hotels/${encodeURIComponent(hotel.id)}/payment-qr${params}`;
-  }
+  if (hotel.paymentQrDataUrl) return hotel.paymentQrDataUrl;
   const qrs = hotel.paymentQrs;
   if (!qrs || !method) return resolveMediaUrl(qrs?.generic);
   const key = method.toLowerCase() as BookingPaymentMethod;
