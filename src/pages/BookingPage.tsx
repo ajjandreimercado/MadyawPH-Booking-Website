@@ -298,7 +298,7 @@ export default function BookingPage() {
     });
   };
 
-  const requiresPaymentProof = Boolean(paymentQrUrl);
+  const requiresPaymentProof = true;
 
   const isFormValid =
     fullName.trim() &&
@@ -308,8 +308,8 @@ export default function BookingPage() {
     checkOut &&
     new Date(checkOut) > new Date(checkIn) &&
     Boolean(validIdFile) &&
-    (!requiresPaymentProof || Boolean(paymentProofFile)) &&
-    (!paymentProofFile || paymentTransactionRef.trim().length >= 6);
+    Boolean(paymentProofFile) &&
+    paymentTransactionRef.trim().length >= 6;
 
   const handleSubmit = async () => {
     if (!property || !propertyId) return;
@@ -871,10 +871,7 @@ export default function BookingPage() {
                       After you pay
                     </p>
                     <p className="mt-0.5 text-sm font-bold text-brand-dark">
-                      Upload proof &amp; reference
-                      {requiresPaymentProof ? <span className="text-red-400"> *</span> : (
-                        <span className="ml-1.5 text-xs font-semibold text-brand-dark/40">(optional)</span>
-                      )}
+                      Upload proof &amp; reference <span className="text-red-400">*</span>
                     </p>
                   </div>
                   <Upload className="w-4 h-4 text-brand-primary/50 shrink-0 mt-1" />
@@ -939,8 +936,7 @@ export default function BookingPage() {
                   />
                 </label>
 
-                {(paymentProofFile || requiresPaymentProof) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
                       <label htmlFor="payment-txn-ref" className="field-label">
                         Transaction reference <span className="text-red-400">*</span>
@@ -983,7 +979,6 @@ export default function BookingPage() {
                       </p>
                     </div>
                   </div>
-                )}
               </div>
 
               <div className="flex items-start gap-2.5 px-1">

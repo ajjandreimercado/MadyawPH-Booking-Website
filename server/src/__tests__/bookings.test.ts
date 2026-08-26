@@ -204,6 +204,7 @@ describe('POST /api/bookings', () => {
     infants: 0,
     roomType: 'standard-room',
     paymentMethod: 'credit-card',
+    paymentTransactionRef: 'GCASH-ABC12345',
   };
 
   /** Minimal 1x1 PNG for Valid ID multipart uploads. */
@@ -215,7 +216,7 @@ describe('POST /api/bookings', () => {
   function postBooking(
     fields: Record<string, string | number> = VALID_PAYLOAD,
     withId = true,
-    withPaymentProof = false,
+    withPaymentProof = true,
   ) {
     let req = request(app).post('/api/bookings');
     Object.entries(fields).forEach(([key, value]) => {
@@ -316,14 +317,7 @@ describe('POST /api/bookings', () => {
   });
 
   it('stores payment proof for the hotel app (booking + side collections)', async () => {
-    const res = await postBooking(
-      {
-        ...VALID_PAYLOAD,
-        paymentTransactionRef: 'GCASH-ABC12345',
-      },
-      true,
-      true,
-    );
+    const res = await postBooking(VALID_PAYLOAD, true, true);
     expect([201, 409]).toContain(res.status);
     if (res.status !== 201) return;
 
@@ -367,8 +361,15 @@ describe('POST /api/bookings', () => {
     expect(meta.payment_proof_verified).toBe(false);
   });
 
+  it('returns 400 when payment proof is missing', async () => {
+    const res = await postBooking(VALID_PAYLOAD, true, false);
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/payment screenshot|transaction reference/i);
+  });
+
   it('returns 400 when payment proof is missing a transaction reference', async () => {
-    const res = await postBooking(VALID_PAYLOAD, true, true);
+    const { paymentTransactionRef: _omit, ...withoutRef } = VALID_PAYLOAD;
+    const res = await postBooking(withoutRef, true, true);
     expect(res.status).toBe(400);
     expect(String(res.body.message)).toMatch(/transaction reference/i);
   });

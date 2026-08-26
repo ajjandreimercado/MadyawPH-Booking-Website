@@ -381,6 +381,12 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Please upload a valid ID (JPG, PNG, WEBP, or PDF, max 5 MB).' });
   }
 
+  if (!paymentProofFile) {
+    return res.status(400).json({
+      message: 'Please upload your payment screenshot and enter the transaction reference after paying.',
+    });
+  }
+
   // OWASP A03: strip unexpected fields — only pick known booking fields
   // multipart fields arrive as strings; coerce occupancy numbers below.
   const body = pickFields(req.body, [
