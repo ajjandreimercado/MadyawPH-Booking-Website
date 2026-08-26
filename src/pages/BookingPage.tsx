@@ -2,7 +2,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload
+  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
 import { validatePromoCode, validateMembershipId } from '../services/api';
@@ -298,7 +298,7 @@ export default function BookingPage() {
     });
   };
 
-  const requiresPaymentProof = Boolean(paymentQrUrl || hotel?.hasPaymentQr);
+  const requiresPaymentProof = Boolean(paymentQrUrl);
 
   const isFormValid =
     fullName.trim() &&
@@ -789,74 +789,103 @@ export default function BookingPage() {
             <div className="h-px bg-brand-primary/8" />
 
             {/* Section: Payment — hotel-app QR image only */}
-            <section>
-              <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Smartphone className="w-4 h-4" /> Half Payment First
-              </h2>
-              <p className="text-xs text-brand-dark/50 font-bold mb-3">
-                Scan the QR uploaded in the hotel app to pay the 50% deposit. The remaining balance is paid at hotel check-out.
-              </p>
-              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
-                    Half deposit ({depositPercent}%)
+            <section className="space-y-5">
+              <div>
+                <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary flex items-center gap-2">
+                  <Smartphone className="w-4 h-4" /> Half Payment First
+                </h2>
+                <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
+                  Pay {depositPercent}% now · settle the rest at check-out.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center sm:text-left">
+                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
+                    Pay now
                   </p>
-                  <p className="font-serif font-bold text-xl text-brand-primary">₱{amountDue.toLocaleString()}</p>
+                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-primary tabular-nums">
+                    ₱{amountDue.toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">{depositPercent}% deposit</p>
                 </div>
-                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Balance at check-out</p>
-                  <p className="font-serif font-bold text-xl text-brand-dark">₱{balanceDue.toLocaleString()}</p>
+                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
+                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
+                    Later
+                  </p>
+                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-dark tabular-nums">
+                    ₱{balanceDue.toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">At check-out</p>
                 </div>
-                <div className="rounded-xl border border-brand-primary/15 bg-brand-background/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-1">Stay total</p>
-                  <p className="font-serif font-bold text-xl text-brand-dark">₱{total.toLocaleString()}</p>
+                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
+                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
+                    Total
+                  </p>
+                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-dark tabular-nums">
+                    ₱{total.toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">Full stay</p>
                 </div>
               </div>
-              <div className="rounded-2xl border border-brand-primary/15 bg-brand-background p-5 text-center">
+
+              <div className="rounded-2xl border border-brand-primary/12 overflow-hidden bg-white">
                 {paymentQrUrl ? (
-                  <>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-2">
-                      Scan to pay half now · ₱{amountDue.toLocaleString()}
+                  <div className="p-5 sm:p-6 text-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-brand-primary/[0.07] via-transparent to-transparent">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-primary mb-4">
+                      Scan to pay · ₱{amountDue.toLocaleString()}
                     </p>
-                    <img
-                      src={paymentQrUrl}
-                      alt="Hotel payment QR"
-                      className="mx-auto w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
-                      referrerPolicy="no-referrer"
-                    />
-                    <p className="mt-3 text-xs font-bold text-brand-dark/60 leading-relaxed">
-                      Pay the half deposit of ₱{amountDue.toLocaleString()} using this hotel QR.
-                      The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                    <div className="inline-flex rounded-2xl bg-white p-3 border border-brand-primary/10 shadow-sm">
+                      <img
+                        src={paymentQrUrl}
+                        alt="Hotel payment QR"
+                        className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto">
+                      Open GCash, Maya, or your banking app and scan this code for the deposit.
                     </p>
-                  </>
-                ) : hotel?.hasPaymentQr ? (
-                  <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
-                    The hotel app saved a QR filename, but the image is not on the public hotel site
-                    (https://madyawph.onrender.com/storage/… returns 404). Render’s free disk drops uploads.
-                    Re-upload the QR after adding a persistent disk on MADYAWPH, or host the JPG publicly.
-                    You can still submit this request.
-                  </p>
+                  </div>
                 ) : (
-                  <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
-                    This hotel has not uploaded a payment QR yet.
-                    You can still submit the request — the hotel will send payment instructions after review.
-                  </p>
+                  <div className="px-5 py-8 sm:px-8 sm:py-10 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-primary/8 text-brand-primary">
+                      <QrCode className="h-7 w-7" strokeWidth={1.5} />
+                    </div>
+                    <p className="font-serif text-lg font-bold text-brand-dark">
+                      Payment QR unavailable
+                    </p>
+                    <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
+                      {hotel?.hasPaymentQr
+                        ? 'The hotel’s QR isn’t loading right now. You can still submit this request — they’ll send payment instructions after review.'
+                        : 'This hotel hasn’t published a payment QR yet. Submit your request and they’ll share how to pay the deposit.'}
+                    </p>
+                  </div>
                 )}
               </div>
-              <div className="mt-4">
-                <label className="field-label flex items-center justify-between">
-                  <span>
-                    <Upload className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />
-                    Upload payment screenshot {requiresPaymentProof ? <span className="text-red-400">*</span> : <span className="text-brand-dark/40 font-normal">(optional)</span>}
-                  </span>
-                  <span className="text-[10px] text-brand-dark/40 font-normal lowercase">After you pay via QR</span>
-                </label>
+
+              <div className="rounded-2xl border border-brand-primary/12 bg-brand-background/50 p-4 sm:p-5 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">
+                      After you pay
+                    </p>
+                    <p className="mt-0.5 text-sm font-bold text-brand-dark">
+                      Upload proof &amp; reference
+                      {requiresPaymentProof ? <span className="text-red-400"> *</span> : (
+                        <span className="ml-1.5 text-xs font-semibold text-brand-dark/40">(optional)</span>
+                      )}
+                    </p>
+                  </div>
+                  <Upload className="w-4 h-4 text-brand-primary/50 shrink-0 mt-1" />
+                </div>
+
                 <label
                   htmlFor="booking-payment-proof"
-                  className={`mt-1 flex flex-col items-center justify-center w-full p-4 transition-all duration-200 border-2 border-dashed rounded-xl cursor-pointer ${
+                  className={`flex flex-col items-center justify-center w-full p-5 transition-all duration-200 border-2 border-dashed rounded-2xl cursor-pointer ${
                     paymentProofFile
-                      ? 'border-brand-success bg-brand-success/5 text-brand-success shadow-sm'
-                      : 'border-brand-primary/25 bg-white hover:bg-brand-background/70 hover:border-brand-primary/50 text-brand-dark/60'
+                      ? 'border-brand-success bg-brand-success/5 text-brand-success'
+                      : 'border-brand-primary/20 bg-white hover:border-brand-primary/45 hover:bg-white text-brand-dark/60'
                   }`}
                 >
                   {paymentProofFile ? (
@@ -864,18 +893,22 @@ export default function BookingPage() {
                       <div className="flex items-center gap-2 min-w-0">
                         <CheckCircle2 className="w-5 h-5 text-brand-success shrink-0" />
                         <span className="truncate">{paymentProofFile.name}</span>
-                        <span className="text-xs font-normal text-brand-dark/50 shrink-0">({(paymentProofFile.size / 1024).toFixed(0)} KB)</span>
+                        <span className="text-xs font-normal text-brand-dark/50 shrink-0">
+                          ({(paymentProofFile.size / 1024).toFixed(0)} KB)
+                        </span>
                       </div>
                       <span className="text-xs text-brand-primary underline hover:text-brand-hover shrink-0">Change</span>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center text-center py-2">
-                      <Upload className="w-6 h-6 mb-2 text-brand-primary/60" />
-                      <p className="text-xs font-bold text-brand-dark">
-                        Upload your GCash / Maya / bank transfer screenshot
+                    <div className="flex flex-col items-center justify-center text-center py-1">
+                      <div className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-brand-primary/8">
+                        <Upload className="w-5 h-5 text-brand-primary" />
+                      </div>
+                      <p className="text-sm font-bold text-brand-dark">
+                        Drop receipt screenshot here
                       </p>
-                      <p className="text-[10px] text-brand-dark/50 mt-0.5">
-                        JPG, PNG, WEBP, or PDF (MAX. 5MB) — sent to the hotel with your request
+                      <p className="text-[11px] text-brand-dark/45 mt-1 max-w-xs">
+                        GCash, Maya, or bank transfer · JPG, PNG, WEBP, or PDF · max 5 MB
                       </p>
                     </div>
                   )}
@@ -905,53 +938,59 @@ export default function BookingPage() {
                     className="hidden"
                   />
                 </label>
+
+                {(paymentProofFile || requiresPaymentProof) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label htmlFor="payment-txn-ref" className="field-label">
+                        Transaction reference <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        id="payment-txn-ref"
+                        type="text"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={paymentTransactionRef}
+                        onChange={(e) => setPaymentTransactionRef(e.target.value)}
+                        placeholder="e.g. 1234 5678 9012"
+                        className="input-field"
+                        maxLength={64}
+                      />
+                      <p className="mt-1.5 text-[11px] text-brand-dark/45">
+                        Copy from your wallet or bank receipt
+                      </p>
+                    </div>
+                    <div>
+                      <label htmlFor="payment-amount-claimed" className="field-label">
+                        Amount paid <span className="text-red-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-dark/40">
+                          ₱
+                        </span>
+                        <input
+                          id="payment-amount-claimed"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={paymentProofAmountClaimed || String(amountDue)}
+                          onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
+                          className="input-field pl-7"
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-brand-dark/45">
+                        Must match ₱{amountDue.toLocaleString()} deposit
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
-              {(paymentProofFile || requiresPaymentProof) && (
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="payment-txn-ref" className="field-label">
-                      Transaction reference <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      id="payment-txn-ref"
-                      type="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={paymentTransactionRef}
-                      onChange={(e) => setPaymentTransactionRef(e.target.value)}
-                      placeholder="From GCash / Maya / bank receipt"
-                      className="field-input mt-1"
-                      maxLength={64}
-                    />
-                    <p className="mt-1 text-[10px] text-brand-dark/45 font-medium">
-                      Copy the reference number shown on your payment receipt.
-                    </p>
-                  </div>
-                  <div>
-                    <label htmlFor="payment-amount-claimed" className="field-label">
-                      Amount paid <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      id="payment-amount-claimed"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={paymentProofAmountClaimed || String(amountDue)}
-                      onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
-                      className="field-input mt-1"
-                    />
-                    <p className="mt-1 text-[10px] text-brand-dark/45 font-medium">
-                      Must match deposit due: ₱{amountDue.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              )}
-              <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
+
+              <div className="flex items-start gap-2.5 px-1">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
-                <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  Scan the QR, pay ₱{amountDue.toLocaleString()}, then upload the receipt screenshot and
-                  transaction reference so the hotel can verify your deposit.
-                  Payment is not marked paid until the hotel confirms. The remaining ₱{balanceDue.toLocaleString()} is collected at check-out.
+                <p className="text-xs text-brand-dark/55 leading-relaxed">
+                  The hotel verifies your deposit before confirming. Remaining{' '}
+                  <span className="font-bold text-brand-dark">₱{balanceDue.toLocaleString()}</span> is paid at check-out.
                 </p>
               </div>
             </section>
