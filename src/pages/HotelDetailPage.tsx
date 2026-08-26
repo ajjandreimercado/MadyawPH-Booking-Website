@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import type { Hotel } from '../types';
-import type { HotelDetailCategory } from '../services/api';
+import type { HotelDetailResponse, HotelDetailCategory } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import StarRating from '../components/ui/StarRating';
+import { HotelDetailSkeleton } from '../components/ui/Skeleton';
+import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
 import { buildGoogleMapsDirectionsUrl, getCurrentPosition, resolveHotelMapsDestination } from '../lib/nearMe';
 
@@ -201,11 +203,19 @@ export default function HotelDetailPage() {
   const { hotelId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [, startTransition] = useTransition();
 
-  const [hotel, setHotel] = useState<Hotel | null>(null);
-  const [categories, setCategories] = useState<HotelDetailCategory[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedDetail = hotelId
+    ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId]))
+    : undefined;
+  const cachedReviews = hotelId
+    ? peekCache<{ data: Review[]; total: number; totalPages: number }>(cacheKey(['reviews', { hotelId }]))
+    : undefined;
+
+  const [hotel, setHotel] = useState<Hotel | null>(cachedDetail?.hotel ?? null);
+  const [categories, setCategories] = useState<HotelDetailCategory[]>(cachedDetail?.categories ?? []);
+  const [reviews, setReviews] = useState<Review[]>(cachedReviews?.data ?? []);
+  const [isLoading, setIsLoading] = useState(!cachedDetail);
   const [error, setError] = useState<string | null>(null);
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
   const [bookCheckIn, setBookCheckIn] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
@@ -224,7 +234,9 @@ export default function HotelDetailPage() {
     if (!hotelId) return;
 
     const load = async () => {
-      setIsLoading(true);
+      if (!peekCache(cacheKey(['hotel-detail', hotelId]))) {
+        setIsLoading(true);
+      }
       setError(null);
       try {
         const [hotelDetail, reviewData] = await Promise.all([
@@ -232,13 +244,17 @@ export default function HotelDetailPage() {
           fetchReviews({ hotelId }).catch(() => ({ data: [], total: 0, totalPages: 0 })),
         ]);
         if (!isActive) return;
-        setHotel(hotelDetail.hotel);
-        setCategories(hotelDetail.categories);
-        setReviews(reviewData.data);
+        startTransition(() => {
+          setHotel(hotelDetail.hotel);
+          setCategories(hotelDetail.categories);
+          setReviews(reviewData.data);
+        });
         trackRecentlyViewed(hotelDetail.hotel);
       } catch (err) {
         if (!isActive) return;
-        setError(err instanceof Error ? err.message : 'Unable to load hotel data');
+        if (!cachedDetail) {
+          setError(err instanceof Error ? err.message : 'Unable to load hotel data');
+        }
       } finally {
         if (isActive) setIsLoading(false);
       }
@@ -292,15 +308,8 @@ export default function HotelDetailPage() {
     navigate(`/booking/${candidateId}?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}`);
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen pt-32 bg-brand-background flex items-center justify-center">
-        <div className="bg-brand-cream p-8 rounded-2xl shadow-md border border-brand-primary/10 text-center">
-          <Loader2 className="w-8 h-8 text-brand-primary animate-spin mx-auto mb-4" />
-          <h2 className="text-xl font-serif font-bold text-brand-dark">Loading hotel…</h2>
-        </div>
-      </div>
-    );
+  if (isLoading && !hotel) {
+    return <HotelDetailSkeleton />;
   }
 
   if (error || !hotel) {

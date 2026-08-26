@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, ArrowRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
 import Hero from '../components/home/Hero';
 import AppMembershipBanner from '../components/home/AppMembershipBanner';
+import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
+import { peekCache, cacheKey } from '../lib/queryCache';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
 
 const DESTINATION_IMAGES: Record<string, string> = {
@@ -90,23 +92,50 @@ function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const [, startTransition] = useTransition();
 
-  const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
-  const [hotelTotal, setHotelTotal] = useState(0);
-  const [destinations, setDestinations] = useState<Destination[]>([]);
-  const [featuredPromo, setFeaturedPromo] = useState<FeaturedPromo | null>(null);
+  const cachedHome = peekCache<{ data: SearchResultHotel[]; total: number }>(
+    cacheKey(['searchHotels', { limit: 4 }]),
+  );
+  const cachedDestinations = peekCache<Destination[]>('destinations');
+  const cachedPromo = peekCache<FeaturedPromo | null>('featured-promo');
+
+  const [hotels, setHotels] = useState<SearchResultHotel[]>(cachedHome?.data ?? []);
+  const [hotelTotal, setHotelTotal] = useState(cachedHome?.total ?? 0);
+  const [destinations, setDestinations] = useState<Destination[]>(cachedDestinations ?? []);
+  const [featuredPromo, setFeaturedPromo] = useState<FeaturedPromo | null>(
+    cachedPromo === undefined ? null : cachedPromo,
+  );
   const [recentlyViewed, setRecentlyViewed] = useState<RecentlyViewedItem[]>([]);
+  const [isBootstrapping, setIsBootstrapping] = useState(!cachedHome && !cachedDestinations);
 
   useEffect(() => {
-    searchHotels({ limit: 4 }).then(res => {
-      setHotels(res.data);
-      setHotelTotal(res.total);
-    }).catch(() => {
-      setHotels([]);
-      setHotelTotal(0);
+    let cancelled = false;
+    void Promise.all([
+      searchHotels({ limit: 4 }).then((res) => {
+        if (cancelled) return;
+        startTransition(() => {
+          setHotels(res.data);
+          setHotelTotal(res.total);
+        });
+      }).catch(() => {
+        if (!cancelled && !cachedHome) {
+          setHotels([]);
+          setHotelTotal(0);
+        }
+      }),
+      fetchDestinations().then((list) => {
+        if (!cancelled) startTransition(() => setDestinations(list));
+      }).catch(() => {
+        if (!cancelled && !cachedDestinations) setDestinations([]);
+      }),
+      fetchFeaturedPromo().then((promo) => {
+        if (!cancelled) startTransition(() => setFeaturedPromo(promo));
+      }).catch(() => undefined),
+    ]).finally(() => {
+      if (!cancelled) setIsBootstrapping(false);
     });
-    fetchDestinations().then(setDestinations).catch(() => setDestinations([]));
-    fetchFeaturedPromo().then(setFeaturedPromo).catch(() => setFeaturedPromo(null));
+    return () => { cancelled = true; };
   }, []);
 
   // Load recently viewed from localStorage
@@ -123,6 +152,9 @@ export default function HomePage() {
     <div className="w-full">
       <Hero initialDestination="" />
 
+      {isBootstrapping ? (
+        <HomeSectionsSkeleton />
+      ) : (
       <div className="page-shell py-12 sm:py-16 space-y-12 sm:space-y-16">
 
         {/* Featured Destinations */}
@@ -240,6 +272,7 @@ export default function HomePage() {
 
         <AppMembershipBanner />
       </div>
+      )}
 
       {/* About Footer */}
       <section className="relative bg-brand-dark py-16 sm:py-20 overflow-hidden">

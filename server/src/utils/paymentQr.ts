@@ -295,16 +295,32 @@ export function sanitizeStoragePath(raw: string): string | null {
   return path;
 }
 
+const DEFAULT_HOTEL_APP_ORIGIN = 'https://madyawph.onrender.com';
+
+function looksLikeImage(body: Buffer, contentType: string): boolean {
+  if (body.length < 32) return false;
+  const jpeg = body[0] === 0xff && body[1] === 0xd8;
+  const png = body[0] === 0x89 && body[1] === 0x50 && body[2] === 0x4e && body[3] === 0x47;
+  const gif = body[0] === 0x47 && body[1] === 0x49 && body[2] === 0x46;
+  const webp = body[8] === 0x57 && body[9] === 0x45 && body[10] === 0x42 && body[11] === 0x50;
+  if (jpeg || png || gif || webp) return true;
+  return contentType.startsWith('image/') || contentType.includes('octet-stream');
+}
+
 function storageFetchUrls(rawPath: string): string[] {
   const urls: string[] = [];
+  const override = (process.env.HOTEL_PAYMENT_QR_URL ?? '').trim();
+  if (override.startsWith('http://') || override.startsWith('https://')) {
+    urls.push(override);
+  }
   if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
     urls.push(rawPath);
-    return urls;
+    return [...new Set(urls)];
   }
   const storagePath = sanitizeStoragePath(rawPath);
-  if (!storagePath) return [];
+  if (!storagePath) return [...new Set(urls)];
   const storage = (process.env.HOTEL_STORAGE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
-  const app = (process.env.HOTEL_APP_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
+  const app = (process.env.HOTEL_APP_PUBLIC_URL ?? DEFAULT_HOTEL_APP_ORIGIN).trim().replace(/\/+$/, '');
   const internal = (process.env.HOTEL_APP_INTERNAL_URL ?? '').trim().replace(/\/+$/, '');
   const extras = (process.env.HOTEL_APP_PUBLIC_URLS ?? '')
     .split(',')
@@ -322,8 +338,9 @@ function storageFetchUrls(rawPath: string): string[] {
     urls.push(`${base}/storage/${storagePath}`);
     urls.push(`${base}/${storagePath}`);
     urls.push(`${base}/public/storage/${storagePath}`);
+    urls.push(`${base}/storage/app/public/${storagePath}`);
   }
-  return urls;
+  return [...new Set(urls)];
 }
 
 async function readQrFromDisk(storagePath: string): Promise<Buffer | null> {
@@ -438,13 +455,29 @@ export async function fetchHotelPaymentQrImage(rawPath: string, hotelId?: string
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
-      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000) });
-      if (!response.ok) continue;
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        response = await fetch(url, {
+          redirect: 'follow',
+          signal: AbortSignal.timeout(25000),
+          headers: { Accept: 'image/*,*/*' },
+        });
+        if (response.status === 503 || response.status === 502) {
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+          continue;
+        }
+        break;
+      }
+      if (!response || !response.ok) continue;
       const contentType = response.headers.get('content-type') ?? '';
-      if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) continue;
       const body = Buffer.from(await response.arrayBuffer());
-      if (body.length < 32) continue;
-      const image = { body, contentType: contentType.startsWith('image/') ? contentType : 'image/jpeg' };
+      if (!looksLikeImage(body, contentType)) continue;
+      const image = {
+        body,
+        contentType: contentType.startsWith('image/')
+          ? contentType.split(';')[0]
+          : body[0] === 0x89 ? 'image/png' : 'image/jpeg',
+      };
       if (hotelId && !storagePath.startsWith('http')) {
         await writeCachedQr(hotelId, storagePath, image).catch(() => undefined);
       }

@@ -6,7 +6,9 @@ import { fetchBookingById, fetchHotelById } from '../services/api';
 import type { BookingRequest, Hotel } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
 import { hotelPaymentQrSrc } from '../lib/paymentQr';
-
+import { ConfirmationSkeleton } from '../components/ui/Skeleton';
+import { cacheKey, peekCache } from '../lib/queryCache';
+import { useBookings } from '../contexts/BookingsContext';
 function statusLabel(status?: string) {
   switch (status) {
     case 'confirmed':
@@ -30,15 +32,20 @@ export default function BookingConfirmationPage() {
   const { bookingId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [booking, setBooking] = useState<BookingRequest | null>(null);
-  const [hotel, setHotel] = useState<Hotel | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { bookings } = useBookings();
+  const sessionBooking = bookings.find((b) => b.id === bookingId) ?? null;
+  const [booking, setBooking] = useState<BookingRequest | null>(sessionBooking);
+  const [hotel, setHotel] = useState<Hotel | null>(() =>
+    sessionBooking?.hotelId
+      ? peekCache<Hotel>(cacheKey(['hotel', sessionBooking.hotelId])) ?? null
+      : null,
+  );
+  const [isLoading, setIsLoading] = useState(!sessionBooking);
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     if (!bookingId) return;
-    setIsLoading(true);
     const guestEmail = searchParams.get('email') ?? undefined;
     const receiptToken = searchParams.get('token') ?? undefined;
     if (!receiptToken) {
@@ -46,6 +53,7 @@ export default function BookingConfirmationPage() {
       setIsLoading(false);
       return;
     }
+    if (!sessionBooking) setIsLoading(true);
     fetchBookingById(bookingId, guestEmail, receiptToken)
       .then(async (b) => {
         setBooking(b);
@@ -58,8 +66,13 @@ export default function BookingConfirmationPage() {
         }
         setIsLoading(false);
       })
-      .catch(err => { setError(err instanceof Error ? err.message : 'Unable to load booking'); setIsLoading(false); });
-  }, [bookingId, searchParams]);
+      .catch(err => {
+        if (!sessionBooking) {
+          setError(err instanceof Error ? err.message : 'Unable to load booking');
+        }
+        setIsLoading(false);
+      });
+  }, [bookingId, searchParams, sessionBooking]);
 
   const handleDownload = async () => {
     if (!booking || isDownloading) return;
@@ -71,12 +84,8 @@ export default function BookingConfirmationPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-brand-background flex items-center justify-center pt-32 pb-16">
-        <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
-      </div>
-    );
+  if (isLoading && !booking) {
+    return <ConfirmationSkeleton />;
   }
 
   if (error || !booking) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
@@ -13,6 +13,8 @@ import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { paymentQrProxyUrl } from '../lib/paymentQr';
+import { BookingFormSkeleton } from '../components/ui/Skeleton';
+import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -71,10 +73,15 @@ export default function BookingPage() {
   const urlCheckOut = searchParams.get('checkOut') ?? format(addDays(new Date(), 3), 'yyyy-MM-dd');
   const urlGuests = Number(searchParams.get('guests') ?? 2);
 
-  const [property, setProperty] = useState<Property | null>(null);
+  const [property, setProperty] = useState<Property | null>(() =>
+    propertyId ? peekCache<Property>(cacheKey(['property', propertyId])) ?? null : null,
+  );
   const [hotel, setHotel] = useState<Hotel | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() =>
+    !(propertyId && peekCache(cacheKey(['property', propertyId]))),
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [, startTransition] = useTransition();
 
   // ── Booking Details ─────────────────────────────────────────────────────────
   const [fullName, setFullName] = useState('');
@@ -155,24 +162,42 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (!propertyId) return;
-    setIsLoading(true);
+    let cancelled = false;
+    const cachedProperty = peekCache<Property>(cacheKey(['property', propertyId]));
+    if (cachedProperty) {
+      setProperty(cachedProperty);
+      setIsLoading(false);
+      if (cachedProperty.hotelId) {
+        const cachedHotel = peekCache<Hotel>(cacheKey(['hotel', cachedProperty.hotelId]));
+        if (cachedHotel) setHotel(cachedHotel);
+      }
+    } else {
+      setIsLoading(true);
+    }
+
     fetchPropertyById(propertyId)
       .then(async (p) => {
-        setProperty(p);
+        if (cancelled) return;
+        startTransition(() => setProperty(p));
         const hotelId = p.hotelId;
         if (hotelId) {
           try {
             const h = await fetchHotelById(hotelId);
-            setHotel(h);
+            if (!cancelled) startTransition(() => setHotel(h));
           } catch {
-            setHotel(null);
+            if (!cancelled) setHotel(null);
           }
-        } else {
+        } else if (!cancelled) {
           setHotel(null);
         }
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       })
-      .catch(() => { setIsLoading(false); showToast({ title: 'Unable to load room', type: 'error' }); });
+      .catch(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+        if (!cachedProperty) showToast({ title: 'Unable to load room', type: 'error' });
+      });
+    return () => { cancelled = true; };
   }, [propertyId]);
 
   // Prefill from signed-in account (Google-verified email preferred for confirmations).
@@ -222,6 +247,7 @@ export default function BookingPage() {
       setPromoStatus(null);
       return;
     }
+    setPromoStatus('Checking promo…');
     const timer = window.setTimeout(() => {
       void validatePromoCode(code, staySubtotal).then(result => {
         if (result.valid && typeof result.discountAmount === 'number' && result.discountAmount > 0) {
@@ -244,6 +270,7 @@ export default function BookingPage() {
       setMemberPoints(null);
       return;
     }
+    setMemberStatus('Checking membership…');
     const timer = window.setTimeout(() => {
       void validateMembershipId(id, staySubtotal).then((result) => {
         if (result.valid && typeof result.discountAmount === 'number' && result.discountAmount > 0) {
@@ -261,9 +288,11 @@ export default function BookingPage() {
   }, [membershipId, staySubtotal]);
 
   const toggleComplimentary = (item: string) => {
-    setSelectedComplimentary(prev =>
-      prev.includes(item) ? prev.filter(x => x !== item) : [...prev, item]
-    );
+    startTransition(() => {
+      setSelectedComplimentary((prev) =>
+        prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item],
+      );
+    });
   };
 
   const isFormValid =
@@ -340,12 +369,8 @@ export default function BookingPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-brand-background flex items-center justify-center pt-32 pb-16">
-        <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
-      </div>
-    );
+  if (isLoading && !property) {
+    return <BookingFormSkeleton />;
   }
 
   if (!property) {
@@ -765,8 +790,10 @@ export default function BookingPage() {
                   </>
                 ) : hotel?.hasPaymentQr ? (
                   <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">
-                    The hotel uploaded a payment QR, but the booking site cannot reach the image file yet.
-                    You can still submit the request — the hotel will send payment instructions after review.
+                    The hotel app saved a QR filename, but the image is not on the public hotel site
+                    (https://madyawph.onrender.com/storage/… returns 404). Render’s free disk drops uploads.
+                    Re-upload the QR after adding a persistent disk on MADYAWPH, or host the JPG publicly.
+                    You can still submit this request.
                   </p>
                 ) : (
                   <p className="text-xs font-bold text-brand-dark/60 leading-relaxed">

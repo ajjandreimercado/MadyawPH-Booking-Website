@@ -682,7 +682,9 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
 
   const image = await fetchHotelPaymentQrImage(rawPath, String((hotel as { _id: unknown })._id));
   if (!image) {
-    return res.status(404).json({ message: 'Payment QR file is not publicly reachable. Set HOTEL_APP_PUBLIC_URL or HOTEL_STORAGE_PUBLIC_URL on the API.' });
+    return res.status(404).json({
+      message: 'Payment QR filename exists in Mongo, but the image file is not public on the hotel app (404 from /storage/payment-qr/…). Add a persistent disk on MADYAWPH, run storage:link, and re-upload the QR.',
+    });
   }
 
   res.setHeader('Content-Type', image.contentType);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
 import StarRating from '../components/ui/StarRating';
+import { HotelCardSkeleton } from '../components/ui/Skeleton';
+import { cacheKey, peekCache } from '../lib/queryCache';
 import { format } from 'date-fns';
 import { getCurrentPosition, isNearMeQuery } from '../lib/nearMe';
 import { useToast } from '../components/ui/ToastProvider';
@@ -174,11 +176,13 @@ export default function SearchResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [, startTransition] = useTransition();
 
   const [hotels, setHotels] = useState<SearchResultHotel[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [showFilters, setShowFilters] = useState(false);
   const [dynamicRoomTypes, setDynamicRoomTypes] = useState<string[]>([]);
@@ -385,8 +389,6 @@ export default function SearchResultsPage() {
 
   useEffect(() => {
     let isActive = true;
-    setIsLoading(true);
-
     const params: SearchParams = {
       destination: nearMe ? undefined : (searchParams.get('destination') ?? undefined),
       lat: nearMe && nearLat ? Number(nearLat) : undefined,
@@ -404,15 +406,41 @@ export default function SearchResultsPage() {
       limit: 12,
     };
 
+    const cached = peekCache<{
+      data: SearchResultHotel[];
+      total: number;
+      totalPages: number;
+      searchAnchor?: { lat: number; lng: number; label: string };
+      sortedByDistance?: boolean;
+    }>(cacheKey(['searchHotels', params]));
+
+    if (cached) {
+      setHotels(cached.data);
+      setTotal(cached.total);
+      setTotalPages(cached.totalPages);
+      setSearchAnchor(cached.searchAnchor ?? null);
+      setSortedByDistance(Boolean(cached.sortedByDistance));
+      setIsLoading(false);
+      setIsRefreshing(true);
+    } else if (hotels.length > 0) {
+      setIsRefreshing(true);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+      setIsRefreshing(false);
+    }
+
     searchHotels(params).then(result => {
       if (!isActive) return;
-      setHotels(result.data);
-      setTotal(result.total);
-      setTotalPages(result.totalPages);
-      setSearchAnchor(result.searchAnchor ?? null);
-      setSortedByDistance(Boolean(result.sortedByDistance));
+      startTransition(() => {
+        setHotels(result.data);
+        setTotal(result.total);
+        setTotalPages(result.totalPages);
+        setSearchAnchor(result.searchAnchor ?? null);
+        setSortedByDistance(Boolean(result.sortedByDistance));
+      });
     }).catch(() => {
-      if (isActive) {
+      if (isActive && !cached) {
         setHotels([]);
         setTotal(0);
         setTotalPages(0);
@@ -420,7 +448,10 @@ export default function SearchResultsPage() {
         setSortedByDistance(false);
       }
     }).finally(() => {
-      if (isActive) setIsLoading(false);
+      if (isActive) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     });
 
     return () => { isActive = false; };
@@ -485,10 +516,10 @@ export default function SearchResultsPage() {
             </div>
 
             <div className="flex border border-brand-primary/20 rounded-xl overflow-hidden">
-              <button type="button" onClick={() => setView('grid')} className={`p-2 ${view === 'grid' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
+              <button type="button" onClick={() => startTransition(() => setView('grid'))} className={`p-2 ${view === 'grid' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
                 <Grid3X3 className="w-4 h-4" />
               </button>
-              <button type="button" onClick={() => setView('list')} className={`p-2 ${view === 'list' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
+              <button type="button" onClick={() => startTransition(() => setView('list'))} className={`p-2 ${view === 'list' ? 'bg-brand-primary text-white' : 'text-brand-dark/60 hover:bg-brand-primary/5'}`}>
                 <List className="w-4 h-4" />
               </button>
             </div>
@@ -642,6 +673,7 @@ export default function SearchResultsPage() {
             </h1>
             {!isLoading && (
               <p className="text-sm font-bold text-brand-dark/50 mt-1">
+                {isRefreshing ? 'Updating results… · ' : ''}
                 {nearMe
                   ? `${total} ${total === 1 ? 'hotel' : 'hotels'} within ${radiusKm} km · nearest first`
                   : sortedByDistance && searchAnchor
@@ -652,17 +684,10 @@ export default function SearchResultsPage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {isLoading && hotels.length === 0 ? (
           <div className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="bg-brand-cream rounded-2xl border border-brand-primary/10 overflow-hidden animate-pulse">
-                <div className="h-48 bg-brand-secondary/15" />
-                <div className="p-5 space-y-3">
-                  <div className="h-5 w-2/3 bg-brand-secondary/15 rounded-full" />
-                  <div className="h-3 w-1/2 bg-brand-secondary/15 rounded-full" />
-                  <div className="h-8 w-1/3 bg-brand-secondary/15 rounded-full" />
-                </div>
-              </div>
+              <HotelCardSkeleton key={i} list={view === 'list'} />
             ))}
           </div>
         ) : hotels.length === 0 ? (
@@ -675,7 +700,7 @@ export default function SearchResultsPage() {
             </button>
           </div>
         ) : (
-          <div className={view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'}>
+          <div className={`${view === 'grid' ? 'fluid-card-grid' : 'grid grid-cols-1 gap-5'} ${isRefreshing ? 'opacity-70 transition-opacity' : ''}`}>
               {hotels.map(hotel => (
                 <HotelCard
                   key={hotel.id}

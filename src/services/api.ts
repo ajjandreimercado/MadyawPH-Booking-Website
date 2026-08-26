@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { BookingDraft } from '../lib/bookingFlow';
+import { cacheKey, cachedQuery } from '../lib/queryCache';
 import type { BookingPaymentMethod, BookingRequest, BookingRoomType, BookingStatus, Hotel, Property, RoomCategory } from '../types';
 
 export interface ApiListResponse<T> {
@@ -222,8 +223,14 @@ export async function fetchProperties(params: PropertyQueryParams = {}): Promise
 }
 
 export async function fetchPropertyById(propertyId: string): Promise<Property> {
-  const response = await api.get<Property & { _id?: string; id?: string | number }>(`/properties/${encodeURIComponent(propertyId)}`);
-  return normalizeProperty(response.data);
+  return cachedQuery(
+    cacheKey(['property', propertyId]),
+    async () => {
+      const response = await api.get<Property & { _id?: string; id?: string | number }>(`/properties/${encodeURIComponent(propertyId)}`);
+      return normalizeProperty(response.data);
+    },
+    { softTtlMs: 60_000, ttlMs: 15 * 60_000 },
+  );
 }
 
 export async function loginUser(payload: { email: string; password: string }) {
@@ -339,8 +346,14 @@ export interface Destination {
 }
 
 export async function fetchDestinations(): Promise<Destination[]> {
-  const response = await api.get<Destination[]>('/hotels/destinations');
-  return response.data;
+  return cachedQuery(
+    'destinations',
+    async () => {
+      const response = await api.get<Destination[]>('/hotels/destinations');
+      return response.data;
+    },
+    { softTtlMs: 2 * 60_000, ttlMs: 30 * 60_000 },
+  );
 }
 
 export interface FiltersResponse {
@@ -355,30 +368,47 @@ export interface FiltersResponse {
 }
 
 export async function fetchFilters(): Promise<FiltersResponse> {
-  const response = await api.get<FiltersResponse>('/hotels/filters');
-  return response.data;
+  return cachedQuery(
+    'hotel-filters',
+    async () => {
+      const response = await api.get<FiltersResponse>('/hotels/filters');
+      return response.data;
+    },
+    { softTtlMs: 2 * 60_000, ttlMs: 30 * 60_000 },
+  );
 }
 
 export async function fetchHotelById(hotelId: string): Promise<Hotel> {
-  const response = await api.get<Hotel & { _id?: string; id?: string | number }>(`/hotels/${encodeURIComponent(hotelId)}`);
-  return normalizeHotel(response.data);
+  return cachedQuery(
+    cacheKey(['hotel', hotelId]),
+    async () => {
+      const response = await api.get<Hotel & { _id?: string; id?: string | number }>(`/hotels/${encodeURIComponent(hotelId)}`);
+      return normalizeHotel(response.data);
+    },
+    { softTtlMs: 60_000, ttlMs: 15 * 60_000 },
+  );
 }
 
 export async function fetchHotelDetailById(hotelId: string): Promise<HotelDetailResponse> {
-  const response = await api.get<HotelDetailResponse>(`/hotels/${encodeURIComponent(hotelId)}/detail`);
-
-  return {
-    hotel: normalizeHotel(response.data.hotel),
-    categories: response.data.categories.map((category) => ({
-      ...normalizeRoomCategory(category),
-      totalRooms: Number(category.totalRooms ?? 0),
-      availableRooms: Number(category.availableRooms ?? 0),
-      unavailableRooms: Number(category.unavailableRooms ?? 0),
-      firstAvailableRoomId: category.firstAvailableRoomId ?? null,
-      fallbackRoomId: category.fallbackRoomId ?? null,
-    })),
-    totals: response.data.totals,
-  };
+  return cachedQuery(
+    cacheKey(['hotel-detail', hotelId]),
+    async () => {
+      const response = await api.get<HotelDetailResponse>(`/hotels/${encodeURIComponent(hotelId)}/detail`);
+      return {
+        hotel: normalizeHotel(response.data.hotel),
+        categories: response.data.categories.map((category) => ({
+          ...normalizeRoomCategory(category),
+          totalRooms: Number(category.totalRooms ?? 0),
+          availableRooms: Number(category.availableRooms ?? 0),
+          unavailableRooms: Number(category.unavailableRooms ?? 0),
+          firstAvailableRoomId: category.firstAvailableRoomId ?? null,
+          fallbackRoomId: category.fallbackRoomId ?? null,
+        })),
+        totals: response.data.totals,
+      };
+    },
+    { softTtlMs: 45_000, ttlMs: 10 * 60_000 },
+  );
 }
 
 function normalizeRoomCategory(category: RoomCategory & { _id?: string; id?: string | number }): RoomCategory {
@@ -466,8 +496,14 @@ export async function searchHotels(params: SearchParams = {}): Promise<{
   searchAnchor?: { lat: number; lng: number; label: string };
   sortedByDistance?: boolean;
 }> {
-  const response = await api.get('/hotels/search', { params });
-  return response.data;
+  return cachedQuery(
+    cacheKey(['searchHotels', params]),
+    async () => {
+      const response = await api.get('/hotels/search', { params });
+      return response.data;
+    },
+    { softTtlMs: 30_000, ttlMs: 5 * 60_000 },
+  );
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────
@@ -487,8 +523,14 @@ export async function fetchReviews(params: { propertyId?: string; hotelId?: stri
   total: number;
   totalPages: number;
 }> {
-  const response = await api.get('/reviews', { params });
-  return response.data;
+  return cachedQuery(
+    cacheKey(['reviews', params]),
+    async () => {
+      const response = await api.get('/reviews', { params });
+      return response.data;
+    },
+    { softTtlMs: 60_000, ttlMs: 10 * 60_000 },
+  );
 }
 
 export async function createReview(payload: {
@@ -587,16 +629,22 @@ export interface FeaturedPromo {
 }
 
 export async function fetchFeaturedPromo(): Promise<FeaturedPromo | null> {
-  try {
-    const response = await api.get<FeaturedPromo>('/promo-codes/featured');
-    return response.data;
-  } catch (error) {
-    if (isAxiosError(error) && error.response?.status === 404) {
-      return null;
-    }
-    console.error('Error fetching featured promo:', error);
-    return null;
-  }
+  return cachedQuery(
+    'featured-promo',
+    async () => {
+      try {
+        const response = await api.get<FeaturedPromo>('/promo-codes/featured');
+        return response.data;
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 404) {
+          return null;
+        }
+        console.error('Error fetching featured promo:', error);
+        return null;
+      }
+    },
+    { softTtlMs: 2 * 60_000, ttlMs: 15 * 60_000 },
+  );
 }
 
 export interface AdminPromoCode {
