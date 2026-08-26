@@ -81,6 +81,9 @@ export function buildExternalReservationDoc(input: {
   now?: Date;
   validIdUploaded?: boolean;
   validIdFilename?: string;
+  paymentProofUploaded?: boolean;
+  paymentProofFilename?: string;
+  paymentProofMime?: string;
 }) {
   const now = input.now ?? new Date();
   const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
@@ -112,6 +115,10 @@ export function buildExternalReservationDoc(input: {
     note,
     valid_id_uploaded: Boolean(input.validIdUploaded),
     valid_id_filename: input.validIdFilename ?? '',
+    payment_proof_uploaded: Boolean(input.paymentProofUploaded),
+    payment_proof_filename: input.paymentProofFilename ?? '',
+    payment_proof_mime: input.paymentProofMime ?? '',
+    payment_proof_collection: input.paymentProofUploaded ? 'booking_payment_proofs' : '',
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,

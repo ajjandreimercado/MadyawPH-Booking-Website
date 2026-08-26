@@ -173,6 +173,16 @@ const bookingSchema = new Schema(
     valid_id_base64: { type: String, select: false },
     valid_id_stored: { type: Boolean, default: false },
     valid_id_uploaded_at: { type: Date },
+    // Guest payment proof (GCash/Maya screenshot).
+    // Metadata stays on bookings; binary dual-written:
+    //   1) booking_payment_proofs (lean lists — same shape as booking_valid_ids)
+    //   2) payment_proof_base64 on the booking (hotel viewers that still read inline)
+    payment_proof_filename: { type: String },
+    payment_proof_mime: { type: String },
+    payment_proof_size: { type: Number },
+    payment_proof_base64: { type: String, select: false },
+    payment_proof_stored: { type: Boolean, default: false },
+    payment_proof_uploaded_at: { type: Date },
     // Dual-write health for hotel ledger + Online Bookings queue
     hotel_ledger_synced: { type: Boolean, default: false },
     hotel_queue_synced: { type: Boolean, default: false },
@@ -207,8 +217,35 @@ const bookingValidIdSchema = new Schema(
     size: { type: Number, required: true },
     base64: { type: String, required: true },
     uploaded_at: { type: Date, required: true },
+    // Payment proof can also ride on this doc so hotel UIs keyed by booking_id see both files.
+    payment_proof_filename: { type: String },
+    payment_proof_mime: { type: String },
+    payment_proof_size: { type: Number },
+    payment_proof_base64: { type: String },
+    payment_proof_uploaded_at: { type: Date },
+    payment_proof_stored: { type: Boolean },
   },
-  schemaOptions,
+  { ...schemaOptions, strict: false },
+);
+
+/** Payment proof screenshots — same off-booking storage pattern as Valid ID. */
+const bookingPaymentProofSchema = new Schema(
+  {
+    booking_id: { type: String, required: true, unique: true, index: true },
+    booking_reference: { type: String, index: true },
+    hotel_id: { type: String, index: true },
+    filename: { type: String, required: true },
+    mime: { type: String, required: true },
+    size: { type: Number, required: true },
+    base64: { type: String, required: true },
+    uploaded_at: { type: Date, required: true },
+    type: { type: String },
+    kind: { type: String },
+    payment_proof_base64: { type: String },
+    payment_proof_mime: { type: String },
+    payment_proof_filename: { type: String },
+  },
+  { ...schemaOptions, strict: false },
 );
 
 
@@ -544,6 +581,11 @@ export const PropertyModel = model('Room', roomSchema); // → 'rooms'
 export const RoomModel = PropertyModel;
 export const BookingModel = model('Booking', bookingSchema); // → 'bookings'
 export const BookingValidIdModel = model('BookingValidId', bookingValidIdSchema, 'booking_valid_ids');
+export const BookingPaymentProofModel = model(
+  'BookingPaymentProof',
+  bookingPaymentProofSchema,
+  'booking_payment_proofs',
+);
 export const ExternalReservationModel = model('ExternalReservation', externalReservationSchema, 'external_reservations'); // Atlas / hotel app use snake_case
 export const BillingChargeModel = model('BillingCharge', billingChargeSchema, 'billing_charges'); // Atlas / hotel app use snake_case
 export const RoomTransferModel = model('RoomTransfer', roomTransferSchema, 'room_transfers'); // Atlas uses 'room_transfers'

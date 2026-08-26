@@ -80,6 +80,8 @@ export interface BookingCreatePayload {
   membershipId?: string;
   /** Required on the live Booking Details page; optional only for unused legacy callers. */
   validIdFile?: File;
+  /** GCash/Maya/bank screenshot after scanning the hotel QR. */
+  paymentProofFile?: File;
 }
 
 export interface BookingUpdatePayload {
@@ -285,6 +287,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);
+  if (payload.paymentProofFile) form.append('paymentProof', payload.paymentProofFile);
 
   const response = await api.post<BookingRequest>('/bookings', form);
   return normalizeBookingResponse(response.data);

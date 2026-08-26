@@ -140,6 +140,10 @@ export interface BookingRequest {
   checkInAt?: string;
   checkOutAt?: string;
   paymentStatus?: string;
+  validIdUploaded?: boolean;
+  validIdFilename?: string;
+  paymentProofUploaded?: boolean;
+  paymentProofFilename?: string;
   confirmationSentAt?: string | null;
   confirmationSendStatus?: 'none' | 'sent' | 'failed';
   confirmationSendError?: string;

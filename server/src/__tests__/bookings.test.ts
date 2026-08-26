@@ -97,6 +97,9 @@ jest.mock('../data/mongoModels', () => ({
   BookingValidIdModel: {
     findOneAndUpdate: jest.fn().mockResolvedValue({}),
   },
+  BookingPaymentProofModel: {
+    findOneAndUpdate: jest.fn().mockResolvedValue({}),
+  },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -208,13 +211,20 @@ describe('POST /api/bookings', () => {
     'base64',
   );
 
-  function postBooking(fields: Record<string, string | number> = VALID_PAYLOAD, withId = true) {
+  function postBooking(
+    fields: Record<string, string | number> = VALID_PAYLOAD,
+    withId = true,
+    withPaymentProof = false,
+  ) {
     let req = request(app).post('/api/bookings');
     Object.entries(fields).forEach(([key, value]) => {
       req = req.field(key, String(value));
     });
     if (withId) {
       req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
+    }
+    if (withPaymentProof) {
+      req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
     }
     return req;
   }
@@ -299,6 +309,43 @@ describe('POST /api/bookings', () => {
       // Billing ledger must wait until hotel approval — early room charges cause self-overlap.
       expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
     }
+  });
+
+  it('stores payment proof for the hotel app (booking + side collections)', async () => {
+    const res = await postBooking(VALID_PAYLOAD, true, true);
+    expect([201, 409]).toContain(res.status);
+    if (res.status !== 201) return;
+
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.payment_proof_filename).toBe('gcash-proof.png');
+    expect(created.payment_proof_stored).toBe(true);
+    expect(typeof created.payment_proof_base64).toBe('string');
+    expect(created.payment_proof_base64.length).toBeGreaterThan(10);
+
+    const { BookingPaymentProofModel, BookingValidIdModel, ExternalReservationModel } = jest.requireMock('../data/mongoModels') as {
+      BookingPaymentProofModel: { findOneAndUpdate: jest.Mock };
+      BookingValidIdModel: { findOneAndUpdate: jest.Mock };
+      ExternalReservationModel: { create: jest.Mock };
+    };
+    expect(BookingPaymentProofModel.findOneAndUpdate).toHaveBeenCalled();
+    const proofSet = BookingPaymentProofModel.findOneAndUpdate.mock.calls[0][1].$set;
+    expect(proofSet.filename).toBe('gcash-proof.png');
+    expect(proofSet.base64).toBeTruthy();
+    expect(proofSet.payment_proof_base64).toBeTruthy();
+
+    // Valid ID side-doc also gets proof fields for hotel viewers keyed by booking_id.
+    const validIdCalls = BookingValidIdModel.findOneAndUpdate.mock.calls;
+    expect(validIdCalls.length).toBeGreaterThanOrEqual(2);
+    const proofOnValidId = validIdCalls.find((call) => call[1]?.$set?.payment_proof_base64);
+    expect(proofOnValidId).toBeTruthy();
+
+    const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
+    const meta = typeof externalDoc.metadata === 'string'
+      ? JSON.parse(externalDoc.metadata)
+      : externalDoc.metadata;
+    expect(meta.payment_proof_uploaded).toBe(true);
+    expect(meta.payment_proof_collection).toBe('booking_payment_proofs');
   });
 
   it('returns 400 when Valid ID is missing', async () => {

@@ -2,10 +2,10 @@ import type { Request, Response } from 'express';
 import multer from 'multer';
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
-export const VALID_ID_MAX_BYTES = 5 * 1024 * 1024;
+export const BOOKING_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Local file shape — avoids Express.Multer types (not installed on Render prod builds). */
-export interface UploadedValidIdFile {
+export interface UploadedBookingFile {
   fieldname: string;
   originalname: string;
   encoding: string;
@@ -13,6 +13,11 @@ export interface UploadedValidIdFile {
   size: number;
   buffer: Buffer;
 }
+
+/** @deprecated Use UploadedBookingFile */
+export type UploadedValidIdFile = UploadedBookingFile;
+
+export const VALID_ID_MAX_BYTES = BOOKING_UPLOAD_MAX_BYTES;
 
 /** Detect file type from magic bytes (do not trust client Content-Type alone). */
 export function detectValidIdMime(buffer: Buffer): string | null {
@@ -45,46 +50,71 @@ export function detectValidIdMime(buffer: Buffer): string | null {
   return null;
 }
 
-/** Memory upload for guest Valid ID (stored on the booking in shared Mongo). */
-export const validIdUpload = multer({
+function sanitizeFilename(name: string, fallback: string): string {
+  return String(name || fallback)
+    .replace(/[/\\]/g, '_')
+    .replace(/[^\w.\- ()[\]]+/g, '_')
+    .slice(0, 180);
+}
+
+function finalizeUpload(file: UploadedBookingFile, label: string): UploadedBookingFile {
+  const detected = detectValidIdMime(file.buffer);
+  if (!detected || !ALLOWED_MIME.has(detected)) {
+    throw new Error(`${label} content must be a real JPG, PNG, WEBP, or PDF file.`);
+  }
+  file.mimetype = detected;
+  file.originalname = sanitizeFilename(file.originalname, label.toLowerCase().replace(/\s+/g, '-'));
+  return file;
+}
+
+const bookingUploads = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: VALID_ID_MAX_BYTES, files: 1 },
+  limits: { fileSize: BOOKING_UPLOAD_MAX_BYTES, files: 2 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME.has(file.mimetype)) {
-      cb(new Error('Valid ID must be a JPG, PNG, WEBP, or PDF file.'));
+      cb(new Error('Uploads must be JPG, PNG, WEBP, or PDF files.'));
       return;
     }
     cb(null, true);
   },
-}).single('validId');
+}).fields([
+  { name: 'validId', maxCount: 1 },
+  { name: 'paymentProof', maxCount: 1 },
+]);
 
-type RequestWithFile = Request & { file?: UploadedValidIdFile };
+type RequestWithFiles = Request & {
+  files?: Record<string, UploadedBookingFile[] | undefined>;
+};
 
-export function runValidIdUpload(req: Request, res: Response): Promise<UploadedValidIdFile | undefined> {
+export interface BookingUploadResult {
+  validId?: UploadedBookingFile;
+  paymentProof?: UploadedBookingFile;
+}
+
+/** Memory upload for guest Valid ID + optional payment proof screenshot. */
+export function runBookingUploads(req: Request, res: Response): Promise<BookingUploadResult> {
   return new Promise((resolve, reject) => {
-    validIdUpload(req, res, (err: unknown) => {
+    bookingUploads(req, res, (err: unknown) => {
       if (err) {
         reject(err);
         return;
       }
-      const file = (req as RequestWithFile).file;
-      if (!file) {
-        resolve(undefined);
-        return;
+      try {
+        const files = (req as RequestWithFiles).files ?? {};
+        const validIdRaw = files.validId?.[0];
+        const paymentProofRaw = files.paymentProof?.[0];
+        resolve({
+          validId: validIdRaw ? finalizeUpload(validIdRaw, 'Valid ID') : undefined,
+          paymentProof: paymentProofRaw ? finalizeUpload(paymentProofRaw, 'Payment proof') : undefined,
+        });
+      } catch (finalizeError) {
+        reject(finalizeError);
       }
-      const detected = detectValidIdMime(file.buffer);
-      if (!detected || !ALLOWED_MIME.has(detected)) {
-        reject(new Error('Valid ID content must be a real JPG, PNG, WEBP, or PDF file.'));
-        return;
-      }
-      // Prefer sniffed type over client-declared MIME.
-      file.mimetype = detected;
-      // Never trust raw path-like names from the client.
-      file.originalname = String(file.originalname || 'valid-id')
-        .replace(/[/\\]/g, '_')
-        .replace(/[^\w.\- ()[\]]+/g, '_')
-        .slice(0, 180);
-      resolve(file);
     });
   });
+}
+
+/** @deprecated Prefer runBookingUploads — kept for older call sites/tests. */
+export function runValidIdUpload(req: Request, res: Response): Promise<UploadedValidIdFile | undefined> {
+  return runBookingUploads(req, res).then((result) => result.validId);
 }

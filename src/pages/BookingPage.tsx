@@ -96,6 +96,7 @@ export default function BookingPage() {
 
   const [nationality, setNationality] = useState('Filipino');
   const [validIdFile, setValidIdFile] = useState<File | null>(null);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
 
   const [selectedComplimentary, setSelectedComplimentary] = useState<string[]>([]);
 
@@ -295,6 +296,8 @@ export default function BookingPage() {
     });
   };
 
+  const requiresPaymentProof = Boolean(paymentQrUrl || hotel?.hasPaymentQr);
+
   const isFormValid =
     fullName.trim() &&
     email.trim() &&
@@ -302,7 +305,8 @@ export default function BookingPage() {
     checkIn &&
     checkOut &&
     new Date(checkOut) > new Date(checkIn) &&
-    Boolean(validIdFile);
+    Boolean(validIdFile) &&
+    (!requiresPaymentProof || Boolean(paymentProofFile));
 
   const handleSubmit = async () => {
     if (!property || !propertyId) return;
@@ -322,6 +326,20 @@ export default function BookingPage() {
     if (validIdFile.size > 5 * 1024 * 1024) {
       showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
       return;
+    }
+    if (requiresPaymentProof && !paymentProofFile) {
+      showToast({ title: 'Please upload your payment screenshot after paying via the hotel QR', type: 'error' });
+      return;
+    }
+    if (paymentProofFile) {
+      if (!allowedTypes.includes(paymentProofFile.type)) {
+        showToast({ title: 'Payment proof must be a JPG, PNG, WEBP, or PDF', type: 'error' });
+        return;
+      }
+      if (paymentProofFile.size > 5 * 1024 * 1024) {
+        showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -348,8 +366,10 @@ export default function BookingPage() {
         promoCode: promoCode.trim() || undefined,
         membershipId: membershipId.trim() || undefined,
         validIdFile,
+        paymentProofFile: paymentProofFile ?? undefined,
         specialRequests: [
           `Valid ID uploaded: ${validIdFile.name}`,
+          paymentProofFile ? `Payment proof uploaded: ${paymentProofFile.name}` : '',
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
@@ -802,11 +822,71 @@ export default function BookingPage() {
                   </p>
                 )}
               </div>
+              <div className="mt-4">
+                <label className="field-label flex items-center justify-between">
+                  <span>
+                    <Upload className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />
+                    Upload payment screenshot {requiresPaymentProof ? <span className="text-red-400">*</span> : <span className="text-brand-dark/40 font-normal">(optional)</span>}
+                  </span>
+                  <span className="text-[10px] text-brand-dark/40 font-normal lowercase">After you pay via QR</span>
+                </label>
+                <label
+                  htmlFor="booking-payment-proof"
+                  className={`mt-1 flex flex-col items-center justify-center w-full p-4 transition-all duration-200 border-2 border-dashed rounded-xl cursor-pointer ${
+                    paymentProofFile
+                      ? 'border-brand-success bg-brand-success/5 text-brand-success shadow-sm'
+                      : 'border-brand-primary/25 bg-white hover:bg-brand-background/70 hover:border-brand-primary/50 text-brand-dark/60'
+                  }`}
+                >
+                  {paymentProofFile ? (
+                    <div className="flex items-center justify-between w-full gap-2 text-sm font-bold">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="w-5 h-5 text-brand-success shrink-0" />
+                        <span className="truncate">{paymentProofFile.name}</span>
+                        <span className="text-xs font-normal text-brand-dark/50 shrink-0">({(paymentProofFile.size / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <span className="text-xs text-brand-primary underline hover:text-brand-hover shrink-0">Change</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center py-2">
+                      <Upload className="w-6 h-6 mb-2 text-brand-primary/60" />
+                      <p className="text-xs font-bold text-brand-dark">
+                        Upload your GCash / Maya / bank transfer screenshot
+                      </p>
+                      <p className="text-[10px] text-brand-dark/50 mt-0.5">
+                        JPG, PNG, WEBP, or PDF (MAX. 5MB) — sent to the hotel with your request
+                      </p>
+                    </div>
+                  )}
+                  <input
+                    id="booking-payment-proof"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+                      if (!allowed.includes(file.type)) {
+                        showToast({ title: 'Payment proof must be a JPG, PNG, WEBP, or PDF', type: 'error' });
+                        e.target.value = '';
+                        return;
+                      }
+                      if (file.size > 5 * 1024 * 1024) {
+                        showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
+                        e.target.value = '';
+                        return;
+                      }
+                      setPaymentProofFile(file);
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  Submitting this request tells the hotel a 50% deposit of ₱{amountDue.toLocaleString()} applies to your stay.
-                  Payment is the hotel QR image only — not an automatic card charge. The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                  Scan the QR, pay ₱{amountDue.toLocaleString()}, then upload the receipt screenshot so the hotel can verify your deposit.
+                  The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
                 </p>
               </div>
             </section>

@@ -154,7 +154,9 @@ export default function BookingConfirmationPage() {
               { icon: Calendar, label: 'Check-in', value: booking.checkInDate },
               { icon: Calendar, label: 'Check-out', value: booking.checkOutDate },
               { icon: Users, label: 'Guests', value: `${booking.adults} adult${booking.adults !== 1 ? 's' : ''}${booking.children > 0 ? ` + ${booking.children} child${booking.children !== 1 ? 'ren' : ''}` : ''}` },
-              { icon: CreditCard, label: 'Payment', value: 'Hotel QR (50% deposit)' },
+              { icon: CreditCard, label: 'Payment', value: booking.paymentProofUploaded
+                ? `Hotel QR · proof uploaded${booking.paymentProofFilename ? ` (${booking.paymentProofFilename})` : ''}`
+                : 'Hotel QR (50% deposit)' },
             ].map(item => (
               <div key={item.label} className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-xl bg-brand-primary/10 flex items-center justify-center shrink-0">

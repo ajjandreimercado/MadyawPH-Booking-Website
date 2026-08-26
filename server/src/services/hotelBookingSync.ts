@@ -21,8 +21,8 @@ import {
   type HotelDecisionKind,
 } from '../utils/externalReservation';
 
-/** Avoid loading multi-MB Valid ID payloads into confirm/decline paths. */
-const BOOKING_SYNC_PROJECTION = '-valid_id_base64';
+/** Avoid loading multi-MB Valid ID / payment-proof payloads into confirm/decline paths. */
+const BOOKING_SYNC_PROJECTION = '-valid_id_base64 -payment_proof_base64';
 
 export interface HotelDecisionInput {
   /** Website booking _id when known */

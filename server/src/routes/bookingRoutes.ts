@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -22,7 +22,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
-import { runValidIdUpload, type UploadedValidIdFile } from '../middleware/validIdUpload';
+import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
@@ -360,16 +360,19 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
 // Accepts multipart/form-data with required Valid ID file.
 
 bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
-  let validIdFile: UploadedValidIdFile | undefined;
+  let validIdFile: UploadedBookingFile | undefined;
+  let paymentProofFile: UploadedBookingFile | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
   if (contentType.includes('multipart/form-data')) {
     try {
-      validIdFile = await runValidIdUpload(req, res);
+      const uploads = await runBookingUploads(req, res);
+      validIdFile = uploads.validId;
+      paymentProofFile = uploads.paymentProof;
     } catch (uploadError) {
-      const message = uploadError instanceof Error ? uploadError.message : 'Valid ID upload failed.';
+      const message = uploadError instanceof Error ? uploadError.message : 'File upload failed.';
       const isSize = /File too large|LIMIT_FILE_SIZE/i.test(message);
       return res.status(400).json({
-        message: isSize ? 'Valid ID must be 5 MB or smaller.' : message,
+        message: isSize ? 'Each upload must be 5 MB or smaller.' : message,
       });
     }
   }
@@ -650,6 +653,16 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     valid_id_size: validIdFile.size,
     valid_id_stored: true,
     valid_id_uploaded_at: createdAt,
+    payment_proof_filename: paymentProofFile ? paymentProofFile.originalname.slice(0, 200) : '',
+    payment_proof_mime: paymentProofFile?.mimetype,
+    payment_proof_size: paymentProofFile?.size,
+    // Inline base64 so hotel app viewers that read the booking document can show the screenshot
+    // (same approach that originally made Valid ID visible before booking_valid_ids).
+    ...(paymentProofFile
+      ? { payment_proof_base64: paymentProofFile.buffer.toString('base64') }
+      : {}),
+    payment_proof_stored: Boolean(paymentProofFile),
+    payment_proof_uploaded_at: paymentProofFile ? createdAt : undefined,
     hotel_ledger_synced: false,
     hotel_queue_synced: false,
     hotel_sync_error: '',
@@ -787,6 +800,52 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Failed to store Valid ID in booking_valid_ids:', idStoreError);
   }
 
+  if (paymentProofFile) {
+    try {
+      await withRetries(async () => {
+        const proofDoc = {
+          booking_id: String(booking._id),
+          booking_reference: String(booking.booking_reference),
+          hotel_id: String(booking.hotel_id ?? property.hotel_id ?? ''),
+          filename: paymentProofFile.originalname.slice(0, 200),
+          mime: paymentProofFile.mimetype,
+          size: paymentProofFile.size,
+          base64: paymentProofFile.buffer.toString('base64'),
+          uploaded_at: createdAt,
+          // Hotel-friendly aliases (same payload, common PHP/Laravel field names).
+          type: 'payment_proof',
+          kind: 'payment_proof',
+          payment_proof_base64: paymentProofFile.buffer.toString('base64'),
+          payment_proof_mime: paymentProofFile.mimetype,
+          payment_proof_filename: paymentProofFile.originalname.slice(0, 200),
+        };
+        await BookingPaymentProofModel.findOneAndUpdate(
+          { booking_id: String(booking._id) },
+          { $set: proofDoc },
+          { upsert: true, new: true },
+        );
+        // Also attach proof fields onto the Valid ID side-doc so hotel UIs that only
+        // open booking_valid_ids for a booking_id still see the payment screenshot.
+        await BookingValidIdModel.findOneAndUpdate(
+          { booking_id: String(booking._id) },
+          {
+            $set: {
+              payment_proof_filename: paymentProofFile.originalname.slice(0, 200),
+              payment_proof_mime: paymentProofFile.mimetype,
+              payment_proof_size: paymentProofFile.size,
+              payment_proof_base64: paymentProofFile.buffer.toString('base64'),
+              payment_proof_uploaded_at: createdAt,
+              payment_proof_stored: true,
+            },
+          },
+          { upsert: false },
+        );
+      }, { attempts: 3, delayMs: 200, label: 'booking_payment_proofs store' });
+    } catch (proofStoreError) {
+      console.error('[Bookings] Failed to store payment proof for hotel app:', proofStoreError);
+    }
+  }
+
   const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
   const bookingId = String(booking._id);
   const roomId = String(booking.room_id ?? property._id);
@@ -829,6 +888,9 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
         now: createdAt,
         validIdUploaded: true,
         validIdFilename: validIdFile.originalname.slice(0, 200),
+        paymentProofUploaded: Boolean(paymentProofFile),
+        paymentProofFilename: paymentProofFile?.originalname.slice(0, 200),
+        paymentProofMime: paymentProofFile?.mimetype,
       });
       await ExternalReservationModel.create(externalDoc);
     }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });
