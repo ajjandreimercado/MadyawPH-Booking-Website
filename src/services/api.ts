@@ -82,6 +82,10 @@ export interface BookingCreatePayload {
   validIdFile?: File;
   /** GCash/Maya/bank screenshot after scanning the hotel QR. */
   paymentProofFile?: File;
+  /** Transaction / reference number from the wallet receipt. */
+  paymentTransactionRef?: string;
+  /** Amount guest claims they paid (defaults to deposit due). */
+  paymentProofAmountClaimed?: number;
 }
 
 export interface BookingUpdatePayload {
@@ -288,6 +292,10 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);
   if (payload.paymentProofFile) form.append('paymentProof', payload.paymentProofFile);
+  if (payload.paymentTransactionRef) form.append('paymentTransactionRef', payload.paymentTransactionRef);
+  if (payload.paymentProofAmountClaimed != null) {
+    form.append('paymentProofAmountClaimed', String(payload.paymentProofAmountClaimed));
+  }
 
   const response = await api.post<BookingRequest>('/bookings', form);
   return normalizeBookingResponse(response.data);

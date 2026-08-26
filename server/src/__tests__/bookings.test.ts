@@ -71,6 +71,7 @@ jest.mock('../data/mongoModels', () => ({
     }),
     countDocuments: jest.fn().mockResolvedValue(0),
     findById: jest.fn(),
+    findOne: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) }),
     create: jest.fn(),
     updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
   },
@@ -238,6 +239,9 @@ describe('POST /api/bookings', () => {
     (MockBookingModel.find as jest.Mock).mockReturnValue({
       lean: jest.fn().mockResolvedValue([]),
     });
+    (MockBookingModel.findOne as jest.Mock).mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+    });
     MockBookingModel.create.mockResolvedValue({
       ...mockBooking,
       _id: 'booking-001',
@@ -312,7 +316,14 @@ describe('POST /api/bookings', () => {
   });
 
   it('stores payment proof for the hotel app (booking + side collections)', async () => {
-    const res = await postBooking(VALID_PAYLOAD, true, true);
+    const res = await postBooking(
+      {
+        ...VALID_PAYLOAD,
+        paymentTransactionRef: 'GCASH-ABC12345',
+      },
+      true,
+      true,
+    );
     expect([201, 409]).toContain(res.status);
     if (res.status !== 201) return;
 
@@ -322,6 +333,10 @@ describe('POST /api/bookings', () => {
     expect(created.payment_proof_stored).toBe(true);
     expect(typeof created.payment_proof_base64).toBe('string');
     expect(created.payment_proof_base64.length).toBeGreaterThan(10);
+    expect(created.payment_transaction_ref).toBe('GCASH-ABC12345');
+    expect(created.payment_proof_verified).toBe(false);
+    expect(typeof created.payment_proof_sha256).toBe('string');
+    expect(created.payment_proof_sha256.length).toBe(64);
 
     const { BookingPaymentProofModel, BookingValidIdModel, ExternalReservationModel } = jest.requireMock('../data/mongoModels') as {
       BookingPaymentProofModel: { findOneAndUpdate: jest.Mock };
@@ -333,6 +348,8 @@ describe('POST /api/bookings', () => {
     expect(proofSet.filename).toBe('gcash-proof.png');
     expect(proofSet.base64).toBeTruthy();
     expect(proofSet.payment_proof_base64).toBeTruthy();
+    expect(proofSet.payment_transaction_ref).toBe('GCASH-ABC12345');
+    expect(proofSet.payment_proof_verified).toBe(false);
 
     // Valid ID side-doc also gets proof fields for hotel viewers keyed by booking_id.
     const validIdCalls = BookingValidIdModel.findOneAndUpdate.mock.calls;
@@ -346,6 +363,14 @@ describe('POST /api/bookings', () => {
       : externalDoc.metadata;
     expect(meta.payment_proof_uploaded).toBe(true);
     expect(meta.payment_proof_collection).toBe('booking_payment_proofs');
+    expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
+    expect(meta.payment_proof_verified).toBe(false);
+  });
+
+  it('returns 400 when payment proof is missing a transaction reference', async () => {
+    const res = await postBooking(VALID_PAYLOAD, true, true);
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/transaction reference/i);
   });
 
   it('returns 400 when Valid ID is missing', async () => {

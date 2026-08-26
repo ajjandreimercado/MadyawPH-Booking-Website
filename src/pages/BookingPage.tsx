@@ -97,6 +97,8 @@ export default function BookingPage() {
   const [nationality, setNationality] = useState('Filipino');
   const [validIdFile, setValidIdFile] = useState<File | null>(null);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
+  const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
 
   const [selectedComplimentary, setSelectedComplimentary] = useState<string[]>([]);
 
@@ -306,7 +308,8 @@ export default function BookingPage() {
     checkOut &&
     new Date(checkOut) > new Date(checkIn) &&
     Boolean(validIdFile) &&
-    (!requiresPaymentProof || Boolean(paymentProofFile));
+    (!requiresPaymentProof || Boolean(paymentProofFile)) &&
+    (!paymentProofFile || paymentTransactionRef.trim().length >= 6);
 
   const handleSubmit = async () => {
     if (!property || !propertyId) return;
@@ -340,6 +343,15 @@ export default function BookingPage() {
         showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
         return;
       }
+      const ref = paymentTransactionRef.replace(/\s+/g, '').trim();
+      if (ref.length < 6) {
+        showToast({
+          title: 'Enter your transaction reference',
+          description: 'Copy the GCash/Maya/bank reference number from your receipt (at least 6 characters).',
+          type: 'error',
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -367,9 +379,18 @@ export default function BookingPage() {
         membershipId: membershipId.trim() || undefined,
         validIdFile,
         paymentProofFile: paymentProofFile ?? undefined,
+        paymentTransactionRef: paymentProofFile
+          ? paymentTransactionRef.replace(/\s+/g, '').trim()
+          : undefined,
+        paymentProofAmountClaimed: paymentProofFile
+          ? Number(paymentProofAmountClaimed || amountDue) || amountDue
+          : undefined,
         specialRequests: [
           `Valid ID uploaded: ${validIdFile.name}`,
           paymentProofFile ? `Payment proof uploaded: ${paymentProofFile.name}` : '',
+          paymentProofFile
+            ? `Txn ref: ${paymentTransactionRef.replace(/\s+/g, '').trim().toUpperCase()}`
+            : '',
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
           selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
@@ -877,16 +898,60 @@ export default function BookingPage() {
                         return;
                       }
                       setPaymentProofFile(file);
+                      if (!paymentProofAmountClaimed) {
+                        setPaymentProofAmountClaimed(String(amountDue));
+                      }
                     }}
                     className="hidden"
                   />
                 </label>
               </div>
+              {(paymentProofFile || requiresPaymentProof) && (
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="payment-txn-ref" className="field-label">
+                      Transaction reference <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      id="payment-txn-ref"
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={paymentTransactionRef}
+                      onChange={(e) => setPaymentTransactionRef(e.target.value)}
+                      placeholder="From GCash / Maya / bank receipt"
+                      className="field-input mt-1"
+                      maxLength={64}
+                    />
+                    <p className="mt-1 text-[10px] text-brand-dark/45 font-medium">
+                      Copy the reference number shown on your payment receipt.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="payment-amount-claimed" className="field-label">
+                      Amount paid <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      id="payment-amount-claimed"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={paymentProofAmountClaimed || String(amountDue)}
+                      onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
+                      className="field-input mt-1"
+                    />
+                    <p className="mt-1 text-[10px] text-brand-dark/45 font-medium">
+                      Must match deposit due: ₱{amountDue.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 p-4 rounded-xl bg-brand-primary/5 border border-brand-primary/15 flex items-start gap-2">
                 <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
                 <p className="text-xs font-bold text-brand-dark/70 leading-relaxed">
-                  Scan the QR, pay ₱{amountDue.toLocaleString()}, then upload the receipt screenshot so the hotel can verify your deposit.
-                  The remaining ₱{balanceDue.toLocaleString()} is collected at hotel check-out.
+                  Scan the QR, pay ₱{amountDue.toLocaleString()}, then upload the receipt screenshot and
+                  transaction reference so the hotel can verify your deposit.
+                  Payment is not marked paid until the hotel confirms. The remaining ₱{balanceDue.toLocaleString()} is collected at check-out.
                 </p>
               </div>
             </section>

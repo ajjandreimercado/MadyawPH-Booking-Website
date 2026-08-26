@@ -402,6 +402,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     'promoCode',
     'membershipId',
     'memberShidId',
+    'paymentTransactionRef',
+    'paymentProofAmountClaimed',
   ] as const);
 
   // ── Required field validation ─────────────────────────────────────────────
@@ -631,6 +633,65 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Half payment must be less than stay total', { finalTotalPrice, amountDue });
   }
 
+  // Payment proof integrity: wallet reference + amount tie-in + screenshot hash dedupe.
+  // Upload never auto-verifies payment — hotel staff confirms in MADYAWPH.
+  let paymentTransactionRef = '';
+  let paymentProofAmountClaimed: number | undefined;
+  let paymentProofSha256: string | undefined;
+
+  if (paymentProofFile) {
+    const refRaw = validateString(body.paymentTransactionRef, 'Payment transaction reference', 6, 64);
+    if (!refRaw.ok) {
+      return res.status(400).json({
+        message: 'Enter the GCash/Maya/bank transaction reference from your receipt (at least 6 characters).',
+      });
+    }
+    const normalizedRef = refRaw.value.replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9\-_/]{5,63}$/i.test(normalizedRef)) {
+      return res.status(400).json({
+        message: 'Transaction reference looks invalid. Copy it exactly from your wallet receipt.',
+      });
+    }
+
+    const rawClaimed =
+      body.paymentProofAmountClaimed === undefined || body.paymentProofAmountClaimed === ''
+        ? amountDue
+        : Number(body.paymentProofAmountClaimed);
+    if (!Number.isFinite(rawClaimed) || rawClaimed <= 0) {
+      return res.status(400).json({
+        message: 'Enter the amount you paid (must match the deposit due).',
+      });
+    }
+    if (Math.abs(rawClaimed - amountDue) > 1) {
+      return res.status(400).json({
+        message: `Payment amount must match the deposit due (₱${amountDue.toLocaleString()}).`,
+      });
+    }
+
+    paymentProofSha256 = crypto.createHash('sha256').update(paymentProofFile.buffer).digest('hex');
+
+    const reusedProof = await BookingModel.findOne({ payment_proof_sha256: paymentProofSha256 })
+      .select('_id')
+      .lean();
+    if (reusedProof) {
+      return res.status(409).json({
+        message: 'This payment screenshot was already used on another booking. Upload a new receipt for this stay.',
+      });
+    }
+
+    const reusedRef = await BookingModel.findOne({ payment_transaction_ref: normalizedRef })
+      .select('_id')
+      .lean();
+    if (reusedRef) {
+      return res.status(409).json({
+        message: 'This transaction reference was already used on another booking.',
+      });
+    }
+
+    paymentTransactionRef = normalizedRef;
+    paymentProofAmountClaimed = Math.round(rawClaimed * 100) / 100;
+  }
+
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
     hotel_id: String(property.hotel_id ?? ''),
@@ -663,6 +724,14 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
       : {}),
     payment_proof_stored: Boolean(paymentProofFile),
     payment_proof_uploaded_at: paymentProofFile ? createdAt : undefined,
+    ...(paymentProofFile
+      ? {
+          payment_transaction_ref: paymentTransactionRef,
+          payment_proof_amount_claimed: paymentProofAmountClaimed,
+          payment_proof_sha256: paymentProofSha256,
+          payment_proof_verified: false,
+        }
+      : {}),
     hotel_ledger_synced: false,
     hotel_queue_synced: false,
     hotel_sync_error: '',
@@ -818,6 +887,11 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
           payment_proof_base64: paymentProofFile.buffer.toString('base64'),
           payment_proof_mime: paymentProofFile.mimetype,
           payment_proof_filename: paymentProofFile.originalname.slice(0, 200),
+          payment_transaction_ref: paymentTransactionRef,
+          payment_proof_amount_claimed: paymentProofAmountClaimed,
+          payment_proof_sha256: paymentProofSha256,
+          expected_deposit_amount: amountDue,
+          payment_proof_verified: false,
         };
         await BookingPaymentProofModel.findOneAndUpdate(
           { booking_id: String(booking._id) },
@@ -836,6 +910,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
               payment_proof_base64: paymentProofFile.buffer.toString('base64'),
               payment_proof_uploaded_at: createdAt,
               payment_proof_stored: true,
+              payment_transaction_ref: paymentTransactionRef,
+              payment_proof_amount_claimed: paymentProofAmountClaimed,
+              payment_proof_sha256: paymentProofSha256,
+              payment_proof_verified: false,
             },
           },
           { upsert: false },
@@ -891,6 +969,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
         paymentProofUploaded: Boolean(paymentProofFile),
         paymentProofFilename: paymentProofFile?.originalname.slice(0, 200),
         paymentProofMime: paymentProofFile?.mimetype,
+        paymentTransactionRef: paymentTransactionRef || undefined,
+        paymentProofAmountClaimed,
+        paymentProofExpectedAmount: amountDue,
+        paymentProofVerified: false,
       });
       await ExternalReservationModel.create(externalDoc);
     }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });

@@ -193,6 +193,14 @@ export function serializeBooking(booking: AnyDocument) {
     validIdFilename: booking.valid_id_filename ?? '',
     paymentProofUploaded: Boolean(booking.payment_proof_filename || booking.payment_proof_stored),
     paymentProofFilename: booking.payment_proof_filename ?? '',
+    paymentTransactionRef: booking.payment_transaction_ref
+      ? String(booking.payment_transaction_ref)
+      : undefined,
+    paymentProofAmountClaimed:
+      booking.payment_proof_amount_claimed != null
+        ? Number(booking.payment_proof_amount_claimed)
+        : undefined,
+    paymentProofVerified: Boolean(booking.payment_proof_verified),
     hotelLedgerSynced: Boolean(booking.hotel_ledger_synced),
     hotelQueueSynced: Boolean(booking.hotel_queue_synced),
     confirmationSentAt: booking.confirmationSentAt ? new Date(booking.confirmationSentAt as string | number | Date).toISOString() : null,

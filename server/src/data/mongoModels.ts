@@ -183,6 +183,15 @@ const bookingSchema = new Schema(
     payment_proof_base64: { type: String, select: false },
     payment_proof_stored: { type: Boolean, default: false },
     payment_proof_uploaded_at: { type: Date },
+    // Guest-claimed GCash/Maya/bank reference — hotel matches this in wallet history.
+    payment_transaction_ref: { type: String, index: true },
+    // Amount guest says they paid (should match deposit); hotel verifies.
+    payment_proof_amount_claimed: { type: Number },
+    // SHA-256 of proof file bytes — blocks reusing the same screenshot on another booking.
+    payment_proof_sha256: { type: String, index: true },
+    // Never auto-verify from upload; hotel staff must confirm in MADYAWPH.
+    payment_proof_verified: { type: Boolean, default: false },
+    payment_proof_verified_at: { type: Date },
     // Dual-write health for hotel ledger + Online Bookings queue
     hotel_ledger_synced: { type: Boolean, default: false },
     hotel_queue_synced: { type: Boolean, default: false },
@@ -224,6 +233,10 @@ const bookingValidIdSchema = new Schema(
     payment_proof_base64: { type: String },
     payment_proof_uploaded_at: { type: Date },
     payment_proof_stored: { type: Boolean },
+    payment_transaction_ref: { type: String },
+    payment_proof_amount_claimed: { type: Number },
+    payment_proof_sha256: { type: String },
+    payment_proof_verified: { type: Boolean },
   },
   { ...schemaOptions, strict: false },
 );
@@ -244,6 +257,11 @@ const bookingPaymentProofSchema = new Schema(
     payment_proof_base64: { type: String },
     payment_proof_mime: { type: String },
     payment_proof_filename: { type: String },
+    payment_transaction_ref: { type: String, index: true },
+    payment_proof_amount_claimed: { type: Number },
+    payment_proof_sha256: { type: String, index: true },
+    expected_deposit_amount: { type: Number },
+    payment_proof_verified: { type: Boolean, default: false },
   },
   { ...schemaOptions, strict: false },
 );

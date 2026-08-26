@@ -84,6 +84,10 @@ export function buildExternalReservationDoc(input: {
   paymentProofUploaded?: boolean;
   paymentProofFilename?: string;
   paymentProofMime?: string;
+  paymentTransactionRef?: string;
+  paymentProofAmountClaimed?: number;
+  paymentProofExpectedAmount?: number;
+  paymentProofVerified?: boolean;
 }) {
   const now = input.now ?? new Date();
   const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
@@ -119,6 +123,11 @@ export function buildExternalReservationDoc(input: {
     payment_proof_filename: input.paymentProofFilename ?? '',
     payment_proof_mime: input.paymentProofMime ?? '',
     payment_proof_collection: input.paymentProofUploaded ? 'booking_payment_proofs' : '',
+    payment_transaction_ref: input.paymentTransactionRef ?? '',
+    payment_proof_amount_claimed: input.paymentProofAmountClaimed ?? null,
+    payment_proof_expected_amount: input.paymentProofExpectedAmount ?? amountDue,
+    // Never true from website upload — hotel staff verifies in MADYAWPH.
+    payment_proof_verified: Boolean(input.paymentProofVerified),
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,

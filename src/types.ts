@@ -144,6 +144,9 @@ export interface BookingRequest {
   validIdFilename?: string;
   paymentProofUploaded?: boolean;
   paymentProofFilename?: string;
+  paymentTransactionRef?: string;
+  paymentProofAmountClaimed?: number;
+  paymentProofVerified?: boolean;
   confirmationSentAt?: string | null;
   confirmationSendStatus?: 'none' | 'sent' | 'failed';
   confirmationSendError?: string;
