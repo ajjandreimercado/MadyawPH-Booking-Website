@@ -389,14 +389,14 @@ export async function fetchFilters(): Promise<FiltersResponse> {
   );
 }
 
-export async function fetchHotelById(hotelId: string): Promise<Hotel> {
+export async function fetchHotelById(hotelId: string, options?: { force?: boolean }): Promise<Hotel> {
   return cachedQuery(
     cacheKey(['hotel', hotelId]),
     async () => {
       const response = await api.get<Hotel & { _id?: string; id?: string | number }>(`/hotels/${encodeURIComponent(hotelId)}`);
       return normalizeHotel(response.data);
     },
-    { softTtlMs: 60_000, ttlMs: 15 * 60_000 },
+    { softTtlMs: 60_000, ttlMs: 15 * 60_000, force: options?.force },
   );
 }
 

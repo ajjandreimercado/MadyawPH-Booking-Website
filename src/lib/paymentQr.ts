@@ -9,9 +9,10 @@ export function resolveMediaUrl(url?: string): string | undefined {
   return url;
 }
 
-export function paymentQrProxyUrl(hotelId: string): string {
+export function paymentQrProxyUrl(hotelId: string, refresh = false): string {
   const apiBase = API_BASE_URL.replace(/\/$/, '');
-  return `${apiBase}/hotels/${encodeURIComponent(hotelId)}/payment-qr`;
+  const query = refresh ? '?refresh=1' : '';
+  return `${apiBase}/hotels/${encodeURIComponent(hotelId)}/payment-qr${query}`;
 }
 
 /** The hotel app stores one QR image. Prefer the API-embedded bytes. */

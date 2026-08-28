@@ -6,6 +6,7 @@
 import mongoose from 'mongoose';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { getHotelAppPublicUrl, getHotelStoragePublicUrl } from '../config/env';
 
 export interface HotelPaymentQrs {
   gcash?: string;
@@ -295,8 +296,6 @@ export function sanitizeStoragePath(raw: string): string | null {
   return path;
 }
 
-const DEFAULT_HOTEL_APP_ORIGIN = 'https://madyawph.onrender.com';
-
 function looksLikeImage(body: Buffer, contentType: string): boolean {
   if (body.length < 32) return false;
   const jpeg = body[0] === 0xff && body[1] === 0xd8;
@@ -305,6 +304,20 @@ function looksLikeImage(body: Buffer, contentType: string): boolean {
   const webp = body[8] === 0x57 && body[9] === 0x45 && body[10] === 0x42 && body[11] === 0x50;
   if (jpeg || png || gif || webp) return true;
   return contentType.startsWith('image/') || contentType.includes('octet-stream');
+}
+
+function hotelAppOrigins(): string[] {
+  const storage = getHotelStoragePublicUrl();
+  const app = (getHotelAppPublicUrl() || 'https://madyawph.onrender.com').replace(/\/+$/, '');
+  const internal = (process.env.HOTEL_APP_INTERNAL_URL ?? '').trim().replace(/\/+$/, '');
+  const extras = (process.env.HOTEL_APP_PUBLIC_URLS ?? '')
+    .split(',')
+    .map((item) => item.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const localBases = process.env.NODE_ENV === 'production'
+    ? []
+    : ['http://127.0.0.1:8000', 'http://localhost:8000'];
+  return [...new Set([storage, app, internal, ...extras, ...localBases].filter(Boolean))];
 }
 
 function storageFetchUrls(rawPath: string): string[] {
@@ -319,27 +332,34 @@ function storageFetchUrls(rawPath: string): string[] {
   }
   const storagePath = sanitizeStoragePath(rawPath);
   if (!storagePath) return [...new Set(urls)];
-  const storage = (process.env.HOTEL_STORAGE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
-  const app = (process.env.HOTEL_APP_PUBLIC_URL ?? DEFAULT_HOTEL_APP_ORIGIN).trim().replace(/\/+$/, '');
-  const internal = (process.env.HOTEL_APP_INTERNAL_URL ?? '').trim().replace(/\/+$/, '');
-  const extras = (process.env.HOTEL_APP_PUBLIC_URLS ?? '')
-    .split(',')
-    .map((item) => item.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
-  const localBases = process.env.NODE_ENV === 'production'
-    ? []
-    : ['http://127.0.0.1:8000', 'http://localhost:8000'];
-  const bases = [...new Set([storage, app, internal, ...extras, ...localBases].filter(Boolean))];
-  for (const base of bases) {
-    if (base === storage && storage) {
-      urls.push(`${storage}/${storagePath}`);
-      continue;
-    }
-    urls.push(`${base}/storage/${storagePath}`);
-    urls.push(`${base}/${storagePath}`);
-    urls.push(`${base}/public/storage/${storagePath}`);
-    urls.push(`${base}/storage/app/public/${storagePath}`);
+
+  const storage = getHotelStoragePublicUrl();
+  const pathSuffixes = [
+    `/storage/${storagePath}`,
+    `/public/storage/${storagePath}`,
+    `/storage/app/public/${storagePath}`,
+    `/${storagePath}`,
+  ];
+
+  const roots = new Set<string>();
+  for (const base of hotelAppOrigins()) {
+    roots.add(base.replace(/\/api$/, ''));
   }
+
+  for (const root of roots) {
+    for (const suffix of pathSuffixes) {
+      urls.push(`${root}${suffix}`);
+    }
+    // Laravel API-only deployments sometimes expose files under /api/…
+    urls.push(`${root}/api/storage/${storagePath}`);
+    urls.push(`${root}/api/public/storage/${storagePath}`);
+    urls.push(`${root}/api/files/${storagePath}`);
+  }
+
+  if (storage) {
+    urls.push(`${storage}/${storagePath}`);
+  }
+
   return [...new Set(urls)];
 }
 
@@ -396,15 +416,31 @@ function parseDataUrl(raw: string): { body: Buffer; contentType: string } | null
   return body.length >= 32 ? { body, contentType: match[1] } : null;
 }
 
-async function readCachedQr(hotelId: string, storagePath: string): Promise<{ body: Buffer; contentType: string } | null> {
+async function readCachedQr(
+  hotelId: string,
+  storagePath: string,
+): Promise<{ body: Buffer; contentType: string } | null> {
   const settings = await loadHotelSystemSettings(hotelId);
   if (!settings) return null;
-  const cachedPath = typeof settings.payment_qr_blob_path === 'string' ? settings.payment_qr_blob_path : '';
-  if (cachedPath && cachedPath !== storagePath) return null;
   const body = blobToBuffer(settings.payment_qr_blob ?? settings.payment_qr_base64);
   if (!body) return null;
+  const cachedPath = typeof settings.payment_qr_blob_path === 'string' ? settings.payment_qr_blob_path : '';
+  const currentPath = typeof settings.payment_qr_url === 'string'
+    ? sanitizeStoragePath(settings.payment_qr_url)
+    : null;
+  if (cachedPath && cachedPath !== storagePath && currentPath !== storagePath) {
+    return null;
+  }
   const contentType = typeof settings.payment_qr_blob_type === 'string' ? settings.payment_qr_blob_type : 'image/jpeg';
   return { body, contentType };
+}
+
+export async function cachePaymentQrImage(
+  hotelId: string,
+  storagePath: string,
+  image: { body: Buffer; contentType: string },
+): Promise<void> {
+  await writeCachedQr(hotelId, storagePath, image);
 }
 
 async function writeCachedQr(hotelId: string, storagePath: string, image: { body: Buffer; contentType: string }): Promise<void> {
@@ -429,7 +465,11 @@ async function writeCachedQr(hotelId: string, storagePath: string, image: { body
   }
 }
 
-export async function fetchHotelPaymentQrImage(rawPath: string, hotelId?: string): Promise<{ body: Buffer; contentType: string } | null> {
+export async function fetchHotelPaymentQrImage(
+  rawPath: string,
+  hotelId?: string,
+  options?: { skipCache?: boolean },
+): Promise<{ body: Buffer; contentType: string } | null> {
   if (rawPath.startsWith('data:image/')) {
     return parseDataUrl(rawPath);
   }
@@ -439,7 +479,7 @@ export async function fetchHotelPaymentQrImage(rawPath: string, hotelId?: string
     : sanitizeStoragePath(rawPath);
   if (!storagePath) return null;
 
-  if (hotelId && !storagePath.startsWith('http')) {
+  if (hotelId && !storagePath.startsWith('http') && !options?.skipCache) {
     const cached = await readCachedQr(hotelId, storagePath);
     if (cached) return cached;
     const fromDisk = await readQrFromDisk(storagePath);
@@ -487,6 +527,24 @@ export async function fetchHotelPaymentQrImage(rawPath: string, hotelId?: string
     }
   }
   return null;
+}
+
+/** Try every hotel with a payment_qr_url in system_settings. */
+export async function warmAllPaymentQrCaches(): Promise<Array<{ hotelId: string; ok: boolean; path: string }>> {
+  const db = mongoose.connection.db;
+  if (!db) return [];
+  const rows = await db.collection('system_settings').find({
+    payment_qr_url: { $exists: true, $nin: ['', null] },
+  }).toArray();
+  const results: Array<{ hotelId: string; ok: boolean; path: string }> = [];
+  for (const row of rows) {
+    const hotelId = String(row.hotel_id ?? '');
+    const path = String(row.payment_qr_url ?? '');
+    if (!hotelId || !path) continue;
+    const image = await fetchHotelPaymentQrImage(path, hotelId, { skipCache: true });
+    results.push({ hotelId, ok: Boolean(image), path });
+  }
+  return results;
 }
 
 export function paymentQrToDataUrl(image: { body: Buffer; contentType: string }): string {

@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
-import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr } from '../utils/paymentQr';
+import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
-import { publicReadLimiter } from '../middleware/rateLimiters';
+import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
+import { isHotelWebhookAuthorized } from '../middleware/hotelWebhookAuth';
+import { getHotelWebhookSecret } from '../config/env';
 import Fuse from 'fuse.js';
 import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
@@ -34,7 +36,16 @@ hotelRoutes.get('/', publicReadLimiter, async (_req, res) => {
   console.log('[MongoDB Query] Collection: hotels, Query: {}');
   const hotels = await HotelModel.find().lean();
   console.log(`[MongoDB Results] Collection: hotels, Retrieved: ${hotels.length} documents`);
-  return res.json(hotels.map(hotel => serializeHotel(hotel as never)));
+
+  const settingsRows = await Promise.all(
+    hotels.map((hotel) => loadHotelSystemSettings(String((hotel as { _id: unknown })._id))),
+  );
+
+  return res.json(
+    hotels.map((hotel, index) => serializeHotel(hotel as never, {
+      systemSettings: settingsRows[index] ?? undefined,
+    })),
+  );
 });
 
 // ─── GET /search ──────────────────────────────────────────────────────────────
@@ -660,6 +671,63 @@ hotelRoutes.get('/:hotelId', publicReadLimiter, async (req, res) => {
   return res.json(serializeHotel(hotel as never, { systemSettings, paymentQrDataUrl }));
 });
 
+hotelRoutes.post('/:hotelId/payment-qr/sync', hotelWebhookLimiter, async (req, res) => {
+  if (!getHotelWebhookSecret()) {
+    return res.status(503).json({ message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.' });
+  }
+  if (!isHotelWebhookAuthorized(req)) {
+    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+  }
+
+  const idResult = validateId(req.params.hotelId, 'Hotel ID');
+  if (!idResult.ok) {
+    return res.status(400).json({ message: idResult.message });
+  }
+
+  const hotel = await HotelModel.findById(req.params.hotelId).lean();
+  if (!hotel) {
+    return res.status(404).json({ message: 'Hotel not found.' });
+  }
+
+  const hotelId = String((hotel as { _id: unknown })._id);
+  const systemSettings = await loadHotelSystemSettings(hotelId);
+  const qrs = mergePaymentQrs(hotel, systemSettings);
+  const rawPath = typeof req.body?.payment_qr_url === 'string' && req.body.payment_qr_url.trim()
+    ? req.body.payment_qr_url.trim()
+    : (qrs.generic || qrs.gcash || qrs.maya || qrs.bank || '');
+
+  if (!rawPath) {
+    return res.status(400).json({ message: 'No payment_qr_url on this hotel.' });
+  }
+
+  const storagePath = sanitizeStoragePath(rawPath);
+  if (!storagePath) {
+    return res.status(400).json({ message: 'Invalid payment_qr_url.' });
+  }
+
+  const rawBase64 = typeof req.body?.base64 === 'string' ? req.body.base64.trim() : '';
+  if (rawBase64) {
+    const payload = rawBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+    const body = Buffer.from(payload, 'base64');
+    if (body.length < 32) {
+      return res.status(400).json({ message: 'Invalid QR image payload.' });
+    }
+    const mime = typeof req.body?.mime === 'string' && req.body.mime.startsWith('image/')
+      ? req.body.mime.split(';')[0]
+      : 'image/jpeg';
+    await cachePaymentQrImage(hotelId, storagePath, { body, contentType: mime });
+    return res.json({ ok: true, cached: true, hotelId, path: storagePath });
+  }
+
+  const image = await fetchHotelPaymentQrImage(rawPath, hotelId, { skipCache: true });
+  if (!image) {
+    return res.status(404).json({
+      message: 'Could not fetch payment QR from the hotel app. Re-upload the QR in MADYAWPH and run php artisan storage:link.',
+    });
+  }
+  return res.json({ ok: true, cached: true, hotelId, path: storagePath, bytes: image.body.length });
+});
+
 hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
   const idResult = validateId(req.params.hotelId, 'Hotel ID');
   if (!idResult.ok) {
@@ -680,10 +748,16 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
     return res.status(404).json({ message: 'No payment QR uploaded for this hotel.' });
   }
 
-  const image = await fetchHotelPaymentQrImage(rawPath, String((hotel as { _id: unknown })._id));
+  const skipCache = req.query.refresh === '1' || req.query.refresh === 'true';
+  const image = await fetchHotelPaymentQrImage(
+    rawPath,
+    String((hotel as { _id: unknown })._id),
+    { skipCache },
+  );
   if (!image) {
+    console.warn('[PaymentQR] Unavailable for hotel', req.params.hotelId, 'path:', rawPath);
     return res.status(404).json({
-      message: 'Payment QR filename exists in Mongo, but the image file is not public on the hotel app (404 from /storage/payment-qr/…). Add a persistent disk on MADYAWPH, run storage:link, and re-upload the QR.',
+      message: 'Payment QR is not available yet. The hotel may need to re-upload it after enabling persistent storage.',
     });
   }
 

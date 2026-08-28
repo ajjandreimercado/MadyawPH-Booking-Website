@@ -185,7 +185,7 @@ export default function BookingPage() {
         const hotelId = p.hotelId;
         if (hotelId) {
           try {
-            const h = await fetchHotelById(hotelId);
+            const h = await fetchHotelById(hotelId, { force: true });
             if (!cancelled) startTransition(() => setHotel(h));
           } catch {
             if (!cancelled) setHotel(null);
@@ -217,19 +217,29 @@ export default function BookingPage() {
     }
     let objectUrl: string | undefined;
     let cancelled = false;
-    fetch(paymentQrProxyUrl(hotel.id))
-      .then((res) => {
-        if (!res.ok) throw new Error('qr');
-        return res.blob();
-      })
-      .then((blob) => {
-        if (cancelled || !blob.type.startsWith('image/')) return;
-        objectUrl = URL.createObjectURL(blob);
-        setQrObjectUrl(objectUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setQrObjectUrl(undefined);
-      });
+
+    const hotelId = hotel.id;
+
+    async function loadPaymentQr() {
+      for (const refresh of [false, true]) {
+        if (cancelled) return;
+        try {
+          const res = await fetch(paymentQrProxyUrl(hotelId, refresh));
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          if (cancelled || !blob.type.startsWith('image/')) continue;
+          objectUrl = URL.createObjectURL(blob);
+          setQrObjectUrl(objectUrl);
+          return;
+        } catch {
+          // try refresh on next loop
+        }
+      }
+      if (!cancelled) setQrObjectUrl(undefined);
+    }
+
+    void loadPaymentQr();
+
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);

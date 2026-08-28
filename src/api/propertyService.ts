@@ -35,8 +35,8 @@ export async function fetchPropertyById(propertyId: string): Promise<Property> {
   return fetchPropertyByIdApi(propertyId);
 }
 
-export async function fetchHotelById(hotelId: string): Promise<Hotel> {
-  return fetchHotelByIdApi(hotelId);
+export async function fetchHotelById(hotelId: string, options?: { force?: boolean }): Promise<Hotel> {
+  return fetchHotelByIdApi(hotelId, options);
 }
 
 export async function fetchHotelDetailById(hotelId: string): Promise<HotelDetailResponse> {
