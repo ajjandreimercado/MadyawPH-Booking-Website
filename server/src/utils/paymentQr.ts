@@ -186,6 +186,16 @@ function parsePaymentMethodQrs(record: Record<string, unknown> | null): HotelPay
     const entry = asRecord(value);
     if (!entry) continue;
     const url = asImageUrl(entry.qr_url ?? entry.qrUrl ?? entry.url ?? entry.qr);
+    const embedded = blobToBuffer(entry.qr_base64 ?? entry.base64);
+    if (!url && embedded) {
+      const dataUrl = `data:image/jpeg;base64,${embedded.toString('base64')}`;
+      const normalized = key.toLowerCase();
+      if (normalized.includes('gcash')) qrs.gcash = dataUrl;
+      else if (normalized.includes('maya') || normalized.includes('paymaya')) qrs.maya = dataUrl;
+      else if (normalized.includes('bank')) qrs.bank = dataUrl;
+      else if (!qrs.generic) qrs.generic = dataUrl;
+      continue;
+    }
     if (!url) continue;
     const normalized = key.toLowerCase();
     if (normalized.includes('gcash')) qrs.gcash = url;
@@ -216,6 +226,13 @@ export async function fetchFirstPaymentQrImage(
   hotelId: string,
   options?: { skipCache?: boolean; preferredMethod?: string },
 ): Promise<{ body: Buffer; contentType: string; path: string } | null> {
+  if (!options?.skipCache) {
+    const hotelCache = await readCachedQrForHotel(hotelId);
+    if (hotelCache) {
+      return { ...hotelCache, path: hotelCache.path ?? 'cached' };
+    }
+  }
+
   const qrs = mergePaymentQrs(hotel, systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)));
   const preferred = options?.preferredMethod
     ? qrUrlForPaymentMethod(qrs, options.preferredMethod)
@@ -495,7 +512,7 @@ function parseDataUrl(raw: string): { body: Buffer; contentType: string } | null
 async function readCachedQr(
   hotelId: string,
   storagePath: string,
-): Promise<{ body: Buffer; contentType: string } | null> {
+): Promise<{ body: Buffer; contentType: string; path?: string } | null> {
   const settings = await loadHotelSystemSettings(hotelId);
   if (!settings) return null;
   const body = blobToBuffer(settings.payment_qr_blob ?? settings.payment_qr_base64);
@@ -508,7 +525,65 @@ async function readCachedQr(
     return null;
   }
   const contentType = typeof settings.payment_qr_blob_type === 'string' ? settings.payment_qr_blob_type : 'image/jpeg';
-  return { body, contentType };
+  return { body, contentType, path: cachedPath || storagePath };
+}
+
+/** Cached bytes in system_settings — works when the hotel disk file is not public HTTP yet. */
+async function readCachedQrForHotel(
+  hotelId: string,
+): Promise<{ body: Buffer; contentType: string; path?: string } | null> {
+  const settings = await loadHotelSystemSettings(hotelId);
+  if (!settings) return null;
+  const body = blobToBuffer(settings.payment_qr_blob ?? settings.payment_qr_base64);
+  if (!body) return null;
+  const contentType = typeof settings.payment_qr_blob_type === 'string'
+    ? settings.payment_qr_blob_type
+    : 'image/jpeg';
+  const cachedPath = typeof settings.payment_qr_blob_path === 'string'
+    ? settings.payment_qr_blob_path
+    : undefined;
+  return { body, contentType, path: cachedPath };
+}
+
+export async function cachePaymentQrFromBase64(
+  hotelId: string,
+  storagePath: string,
+  rawBase64: string,
+  mime = 'image/jpeg',
+): Promise<boolean> {
+  const payload = rawBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').trim();
+  if (!payload) return false;
+  const body = Buffer.from(payload, 'base64');
+  if (body.length < 32) return false;
+  const contentType = mime.startsWith('image/') ? mime.split(';')[0] : 'image/jpeg';
+  await cachePaymentQrImage(hotelId, storagePath, { body, contentType });
+  return true;
+}
+
+const warmInFlight = new Map<string, Promise<void>>();
+const warmLastAttempt = new Map<string, number>();
+const WARM_DEBOUNCE_MS = 45_000;
+
+/** Background fetch from hotel public URL when disk file becomes reachable. */
+export function schedulePaymentQrWarm(
+  hotelId: string,
+  hotel: unknown,
+  systemSettings: unknown,
+): void {
+  if (!hotelId || !collectPaymentQrCandidates(hotel, systemSettings).length) return;
+  const last = warmLastAttempt.get(hotelId) ?? 0;
+  if (Date.now() - last < WARM_DEBOUNCE_MS) return;
+  if (warmInFlight.has(hotelId)) return;
+  warmLastAttempt.set(hotelId, Date.now());
+  const job = fetchFirstPaymentQrImage(hotel, systemSettings, hotelId, { skipCache: true })
+    .then((image) => {
+      if (image && !image.path.startsWith('data:')) {
+        console.log(`[PaymentQR] Warmed cache for hotel ${hotelId} from ${image.path}`);
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => warmInFlight.delete(hotelId));
+  warmInFlight.set(hotelId, job);
 }
 
 export async function cachePaymentQrImage(
@@ -605,20 +680,23 @@ export async function fetchHotelPaymentQrImage(
   return null;
 }
 
-/** Try every hotel with a payment_qr_url in system_settings. */
+/** Try every hotel with a payment QR path in system_settings. */
 export async function warmAllPaymentQrCaches(): Promise<Array<{ hotelId: string; ok: boolean; path: string }>> {
   const db = mongoose.connection.db;
   if (!db) return [];
-  const rows = await db.collection('system_settings').find({
-    payment_qr_url: { $exists: true, $nin: ['', null] },
-  }).toArray();
+  const rows = await db.collection('system_settings').find({}).toArray();
   const results: Array<{ hotelId: string; ok: boolean; path: string }> = [];
   for (const row of rows) {
     const hotelId = String(row.hotel_id ?? '');
-    const path = String(row.payment_qr_url ?? '');
-    if (!hotelId || !path) continue;
-    const image = await fetchHotelPaymentQrImage(path, hotelId, { skipCache: true });
-    results.push({ hotelId, ok: Boolean(image), path });
+    if (!hotelId) continue;
+    const candidates = collectPaymentQrCandidates({}, row);
+    if (!candidates.length) continue;
+    const image = await fetchFirstPaymentQrImage({}, row, hotelId, { skipCache: true });
+    results.push({
+      hotelId,
+      ok: Boolean(image),
+      path: image?.path ?? candidates[0],
+    });
   }
   return results;
 }

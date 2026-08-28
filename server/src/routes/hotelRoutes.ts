@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
-import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath, fetchFirstPaymentQrImage, collectPaymentQrCandidates } from '../utils/paymentQr';
+import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath, fetchFirstPaymentQrImage, collectPaymentQrCandidates, cachePaymentQrFromBase64, schedulePaymentQrWarm } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
@@ -20,6 +20,68 @@ import {
 } from '../utils/searchFilters';
 
 const hotelRoutes = Router();
+
+function resolvePrimaryQrPath(
+  systemSettings: Record<string, unknown> | null,
+  qrs: ReturnType<typeof mergePaymentQrs>,
+): string {
+  if (typeof systemSettings?.payment_qr_url === 'string' && systemSettings.payment_qr_url.trim()) {
+    return systemSettings.payment_qr_url.trim();
+  }
+  return qrs.maya || qrs.gcash || qrs.bank || qrs.generic || '';
+}
+
+// ─── POST /payment-qr-cache ───────────────────────────────────────────────────
+// Hotel app calls this after saving a QR to persistent disk (no public URL needed).
+// Auth: Authorization: Bearer <HOTEL_WEBHOOK_SECRET>
+
+hotelRoutes.post('/payment-qr-cache', hotelWebhookLimiter, async (req, res) => {
+  if (!getHotelWebhookSecret()) {
+    return res.status(503).json({ message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.' });
+  }
+  if (!isHotelWebhookAuthorized(req)) {
+    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+  }
+
+  const hotelId = String(req.body?.hotelId ?? req.body?.hotel_id ?? '').trim();
+  const idResult = validateId(hotelId, 'Hotel ID');
+  if (!idResult.ok) {
+    return res.status(400).json({ message: idResult.message });
+  }
+
+  const hotel = await HotelModel.findById(hotelId).lean();
+  if (!hotel) {
+    return res.status(404).json({ message: 'Hotel not found.' });
+  }
+
+  const systemSettings = await loadHotelSystemSettings(hotelId);
+  const qrs = mergePaymentQrs(hotel, systemSettings);
+  const rawPath = typeof req.body?.payment_qr_url === 'string' && req.body.payment_qr_url.trim()
+    ? req.body.payment_qr_url.trim()
+    : resolvePrimaryQrPath(systemSettings, qrs);
+
+  if (!rawPath || rawPath.startsWith('data:image/')) {
+    return res.status(400).json({ message: 'payment_qr_url is required.' });
+  }
+
+  const storagePath = sanitizeStoragePath(rawPath);
+  if (!storagePath) {
+    return res.status(400).json({ message: 'Invalid payment_qr_url.' });
+  }
+
+  const rawBase64 = typeof req.body?.base64 === 'string' ? req.body.base64 : '';
+  if (!rawBase64) {
+    return res.status(400).json({ message: 'base64 image payload is required.' });
+  }
+
+  const mime = typeof req.body?.mime === 'string' ? req.body.mime : 'image/jpeg';
+  const cached = await cachePaymentQrFromBase64(hotelId, storagePath, rawBase64, mime);
+  if (!cached) {
+    return res.status(400).json({ message: 'Invalid QR image payload.' });
+  }
+
+  return res.json({ ok: true, hotelId, path: storagePath, cached: true });
+});
 
 const DEFAULT_NEAR_RADIUS_KM = 50;
 
@@ -576,10 +638,12 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   console.log(`[MongoDB Results] Collection: rooms, Retrieved: ${scopedRooms.length} documents`);
 
   const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
+  const hotelId = String((hotel as { _id: unknown })._id);
+  schedulePaymentQrWarm(hotelId, hotel, systemSettings);
   const paymentQrDataUrl = await resolveDisplayablePaymentQr(
     hotel,
     systemSettings,
-    String((hotel as { _id: unknown })._id),
+    hotelId,
   );
   const serializedHotel = serializeHotel(hotel as never, {
     systemSettings,
@@ -663,10 +727,12 @@ hotelRoutes.get('/:hotelId', publicReadLimiter, async (req, res) => {
   }
 
   const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
+  const hotelId = String((hotel as { _id: unknown })._id);
+  schedulePaymentQrWarm(hotelId, hotel, systemSettings);
   const paymentQrDataUrl = await resolveDisplayablePaymentQr(
     hotel,
     systemSettings,
-    String((hotel as { _id: unknown })._id),
+    hotelId,
   );
   return res.json(serializeHotel(hotel as never, { systemSettings, paymentQrDataUrl }));
 });
@@ -707,15 +773,13 @@ hotelRoutes.post('/:hotelId/payment-qr/sync', hotelWebhookLimiter, async (req, r
 
   const rawBase64 = typeof req.body?.base64 === 'string' ? req.body.base64.trim() : '';
   if (rawBase64) {
-    const payload = rawBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
-    const body = Buffer.from(payload, 'base64');
-    if (body.length < 32) {
-      return res.status(400).json({ message: 'Invalid QR image payload.' });
-    }
     const mime = typeof req.body?.mime === 'string' && req.body.mime.startsWith('image/')
       ? req.body.mime.split(';')[0]
       : 'image/jpeg';
-    await cachePaymentQrImage(hotelId, storagePath, { body, contentType: mime });
+    const cached = await cachePaymentQrFromBase64(hotelId, storagePath, rawBase64, mime);
+    if (!cached) {
+      return res.status(400).json({ message: 'Invalid QR image payload.' });
+    }
     return res.json({ ok: true, cached: true, hotelId, path: storagePath });
   }
 
