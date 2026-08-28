@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'motion/react';
 import { CheckCircle2, Home, Download, MapPin, Calendar, Users, CreditCard, Loader2, Clock } from 'lucide-react';
 import { fetchBookingById, fetchHotelById } from '../services/api';
+import { errorMessageFromUnknown } from '../lib/apiError';
 import type { BookingRequest, Hotel } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
 import { hotelPaymentQrSrc } from '../lib/paymentQr';
@@ -49,7 +50,7 @@ export default function BookingConfirmationPage() {
     const guestEmail = searchParams.get('email') ?? undefined;
     const receiptToken = searchParams.get('token') ?? undefined;
     if (!receiptToken) {
-      setError('This confirmation link is missing a receipt token. Please use the link shown after submitting your request.');
+      setError('This confirmation link is incomplete or has expired. Please use the link from your booking email.');
       setIsLoading(false);
       return;
     }
@@ -68,7 +69,7 @@ export default function BookingConfirmationPage() {
       })
       .catch(err => {
         if (!sessionBooking) {
-          setError(err instanceof Error ? err.message : 'Unable to load booking');
+          setError(errorMessageFromUnknown(err, 'Unable to load your booking right now.'));
         }
         setIsLoading(false);
       });

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginWithGoogleCredential, isAxiosError } from '../services/api';
+import { errorMessageFromUnknown } from '../lib/apiError';
 import { useToast } from '../components/ui/ToastProvider';
 
 function parseHash(hash: string) {
@@ -40,7 +41,7 @@ export default function AuthCallback() {
       const tokenPayload = id_token ? decodeJwtPayload(id_token) : null;
 
       if (!id_token) {
-        showToast({ title: 'Authentication failed', description: 'No token received from Google.', type: 'error' });
+        showToast({ title: 'Sign-in incomplete', description: 'Google sign-in did not finish. Please try again.', type: 'error' });
         navigate('/', { replace: true });
         return;
       }
@@ -53,9 +54,7 @@ export default function AuthCallback() {
       } catch (error) {
         const message = isAxiosError(error)
           ? (error.response?.data as { message?: string })?.message ?? 'Unable to sign in with Google.'
-          : error instanceof Error
-            ? error.message
-            : 'Unable to sign in with Google.';
+          : errorMessageFromUnknown(error, 'Unable to sign in with Google.');
 
         window.history.replaceState(null, '', window.location.pathname);
 

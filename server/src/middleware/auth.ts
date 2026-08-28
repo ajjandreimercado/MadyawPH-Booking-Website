@@ -8,14 +8,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = header?.startsWith('Bearer ') ? header.slice(7) : cookieToken;
 
   if (!token) {
-    return res.status(401).json({ message: 'Missing authorization token.' });
+    return res.status(401).json({ message: 'Please sign in to continue.' });
   }
 
   try {
     req.auth = verifyAuthToken(token);
     return next();
   } catch {
-    return res.status(401).json({ message: 'Invalid or expired authorization token.' });
+    return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   }
 }
 

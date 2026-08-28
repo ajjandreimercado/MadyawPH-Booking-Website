@@ -62,7 +62,7 @@ describe('GET /api/reviews', () => {
   it('returns 400 when neither propertyId nor hotelId is provided', async () => {
     const res = await request(app).get('/api/reviews');
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/propertyId or hotelId/i);
+    expect(res.body.message).toMatch(/property or hotel/i);
   });
 
   it('returns 200 with paginated response shape when propertyId is provided', async () => {

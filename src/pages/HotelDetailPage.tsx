@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
+import { errorMessageFromUnknown } from '../lib/apiError';
 import type { Hotel } from '../types';
 import type { HotelDetailResponse, HotelDetailCategory } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
@@ -253,7 +254,7 @@ export default function HotelDetailPage() {
       } catch (err) {
         if (!isActive) return;
         if (!cachedDetail) {
-          setError(err instanceof Error ? err.message : 'Unable to load hotel data');
+          setError(errorMessageFromUnknown(err, 'Unable to load hotel details right now.'));
         }
       } finally {
         if (isActive) setIsLoading(false);

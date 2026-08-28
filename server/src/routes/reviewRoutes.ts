@@ -61,7 +61,7 @@ reviewRoutes.get('/', publicReadLimiter, async (req, res) => {
 
   // Require at least one scope — never return the global review dump.
   if (!propertyIdTrimmed && !hotelIdTrimmed) {
-    return res.status(400).json({ message: 'propertyId or hotelId is required.' });
+    return res.status(400).json({ message: 'Please provide a property or hotel to load reviews.' });
   }
 
   const safePage = parsePositiveInt(page, 1, 1_000);

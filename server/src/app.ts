@@ -14,6 +14,7 @@ import promoCodeRoutes from './routes/promoCodeRoutes';
 import memberRoutes from './routes/memberRoutes';
 import messengerRoutes from './routes/messengerRoutes';
 import { requestLogger, getUptimeMs } from './middleware/logger';
+import { csrfOriginGuard } from './middleware/csrfOriginGuard';
 // Centralised rate limiters — user-keyed with graceful 429s (OWASP A04/A07)
 import { apiLimiter } from './middleware/rateLimiters';
 
@@ -66,7 +67,8 @@ app.use(
       // Allow requests with no origin (server-to-server, curl, Render health checks)
       if (!origin) return callback(null, true);
       if (allowedOriginSet.has(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin '${origin}' not in allowlist`));
+      // Reject cross-origin browser requests without throwing (avoids 500 responses).
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -77,7 +79,16 @@ app.use(
 
 // ─── Cookie parser + body ─────────────────────────────────────────────────────
 app.use(cookieParser());
-app.use(express.json({ limit: '10kb' }));
+app.use((req, res, next) => {
+  const isQrWebhook =
+    req.path === '/api/hotels/payment-qr-cache'
+    || /\/api\/hotels\/[^/]+\/payment-qr\/sync$/.test(req.path);
+  const limit = isQrWebhook ? '512kb' : '10kb';
+  express.json({ limit })(req, res, next);
+});
+
+// ─── CSRF guard for cookie-auth browser requests ─────────────────────────────
+app.use(csrfOriginGuard);
 
 // ─── Request logger ───────────────────────────────────────────────────────────
 app.use(requestLogger);
@@ -131,8 +142,10 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   // In production, hide unexpected internal messages (may include provider noise).
   const message =
     process.env.NODE_ENV === 'production' && statusCode >= 500 && !isOperational
-      ? 'Unexpected server error.'
-      : rawMessage;
+      ? 'Something went wrong on our end. Please try again in a moment.'
+      : rawMessage === 'Unexpected server error.'
+        ? 'Something went wrong on our end. Please try again in a moment.'
+        : rawMessage;
 
   // Never leak stack traces or internal details to clients.
   res.status(statusCode).json({ message, status: 'error' });

@@ -38,6 +38,7 @@ import {
   validateOptionalEnum,
   validateId,
 } from '../utils/validators';
+import { USER_MESSAGES } from '../utils/userMessages';
 
 const bookingRoutes = Router();
 
@@ -200,7 +201,7 @@ bookingRoutes.get('/', requireAuth, async (req, res) => {
 
   if (!requester) {
     // req.auth was valid (requireAuth passed) but the user no longer exists in DB.
-    return res.status(401).json({ message: 'Authenticated user not found.' });
+    return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
   }
 
   // Pagination — clamped to safe bounds (OWASP A04)
@@ -249,18 +250,18 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
   };
 
   if (!propertyId || !checkInDate || !checkOutDate) {
-    return res.status(400).json({ message: 'propertyId, checkInDate and checkOutDate are required.' });
+    return res.status(400).json({ message: USER_MESSAGES.selectDatesAndRoom });
   }
 
   // OWASP A03: validate propertyId length before passing to DB query
-  const idResult = validateId(propertyId, 'propertyId');
+  const idResult = validateId(propertyId, 'Room');
   if (!idResult.ok) {
     return res.status(400).json({ message: idResult.message });
   }
 
   // Validate date strings are parseable ISO dates
   if (Number.isNaN(new Date(checkInDate).getTime()) || Number.isNaN(new Date(checkOutDate).getTime())) {
-    return res.status(400).json({ message: 'checkInDate and checkOutDate must be valid dates.' });
+    return res.status(400).json({ message: USER_MESSAGES.invalidDates });
   }
 
   try {
@@ -305,11 +306,11 @@ function isHotelWebhookAuthorized(req: Request): boolean {
 bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
   if (!getHotelWebhookSecret()) {
     return res.status(503).json({
-      message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.',
+      message: USER_MESSAGES.serviceUnavailable,
     });
   }
   if (!isHotelWebhookAuthorized(req)) {
-    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+    return res.status(401).json({ message: 'Unauthorized request.' });
   }
 
   const body = req.body as {
@@ -1115,7 +1116,7 @@ bookingRoutes.put('/:bookingId', requireAuth, async (req, res) => {
   // Privileged staff may update bookings for their hotel only (super_admin: any).
   const requester = await getRequestUser(req);
   if (!requester) {
-    return res.status(401).json({ message: 'Authenticated user not found.' });
+    return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
   }
   const callerRole = requester.role as UserRole;
   const isStaff = isPrivilegedRole(callerRole);
@@ -1218,7 +1219,7 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
   // ── Ownership / privilege check ───────────────────────────────────────────
   const requester = await getRequestUser(req);
   if (!requester) {
-    return res.status(401).json({ message: 'Authenticated user not found.' });
+    return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
   }
   const callerRole = requester.role as UserRole;
   const isStaff = isPrivilegedRole(callerRole);
@@ -1289,7 +1290,7 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
   }
 
   if (!isStaff && !isOwner && !tokenOk) {
-    return res.status(403).json({ message: 'Access denied. Sign in or provide a valid receipt token to start payment.' });
+    return res.status(403).json({ message: 'Please sign in or open your booking confirmation link to pay.' });
   }
   if (
     isStaff
@@ -1354,7 +1355,7 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   if (req.auth && isPrivilegedRole(req.auth.role)) {
     const requester = await getRequestUser(req);
     if (!requester) {
-      return res.status(401).json({ message: 'Authenticated user not found.' });
+      return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
     }
     if (!staffCanAccessBooking(requester.role as UserRole, requester.hotelId, booking.hotel_id)) {
       return res.status(403).json({ message: 'Access denied. Booking belongs to another hotel.' });
@@ -1376,7 +1377,7 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   const rawToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
   if (!rawToken) {
     return res.status(401).json({
-      message: 'Authentication required. Please open your confirmation link with a valid receipt token.',
+      message: USER_MESSAGES.confirmationLinkInvalid,
     });
   }
 
@@ -1384,11 +1385,11 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
     const payload = verifyReceiptToken(rawToken);
     const bookingEmail = (booking.guestEmail as string | undefined)?.toLowerCase() ?? '';
     if (payload.bookingId !== bookingIdResult.value || payload.email !== bookingEmail) {
-      return res.status(403).json({ message: 'Access denied. Invalid receipt token for this booking.' });
+      return res.status(403).json({ message: USER_MESSAGES.confirmationLinkMismatch });
     }
     return res.json(serializeBooking(booking as never));
   } catch {
-    return res.status(401).json({ message: 'Invalid or expired receipt token.' });
+    return res.status(401).json({ message: USER_MESSAGES.confirmationLinkInvalid });
   }
 });
 

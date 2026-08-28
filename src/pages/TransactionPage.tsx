@@ -23,6 +23,7 @@ import {
   fetchRoomCategories,
   isAxiosError,
 } from '../services/api';
+import { errorMessageFromUnknown } from '../lib/apiError';
 import { useAuth } from '../contexts/AuthContext';
 import { useBookings } from '../contexts/BookingsContext';
 import { useToast } from '../components/ui/ToastProvider';
@@ -229,7 +230,7 @@ export default function TransactionPage() {
         }
 
         setProperty(null);
-        setPropertyError(error instanceof Error ? error.message : 'Unable to load property details from the API.');
+        setPropertyError(errorMessageFromUnknown(error, 'Unable to load property details right now.'));
       } finally {
         if (isActive) {
           setIsPropertyLoading(false);
@@ -348,7 +349,7 @@ export default function TransactionPage() {
         }
 
         setBookingRequest(prev => (prev && prev.status === 'requested' ? { ...prev, status: 'declined' } : prev));
-        setStatusMessage(error instanceof Error ? error.message : 'Unable to review availability.');
+        setStatusMessage(errorMessageFromUnknown(error, 'Unable to review availability right now.'));
       }
     }, 2600);
 
@@ -632,11 +633,11 @@ export default function TransactionPage() {
         setStatusMessage('Network configuration error. Please reload the page and try again.');
         showToast({
           title: 'Connection error',
-          description: 'The booking API returned a redirect. Please reload the page and try again.',
+          description: 'We could not reach the booking service. Please reload the page and try again.',
           type: 'info',
         });
       } else {
-        const fallbackMsg = serverMessage ?? (error instanceof Error ? error.message : 'The booking API could not be reached.');
+        const fallbackMsg = serverMessage ?? errorMessageFromUnknown(error, 'Unable to send your booking request.');
         setStatusMessage('Unable to send the booking request. Please try again.');
         showToast({
           title: 'Request failed',

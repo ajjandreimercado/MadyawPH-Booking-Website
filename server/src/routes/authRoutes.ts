@@ -269,7 +269,7 @@ authRoutes.post('/google', authWriteLimiter, async (req, res) => {
           return res.status(401).json({ message: error.message });
       }
     }
-    return res.status(401).json({ message: 'Invalid Google token.' });
+    return res.status(401).json({ message: 'Google sign-in did not work. Please try again.' });
   }
 
   const { email, sub, name: googleName, picture } = googlePayload;

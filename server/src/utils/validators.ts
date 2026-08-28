@@ -10,6 +10,8 @@
  *  - All string inputs are trimmed before checks.
  */
 
+import { humanizeFieldName } from './userMessages';
+
 // ─── Result type ──────────────────────────────────────────────────────────────
 
 export interface ValidationOk<T> {
@@ -76,8 +78,10 @@ export function validateString(
   min: number,
   max: number,
 ): ValidationResult<string> {
+  const label = humanizeFieldName(fieldName);
+
   if (typeof value !== 'string') {
-    return err(`${fieldName} must be a string.`);
+    return err(`Please enter a valid ${label}.`);
   }
 
   const trimmed = value.trim();
@@ -85,13 +89,13 @@ export function validateString(
   if (trimmed.length < min) {
     return err(
       min === 1
-        ? `${fieldName} is required.`
-        : `${fieldName} must be at least ${min} character(s).`,
+        ? `Please enter your ${label}.`
+        : `${label.charAt(0).toUpperCase()}${label.slice(1)} must be at least ${min} characters.`,
     );
   }
 
   if (trimmed.length > max) {
-    return err(`${fieldName} must not exceed ${max} characters.`);
+    return err(`${label.charAt(0).toUpperCase()}${label.slice(1)} must not exceed ${max} characters.`);
   }
 
   return ok(trimmed);
@@ -110,8 +114,10 @@ export function validateOptionalString(
     return ok(null);
   }
 
+  const label = humanizeFieldName(fieldName);
+
   if (typeof value !== 'string') {
-    return err(`${fieldName} must be a string.`);
+    return err(`Please enter a valid ${label}.`);
   }
 
   const trimmed = value.trim();
@@ -121,7 +127,7 @@ export function validateOptionalString(
   }
 
   if (trimmed.length > max) {
-    return err(`${fieldName} must not exceed ${max} characters.`);
+    return err(`${label.charAt(0).toUpperCase()}${label.slice(1)} must not exceed ${max} characters.`);
   }
 
   return ok(trimmed);
@@ -181,14 +187,15 @@ export function validateInteger(
   min: number,
   max: number,
 ): ValidationResult<number> {
+  const label = humanizeFieldName(fieldName);
   const n = Number(value);
 
   if (!Number.isFinite(n) || !Number.isInteger(n)) {
-    return err(`${fieldName} must be a whole number.`);
+    return err(`Please enter a whole number for ${label}.`);
   }
 
   if (n < min || n > max) {
-    return err(`${fieldName} must be between ${min} and ${max}.`);
+    return err(`${label.charAt(0).toUpperCase()}${label.slice(1)} must be between ${min} and ${max}.`);
   }
 
   return ok(n);
@@ -222,6 +229,8 @@ export function validatePositiveNumber(
   fieldName: string,
   max: number,
 ): ValidationResult<number> {
+  const label = humanizeFieldName(fieldName);
+
   if (value === undefined || value === null) {
     return ok(0);
   }
@@ -229,11 +238,11 @@ export function validatePositiveNumber(
   const n = Number(value);
 
   if (!Number.isFinite(n) || n < 0) {
-    return err(`${fieldName} must be a non-negative number.`);
+    return err(`Please enter a valid amount for ${label}.`);
   }
 
   if (n > max) {
-    return err(`${fieldName} must not exceed ${max}.`);
+    return err(`${label.charAt(0).toUpperCase()}${label.slice(1)} is too large.`);
   }
 
   return ok(n);
@@ -250,14 +259,16 @@ export function validateEnum<T extends string>(
   fieldName: string,
   allowedValues: readonly T[],
 ): ValidationResult<T> {
+  const label = humanizeFieldName(fieldName);
+
   if (typeof value !== 'string') {
-    return err(`${fieldName} must be a string.`);
+    return err(`Please choose a valid ${label}.`);
   }
 
   const trimmed = value.trim() as T;
 
   if (!allowedValues.includes(trimmed)) {
-    return err(`${fieldName} must be one of: ${allowedValues.join(', ')}.`);
+    return err(`Please choose a valid ${label}.`);
   }
 
   return ok(trimmed);

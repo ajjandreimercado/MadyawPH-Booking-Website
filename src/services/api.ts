@@ -1,5 +1,6 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, isAxiosError } from 'axios';
 import type { BookingDraft } from '../lib/bookingFlow';
+import { humanizeApiError } from '../lib/apiError';
 import { cacheKey, cachedQuery } from '../lib/queryCache';
 import type { BookingPaymentMethod, BookingRequest, BookingRoomType, BookingStatus, Hotel, Property, RoomCategory } from '../types';
 
@@ -132,6 +133,19 @@ api.interceptors.request.use((config) => {
   return config;
 });
 // Requests now rely on httpOnly cookies set by the API; do not auto-inject tokens from localStorage.
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (isAxiosError(error) && error.response?.data && typeof error.response.data === 'object') {
+      const data = error.response.data as { message?: string };
+      if (typeof data.message === 'string') {
+        data.message = humanizeApiError(data.message);
+      }
+    }
+    return Promise.reject(error);
+  },
+);
 
 function normalizeList<T>(payload: T[] | ApiListResponse<T>): T[] {
   if (Array.isArray(payload)) {

@@ -5,6 +5,7 @@ import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrU
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
+import { USER_MESSAGES } from '../utils/userMessages';
 import { isHotelWebhookAuthorized } from '../middleware/hotelWebhookAuth';
 import { getHotelWebhookSecret } from '../config/env';
 import Fuse from 'fuse.js';
@@ -37,10 +38,10 @@ function resolvePrimaryQrPath(
 
 hotelRoutes.post('/payment-qr-cache', hotelWebhookLimiter, async (req, res) => {
   if (!getHotelWebhookSecret()) {
-    return res.status(503).json({ message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.' });
+    return res.status(503).json({ message: USER_MESSAGES.serviceUnavailable });
   }
   if (!isHotelWebhookAuthorized(req)) {
-    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+    return res.status(401).json({ message: 'Unauthorized request.' });
   }
 
   const hotelId = String(req.body?.hotelId ?? req.body?.hotel_id ?? '').trim();
@@ -503,7 +504,7 @@ hotelRoutes.get('/destinations', publicReadLimiter, async (_req, res) => {
     })));
   } catch (error) {
     console.error('Error fetching destinations:', error);
-    return res.status(500).json({ message: 'Failed to fetch destinations' });
+    return res.status(500).json({ message: 'We could not load destinations right now. Please try again.' });
   }
 });
 
@@ -607,7 +608,7 @@ hotelRoutes.get('/filters', publicReadLimiter, async (_req, res) => {
     });
   } catch (error) {
     console.error('Error fetching filters:', error);
-    return res.status(500).json({ message: 'Failed to fetch filters' });
+    return res.status(500).json({ message: 'We could not load search filters right now. Please try again.' });
   }
 });
 
@@ -738,10 +739,10 @@ hotelRoutes.get('/:hotelId', publicReadLimiter, async (req, res) => {
 
 hotelRoutes.post('/:hotelId/payment-qr/sync', hotelWebhookLimiter, async (req, res) => {
   if (!getHotelWebhookSecret()) {
-    return res.status(503).json({ message: 'Hotel webhook is not configured. Set HOTEL_WEBHOOK_SECRET on the API.' });
+    return res.status(503).json({ message: USER_MESSAGES.serviceUnavailable });
   }
   if (!isHotelWebhookAuthorized(req)) {
-    return res.status(401).json({ message: 'Invalid hotel webhook credentials.' });
+    return res.status(401).json({ message: 'Unauthorized request.' });
   }
 
   const idResult = validateId(req.params.hotelId, 'Hotel ID');

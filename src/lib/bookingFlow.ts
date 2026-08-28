@@ -175,7 +175,7 @@ export async function recheckAvailability(propertyId: string, checkInDate?: stri
 
     const res = await fetch(`/api/bookings/availability?${params.toString()}`, { method: 'GET' });
     if (!res.ok) {
-      return { available: false, message: 'Availability API returned an error.' };
+      return { available: false, message: 'We could not check availability right now. Please try again.' };
     }
 
     const body = await res.json();
