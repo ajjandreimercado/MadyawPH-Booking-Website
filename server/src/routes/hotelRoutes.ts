@@ -619,7 +619,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   if (!idResult.ok) {
     return res.status(400).json({ message: idResult.message });
   }
-  const { hotelId } = req.params;
+  const hotelId = idResult.value;
 
   console.log(`[MongoDB Query] Collection: hotels, Action: findById, ID: ${hotelId}`);
   const hotel = await HotelModel.findById(hotelId).lean();
@@ -637,8 +637,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   console.log(`[MongoDB Results] Collection: roomcategories, Retrieved: ${scopedCategories.length} documents`);
   console.log(`[MongoDB Results] Collection: rooms, Retrieved: ${scopedRooms.length} documents`);
 
-  const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
-  const hotelId = String((hotel as { _id: unknown })._id);
+  const systemSettings = await loadHotelSystemSettings(hotelId);
   schedulePaymentQrWarm(hotelId, hotel, systemSettings);
   const paymentQrDataUrl = await resolveDisplayablePaymentQr(
     hotel,
