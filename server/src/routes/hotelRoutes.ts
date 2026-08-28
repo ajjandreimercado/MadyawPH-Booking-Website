@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
-import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath } from '../utils/paymentQr';
+import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath, fetchFirstPaymentQrImage, collectPaymentQrCandidates } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
@@ -719,13 +719,13 @@ hotelRoutes.post('/:hotelId/payment-qr/sync', hotelWebhookLimiter, async (req, r
     return res.json({ ok: true, cached: true, hotelId, path: storagePath });
   }
 
-  const image = await fetchHotelPaymentQrImage(rawPath, hotelId, { skipCache: true });
+  const image = await fetchFirstPaymentQrImage(hotel, systemSettings, hotelId, { skipCache: true });
   if (!image) {
     return res.status(404).json({
       message: 'Could not fetch payment QR from the hotel app. Re-upload the QR in MADYAWPH and run php artisan storage:link.',
     });
   }
-  return res.json({ ok: true, cached: true, hotelId, path: storagePath, bytes: image.body.length });
+  return res.json({ ok: true, cached: true, hotelId, path: image.path, bytes: image.body.length });
 });
 
 hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
@@ -740,22 +740,20 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
   }
 
   const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
-  const qrs = mergePaymentQrs(hotel, systemSettings);
+  const hotelId = String((hotel as { _id: unknown })._id);
   const method = typeof req.query.method === 'string' ? req.query.method : 'gcash';
-  const rawPath = qrUrlForPaymentMethod(qrs, method) || qrs.generic;
+  const skipCache = req.query.refresh === '1' || req.query.refresh === 'true';
 
-  if (!rawPath) {
+  if (!collectPaymentQrCandidates(hotel, systemSettings).length) {
     return res.status(404).json({ message: 'No payment QR uploaded for this hotel.' });
   }
 
-  const skipCache = req.query.refresh === '1' || req.query.refresh === 'true';
-  const image = await fetchHotelPaymentQrImage(
-    rawPath,
-    String((hotel as { _id: unknown })._id),
-    { skipCache },
-  );
+  const image = await fetchFirstPaymentQrImage(hotel, systemSettings, hotelId, {
+    skipCache,
+    preferredMethod: method,
+  });
   if (!image) {
-    console.warn('[PaymentQR] Unavailable for hotel', req.params.hotelId, 'path:', rawPath);
+    console.warn('[PaymentQR] Unavailable for hotel', req.params.hotelId, 'candidates:', collectPaymentQrCandidates(hotel, systemSettings));
     return res.status(404).json({
       message: 'Payment QR is not available yet. The hotel may need to re-upload it after enabling persistent storage.',
     });

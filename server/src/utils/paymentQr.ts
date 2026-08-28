@@ -166,6 +166,76 @@ const GENERIC_QR_PATHS: string[][] = [
   ['settings', 'qr'],
 ];
 
+function parsePaymentMethodQrs(record: Record<string, unknown> | null): HotelPaymentQrs {
+  if (!record) return {};
+  const raw = record.payment_method_qrs;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  } else {
+    parsed = asRecord(raw);
+  }
+  if (!parsed) return {};
+
+  const qrs: HotelPaymentQrs = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    const entry = asRecord(value);
+    if (!entry) continue;
+    const url = asImageUrl(entry.qr_url ?? entry.qrUrl ?? entry.url ?? entry.qr);
+    if (!url) continue;
+    const normalized = key.toLowerCase();
+    if (normalized.includes('gcash')) qrs.gcash = url;
+    else if (normalized.includes('maya') || normalized.includes('paymaya')) qrs.maya = url;
+    else if (normalized.includes('bank')) qrs.bank = url;
+    else if (!qrs.generic) qrs.generic = url;
+  }
+  return qrs;
+}
+
+/** All QR paths to try, newest/method-specific first. */
+export function collectPaymentQrCandidates(hotel: unknown, systemSettings?: unknown): string[] {
+  const settingsRecord = asRecord(systemSettings);
+  const methodQrs = parsePaymentMethodQrs(settingsRecord);
+  const merged = mergePaymentQrs(hotel, systemSettings, methodQrs);
+  const ordered = [
+    merged.maya,
+    merged.gcash,
+    merged.bank,
+    merged.generic,
+  ].filter((value): value is string => Boolean(value));
+  return [...new Set(ordered)];
+}
+
+export async function fetchFirstPaymentQrImage(
+  hotel: unknown,
+  systemSettings: unknown,
+  hotelId: string,
+  options?: { skipCache?: boolean; preferredMethod?: string },
+): Promise<{ body: Buffer; contentType: string; path: string } | null> {
+  const qrs = mergePaymentQrs(hotel, systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)));
+  const preferred = options?.preferredMethod
+    ? qrUrlForPaymentMethod(qrs, options.preferredMethod)
+    : undefined;
+  const candidates = [
+    ...(preferred ? [preferred] : []),
+    ...collectPaymentQrCandidates(hotel, mergePaymentQrs(systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)))),
+  ].filter((value, index, list) => Boolean(value) && list.indexOf(value) === index) as string[];
+
+  for (const raw of candidates) {
+    if (raw.startsWith('data:image/')) {
+      const parsed = parseDataUrl(raw);
+      if (parsed) return { ...parsed, path: raw };
+    }
+    const image = await fetchHotelPaymentQrImage(raw, hotelId, options);
+    if (image) return { ...image, path: raw };
+  }
+  return null;
+}
+
 function firstUrl(hotel: Record<string, unknown>, paths: string[][]): string | undefined {
   for (const path of paths) {
     const url = asImageUrl(readNested(hotel, path));
@@ -194,6 +264,11 @@ export function resolveHotelPaymentQrs(hotel: unknown): HotelPaymentQrs {
       qrs.generic = `data:image/jpeg;base64,${embedded.toString('base64')}`;
     }
   }
+  const methodQrs = parsePaymentMethodQrs(record);
+  if (methodQrs.gcash) qrs.gcash = methodQrs.gcash;
+  if (methodQrs.maya) qrs.maya = methodQrs.maya;
+  if (methodQrs.bank) qrs.bank = methodQrs.bank;
+  if (methodQrs.generic && !qrs.generic) qrs.generic = methodQrs.generic;
   return qrs;
 }
 
@@ -338,6 +413,7 @@ function storageFetchUrls(rawPath: string): string[] {
     `/storage/${storagePath}`,
     `/public/storage/${storagePath}`,
     `/storage/app/public/${storagePath}`,
+    `/uploads/${storagePath}`,
     `/${storagePath}`,
   ];
 
@@ -556,10 +632,6 @@ export async function resolveDisplayablePaymentQr(
   systemSettings: unknown,
   hotelId: string,
 ): Promise<string | undefined> {
-  const qrs = mergePaymentQrs(hotel, systemSettings);
-  const raw = qrs.generic || qrs.gcash || qrs.maya || qrs.bank;
-  if (!raw) return undefined;
-  if (raw.startsWith('data:image/')) return raw;
-  const image = await fetchHotelPaymentQrImage(raw, hotelId);
+  const image = await fetchFirstPaymentQrImage(hotel, systemSettings, hotelId);
   return image ? paymentQrToDataUrl(image) : undefined;
 }
