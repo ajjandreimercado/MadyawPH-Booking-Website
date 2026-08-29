@@ -2,7 +2,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode
+  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode, X, ZoomIn,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
 import { validatePromoCode, validateMembershipId } from '../services/api';
@@ -115,6 +115,7 @@ export default function BookingPage() {
   const [checkOut, setCheckOut] = useState(urlCheckOut);
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
   const [qrLoading, setQrLoading] = useState(false);
+  const [qrLightboxOpen, setQrLightboxOpen] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
     availableWalletMethods(hotel).includes(opt.id),
@@ -266,6 +267,19 @@ export default function BookingPage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [hotel, activeWallet]);
+
+  useEffect(() => {
+    if (!qrLightboxOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setQrLightboxOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [qrLightboxOpen]);
+
+  useEffect(() => {
+    if (!paymentQrUrl) setQrLightboxOpen(false);
+  }, [paymentQrUrl, activeWallet]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -459,6 +473,7 @@ export default function BookingPage() {
   const roomLabel = formatRoomLabel(property);
 
   return (
+    <>
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
@@ -906,19 +921,34 @@ export default function BookingPage() {
                     >
                       Scan with {walletMethodLabel(activeWallet)} · ₱{amountDue.toLocaleString()}
                     </p>
-                    <div
-                      className="inline-flex rounded-2xl bg-white p-3 border shadow-sm"
-                      style={{ borderColor: `${walletTheme.color}33` }}
+                    <button
+                      type="button"
+                      onClick={() => setQrLightboxOpen(true)}
+                      className="group inline-flex flex-col items-center rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                      style={{ ['--tw-ring-color' as string]: walletTheme.color }}
+                      aria-label={`Enlarge ${walletMethodLabel(activeWallet)} payment QR`}
                     >
-                      <img
-                        src={paymentQrUrl}
-                        alt={`${walletMethodLabel(activeWallet)} payment QR`}
-                        className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
+                      <div
+                        className="relative inline-flex rounded-2xl bg-white p-3 border shadow-sm transition-transform group-hover:scale-[1.02] group-active:scale-[0.98]"
+                        style={{ borderColor: `${walletTheme.color}33` }}
+                      >
+                        <img
+                          src={paymentQrUrl}
+                          alt={`${walletMethodLabel(activeWallet)} payment QR`}
+                          className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <span
+                          className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-brand-dark/75 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          <ZoomIn className="h-3 w-3" />
+                          Tap to enlarge
+                        </span>
+                      </div>
+                    </button>
                     <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto">
                       Open {walletMethodLabel(activeWallet)} and scan this code to pay the {depositPercent}% deposit.
+                      <span className="block mt-1 text-brand-dark/40">Tap the QR to view it larger.</span>
                     </p>
                   </div>
                 ) : (
@@ -1171,5 +1201,45 @@ export default function BookingPage() {
         </div>
       </div>
     </div>
+
+    {qrLightboxOpen && paymentQrUrl && (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/90 p-4 backdrop-blur-sm"
+        onClick={() => setQrLightboxOpen(false)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${walletMethodLabel(activeWallet)} payment QR enlarged`}
+      >
+        <button
+          type="button"
+          className="absolute top-4 right-4 rounded-full p-2 text-brand-cream hover:bg-white/10"
+          onClick={() => setQrLightboxOpen(false)}
+          aria-label="Close enlarged QR"
+        >
+          <X className="h-8 w-8" />
+        </button>
+        <div
+          className="max-w-[min(92vw,28rem)] rounded-3xl bg-white p-5 sm:p-6 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p
+            className="mb-4 text-center text-[10px] font-bold uppercase tracking-[0.2em]"
+            style={{ color: walletTheme.color }}
+          >
+            {walletMethodLabel(activeWallet)} · ₱{amountDue.toLocaleString()}
+          </p>
+          <img
+            src={paymentQrUrl}
+            alt={`${walletMethodLabel(activeWallet)} payment QR enlarged`}
+            className="mx-auto w-full max-w-[min(80vw,22rem)] aspect-square object-contain"
+            referrerPolicy="no-referrer"
+          />
+          <p className="mt-4 text-center text-xs text-brand-dark/55">
+            Scan with {walletMethodLabel(activeWallet)} to pay your deposit
+          </p>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
