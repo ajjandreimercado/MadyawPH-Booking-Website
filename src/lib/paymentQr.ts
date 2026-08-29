@@ -90,7 +90,6 @@ export function walletMethodTheme(method: WalletPaymentMethod) {
   return WALLET_PAYMENT_THEME[method];
 }
 
-/** The hotel app stores one QR image. Prefer the API-embedded bytes. */
 export function hotelPaymentQrSrc(
   hotel: Hotel | null | undefined,
   method: WalletPaymentMethod = 'gcash',
@@ -118,28 +117,164 @@ export function paymentQrFilename(
   return `${hotel}-${wallet}-payment-qr.png`;
 }
 
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    || (navigator.maxTouchPoints > 1 && typeof window !== 'undefined' && window.innerWidth < 900);
+}
+
+export function isIosDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+}
+
 /** Steps shown when the guest pays on the same phone (no second device to scan). */
 export function walletPayFromGallerySteps(method: WalletPaymentMethod, amount?: number): string[] {
   const app = walletMethodLabel(method);
   const amountLine = amount != null
     ? `Pay exactly ₱${amount.toLocaleString()}.`
     : 'Pay the deposit amount shown above.';
+  const saveHint = isIosDevice()
+    ? 'Tap Save QR, then press and hold the image → Add to Photos.'
+    : 'Tap Save QR, then press and hold the image → Download image (or use Share).';
   return [
-    'Tap Save QR below and add the image to your photos.',
+    saveHint,
     `Open ${app} → Pay QR → Upload from gallery (or Scan from photos).`,
     amountLine,
     'Return here to upload your receipt and reference number.',
   ];
 }
 
-export type SavePaymentQrResult = 'downloaded' | 'shared' | 'failed';
+export function manualQrSaveInstructions(): { title: string; steps: string[] } {
+  if (isIosDevice()) {
+    return {
+      title: 'Save to Photos',
+      steps: [
+        'Press and hold the QR image below.',
+        'Tap Add to Photos (or Save Image).',
+        'Open your wallet app and upload the QR from your gallery.',
+      ],
+    };
+  }
+  return {
+    title: 'Save the QR image',
+    steps: [
+      'Press and hold the QR image below.',
+      'Tap Download image or Save image.',
+      'Open your wallet app and upload the QR from your gallery.',
+    ],
+  };
+}
+
+export type SavePaymentQrResult = 'shared' | 'downloaded' | 'manual' | 'failed';
+
+function looksLikeImageBlob(blob: Blob): boolean {
+  return blob.type.startsWith('image/')
+    || blob.type === 'application/octet-stream'
+    || blob.type === ''
+    || blob.type === 'binary/octet-stream';
+}
+
+async function blobFromSource(source: Blob | string): Promise<Blob | null> {
+  if (source instanceof Blob) {
+    return source.size >= 32 && looksLikeImageBlob(source) ? source : null;
+  }
+  try {
+    const response = await fetch(source);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return blob.size >= 32 && looksLikeImageBlob(blob) ? blob : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Re-encode as PNG so iOS/Android share sheets accept the file reliably. */
+export async function normalizePaymentQrBlob(blob: Blob): Promise<Blob> {
+  if (blob.type === 'image/png' && blob.size >= 32) return blob;
+
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || canvas.width < 8 || canvas.height < 8) {
+        URL.revokeObjectURL(url);
+        reject(new Error('Invalid QR dimensions'));
+        return;
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(
+        (png) => {
+          URL.revokeObjectURL(url);
+          if (png && png.size >= 32) resolve(png);
+          else reject(new Error('PNG export failed'));
+        },
+        'image/png',
+        1,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read QR image'));
+    };
+    img.src = url;
+  });
+}
+
+async function tryNativeShare(file: File, method: WalletPaymentMethod): Promise<boolean> {
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return false;
+  try {
+    const payload: ShareData = {
+      files: [file],
+      title: `${walletMethodLabel(method)} payment QR`,
+    };
+    // Many mobile browsers report canShare=false even though file share works.
+    if (navigator.canShare && !navigator.canShare(payload) && !isMobileDevice()) {
+      return false;
+    }
+    await navigator.share(payload);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
+    return false;
+  }
+}
+
+async function tryAnchorDownload(blob: Blob, filename: string): Promise<boolean> {
+  try {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
- * Save the payment QR to the device (download or native share sheet → Save image).
- * Works with blob: URLs from checkout and remote/proxy URLs.
+ * Save the payment QR to the device.
+ * - Prefers native share sheet on phones (Save to Photos / Save image).
+ * - Falls back to download on desktop Android.
+ * - Returns `manual` when the UI should show press-and-hold instructions.
  */
 export async function savePaymentQrImage(
-  imageUrl: string,
+  source: Blob | string,
   options?: {
     method?: WalletPaymentMethod;
     hotelName?: string;
@@ -148,45 +283,35 @@ export async function savePaymentQrImage(
   const method = options?.method ?? 'gcash';
   const filename = paymentQrFilename(method, options?.hotelName);
 
-  let blob: Blob;
+  const raw = await blobFromSource(source);
+  if (!raw) return 'failed';
+
+  let png: Blob;
   try {
-    const response = await fetch(imageUrl);
-    if (!response.ok) return 'failed';
-    blob = await response.blob();
-    if (!blob.type.startsWith('image/')) {
-      blob = new Blob([blob], { type: 'image/png' });
-    }
+    png = await normalizePaymentQrBlob(raw);
   } catch {
     return 'failed';
   }
 
-  const file = new File([blob], filename, { type: blob.type || 'image/png' });
+  const file = new File([png], filename, { type: 'image/png' });
 
-  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+  if (isMobileDevice()) {
     try {
-      await navigator.share({
-        files: [file],
-        title: `${walletMethodLabel(method)} payment QR`,
-        text: `Payment QR for ${walletMethodLabel(method)}`,
-      });
-      return 'shared';
+      const shared = await tryNativeShare(file, method);
+      if (shared) return 'shared';
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return 'failed';
     }
+    return 'manual';
   }
 
   try {
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    anchor.rel = 'noopener';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
-    return 'downloaded';
+    const shared = await tryNativeShare(file, method);
+    if (shared) return 'shared';
   } catch {
-    return 'failed';
+    // fall through
   }
+
+  const downloaded = await tryAnchorDownload(png, filename);
+  return downloaded ? 'downloaded' : 'manual';
 }

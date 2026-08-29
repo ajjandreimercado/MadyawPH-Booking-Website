@@ -12,7 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, walletPayFromGallerySteps, savePaymentQrImage, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
+import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, walletPayFromGallerySteps, manualQrSaveInstructions, savePaymentQrImage, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
@@ -114,8 +114,10 @@ export default function BookingPage() {
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
+  const [qrBlob, setQrBlob] = useState<Blob | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrLightboxOpen, setQrLightboxOpen] = useState(false);
+  const [qrSaveSheetOpen, setQrSaveSheetOpen] = useState(false);
   const [isSavingQr, setIsSavingQr] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
@@ -223,12 +225,20 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (!hotel?.id) {
-      setQrObjectUrl(undefined);
+      setQrBlob(null);
+      setQrObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return undefined;
+      });
       return;
     }
     const methods = availableWalletMethods(hotel);
     if (!methods.length) {
-      setQrObjectUrl(undefined);
+      setQrBlob(null);
+      setQrObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return undefined;
+      });
       return;
     }
 
@@ -245,9 +255,18 @@ export default function BookingPage() {
           const res = await fetch(paymentQrProxyUrl(hotelId, method, refresh));
           if (!res.ok) continue;
           const blob = await res.blob();
-          if (cancelled || !blob.type.startsWith('image/')) continue;
+          const mime = blob.type || res.headers.get('content-type') || '';
+          const looksLikeImage = mime.startsWith('image/')
+            || mime === 'application/octet-stream'
+            || mime === 'binary/octet-stream'
+            || mime === '';
+          if (cancelled || blob.size < 32 || !looksLikeImage) continue;
           objectUrl = URL.createObjectURL(blob);
-          setQrObjectUrl(objectUrl);
+          setQrBlob(blob);
+          setQrObjectUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return objectUrl;
+          });
           setQrLoading(false);
           return;
         } catch {
@@ -255,12 +274,20 @@ export default function BookingPage() {
         }
       }
       if (!cancelled) {
-        setQrObjectUrl(undefined);
+        setQrBlob(null);
+        setQrObjectUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return undefined;
+        });
         setQrLoading(false);
       }
     }
 
-    setQrObjectUrl(undefined);
+    setQrBlob(null);
+    setQrObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return undefined;
+    });
     void loadPaymentQr();
 
     return () => {
@@ -284,8 +311,25 @@ export default function BookingPage() {
   }, [qrLightboxOpen]);
 
   useEffect(() => {
-    if (!paymentQrUrl) setQrLightboxOpen(false);
+    if (!paymentQrUrl) {
+      setQrLightboxOpen(false);
+      setQrSaveSheetOpen(false);
+    }
   }, [paymentQrUrl, activeWallet]);
+
+  useEffect(() => {
+    if (!qrSaveSheetOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setQrSaveSheetOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [qrSaveSheetOpen]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -483,19 +527,24 @@ export default function BookingPage() {
       : 'grid grid-cols-3 gap-1.5 sm:gap-2';
 
   const handleSavePaymentQr = async () => {
-    if (!paymentQrUrl || isSavingQr) return;
+    if ((!paymentQrUrl && !qrBlob) || isSavingQr) return;
     setIsSavingQr(true);
     try {
-      const result = await savePaymentQrImage(paymentQrUrl, {
+      const result = await savePaymentQrImage(qrBlob ?? paymentQrUrl!, {
         method: activeWallet,
         hotelName: hotel?.name,
       });
+      if (result === 'manual') {
+        setQrSaveSheetOpen(true);
+        return;
+      }
       if (result === 'failed') {
         showToast({
           title: 'Could not save QR',
-          description: 'Please try again, or take a screenshot of the QR code.',
+          description: 'Use the steps below to save the image manually.',
           type: 'error',
         });
+        setQrSaveSheetOpen(true);
         return;
       }
       showToast({
@@ -509,6 +558,8 @@ export default function BookingPage() {
       setIsSavingQr(false);
     }
   };
+
+  const manualQrSave = manualQrSaveInstructions();
 
   const roomLabel = formatRoomLabel(property);
 
@@ -1273,6 +1324,81 @@ export default function BookingPage() {
         </div>
       </div>
     </div>
+
+    {qrSaveSheetOpen && paymentQrUrl && (
+      <div
+        className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-brand-dark/90 p-3 sm:p-4 backdrop-blur-sm overscroll-contain"
+        style={{
+          paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+        }}
+        onClick={() => setQrSaveSheetOpen(false)}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Save payment QR to your phone"
+      >
+        <button
+          type="button"
+          className="absolute flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full p-2 text-brand-cream hover:bg-white/10 touch-manipulation"
+          style={{
+            top: 'max(0.75rem, env(safe-area-inset-top))',
+            right: 'max(0.75rem, env(safe-area-inset-right))',
+          }}
+          onClick={() => setQrSaveSheetOpen(false)}
+          aria-label="Close save QR instructions"
+        >
+          <X className="h-7 w-7 sm:h-8 sm:w-8" />
+        </button>
+        <div
+          className="w-full max-w-[min(100%,28rem)] max-h-[min(92dvh,40rem)] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p
+            className="mb-2 text-center text-sm font-bold text-brand-dark"
+          >
+            {manualQrSave.title}
+          </p>
+          <ol className="mb-4 space-y-1.5 text-xs text-brand-dark/65 leading-relaxed list-decimal list-inside px-1">
+            {manualQrSave.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <img
+            src={paymentQrUrl}
+            alt={`${walletMethodLabel(activeWallet)} payment QR — press and hold to save`}
+            className="mx-auto w-full max-w-[min(90vw,24rem)] aspect-square object-contain rounded-xl border border-brand-primary/10 bg-white select-none touch-manipulation"
+            referrerPolicy="no-referrer"
+            draggable={false}
+          />
+          <p className="mt-3 text-center text-[11px] text-brand-dark/50 px-2">
+            Press and hold the image above, then choose Save or Add to Photos.
+          </p>
+          <button
+            type="button"
+            onClick={() => { void handleSavePaymentQr(); }}
+            disabled={isSavingQr}
+            className="mt-4 flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold touch-manipulation disabled:opacity-60"
+            style={{
+              borderColor: walletTheme.color,
+              color: walletTheme.color,
+              backgroundColor: `${walletTheme.color}10`,
+            }}
+          >
+            {isSavingQr ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {isSavingQr ? 'Opening share…' : 'Try Share / Save again'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setQrSaveSheetOpen(false)}
+            className="mt-3 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark touch-manipulation"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    )}
 
     {qrLightboxOpen && paymentQrUrl && (
       <div
