@@ -58,9 +58,15 @@ describe('collectPaymentQrCandidates', () => {
 });
 
 describe('listAvailableWalletMethods', () => {
-  it('lists wallet methods that have a QR or generic fallback', () => {
+  it('lists only methods with their own uploaded QR', () => {
     expect(listAvailableWalletMethods({
       maya: 'payment-qr/maya.jpg',
+      generic: 'payment-qr/old.jpg',
+    })).toEqual(['maya']);
+  });
+
+  it('offers all wallets when only a generic QR exists', () => {
+    expect(listAvailableWalletMethods({
       generic: 'payment-qr/shared.jpg',
     })).toEqual(['gcash', 'maya', 'qrph']);
   });

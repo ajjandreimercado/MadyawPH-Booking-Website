@@ -805,7 +805,8 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
 
   const systemSettings = await loadHotelSystemSettings(String((hotel as { _id: unknown })._id));
   const hotelId = String((hotel as { _id: unknown })._id);
-  const method = typeof req.query.method === 'string' ? req.query.method : 'gcash';
+  const rawMethod = typeof req.query.method === 'string' ? req.query.method.trim().toLowerCase() : 'gcash';
+  const method = rawMethod === 'paymaya' ? 'maya' : rawMethod;
   const skipCache = req.query.refresh === '1' || req.query.refresh === 'true';
 
   if (!collectPaymentQrCandidates(hotel, systemSettings).length) {

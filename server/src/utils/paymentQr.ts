@@ -238,13 +238,26 @@ export async function fetchFirstPaymentQrImage(
   }
 
   const qrs = mergePaymentQrs(hotel, systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)));
-  const preferred = options?.preferredMethod
-    ? qrUrlForPaymentMethod(qrs, options.preferredMethod)
-    : undefined;
-  const candidates = [
-    ...(preferred ? [preferred] : []),
-    ...collectPaymentQrCandidates(hotel, mergePaymentQrs(systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)))),
-  ].filter((value, index, list) => Boolean(value) && list.indexOf(value) === index) as string[];
+
+  if (options?.preferredMethod) {
+    const preferred = qrUrlForPaymentMethod(qrs, options.preferredMethod);
+    if (!preferred) return null;
+    const rawCandidates = [preferred];
+    for (const raw of rawCandidates) {
+      if (raw.startsWith('data:image/')) {
+        const parsed = parseDataUrl(raw);
+        if (parsed) return { ...parsed, path: raw };
+      }
+      const image = await fetchHotelPaymentQrImage(raw, hotelId, { ...options, skipCache: options.skipCache });
+      if (image) return { ...image, path: raw };
+    }
+    return null;
+  }
+
+  const candidates = collectPaymentQrCandidates(
+    hotel,
+    mergePaymentQrs(systemSettings, parsePaymentMethodQrs(asRecord(systemSettings))),
+  );
 
   for (const raw of candidates) {
     if (raw.startsWith('data:image/')) {
@@ -324,15 +337,25 @@ export function resolveHotelPaymentAccounts(hotel: unknown): HotelPaymentAccount
   return accounts;
 }
 
+export function qrPathForMethodOnly(qrs: HotelPaymentQrs, method: string): string | undefined {
+  const key = method.trim().toLowerCase();
+  if (key === 'gcash') return qrs.gcash;
+  if (key === 'maya' || key === 'paymaya') return qrs.maya;
+  if (key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') return qrs.qrph;
+  return undefined;
+}
+
 export function qrUrlForPaymentMethod(
   qrs: HotelPaymentQrs | undefined,
   method: string,
 ): string | undefined {
   if (!qrs) return undefined;
+  const dedicated = qrPathForMethodOnly(qrs, method);
+  if (dedicated) return dedicated;
   const key = method.trim().toLowerCase();
-  if (key === 'gcash') return qrs.gcash || qrs.generic;
-  if (key === 'maya' || key === 'paymaya') return qrs.maya || qrs.generic;
-  if (key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') return qrs.qrph || qrs.generic;
+  if (key === 'gcash') return qrs.generic;
+  if (key === 'maya' || key === 'paymaya') return qrs.generic;
+  if (key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') return qrs.generic;
   if (key === 'bank-transfer' || key === 'bank_transfer' || key === 'bank') {
     return qrs.bank || qrs.generic;
   }
@@ -371,11 +394,12 @@ export type WalletQrMethod = 'gcash' | 'maya' | 'qrph';
 
 const WALLET_QR_METHODS: WalletQrMethod[] = ['gcash', 'maya', 'qrph'];
 
-/** Wallet methods the guest can pick when a QR exists (method-specific or generic fallback). */
+/** Wallet methods the guest can pick — only methods with their own QR, or all three if one generic QR. */
 export function listAvailableWalletMethods(qrs: HotelPaymentQrs): WalletQrMethod[] {
-  const available = WALLET_QR_METHODS.filter((method) => Boolean(qrUrlForPaymentMethod(qrs, method)));
-  if (available.length > 0) return available;
-  return hasAnyPaymentQr(qrs) ? [...WALLET_QR_METHODS] : [];
+  const dedicated = WALLET_QR_METHODS.filter((method) => Boolean(qrPathForMethodOnly(qrs, method)));
+  if (dedicated.length > 0) return dedicated;
+  if (qrs.generic) return [...WALLET_QR_METHODS];
+  return [];
 }
 
 export async function loadHotelSystemSettings(hotelId: string): Promise<Record<string, unknown> | null> {

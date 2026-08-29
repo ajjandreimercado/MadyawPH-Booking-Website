@@ -3,15 +3,59 @@ import { API_BASE_URL } from '../services/api';
 
 export type WalletPaymentMethod = 'gcash' | 'maya' | 'qrph';
 
-export const WALLET_PAYMENT_OPTIONS: Array<{
-  id: WalletPaymentMethod;
-  label: string;
-  bookingMethod: 'gcash' | 'maya';
-}> = [
-  { id: 'gcash', label: 'GCash', bookingMethod: 'gcash' },
-  { id: 'maya', label: 'PayMaya', bookingMethod: 'maya' },
-  { id: 'qrph', label: 'QR Ph', bookingMethod: 'maya' },
-];
+export const WALLET_PAYMENT_THEME: Record<
+  WalletPaymentMethod,
+  {
+    label: string;
+    bookingMethod: 'gcash' | 'maya' | 'qrph';
+    color: string;
+    activeBorder: string;
+    activeBg: string;
+    activeText: string;
+    inactiveBorder: string;
+    inactiveText: string;
+    hoverBorder: string;
+  }
+> = {
+  gcash: {
+    label: 'GCash',
+    bookingMethod: 'gcash',
+    color: '#007cff',
+    activeBorder: 'border-[#007cff]',
+    activeBg: 'bg-[#007cff]/12',
+    activeText: 'text-[#007cff]',
+    inactiveBorder: 'border-[#007cff]/25',
+    inactiveText: 'text-[#007cff]/80',
+    hoverBorder: 'hover:border-[#007cff]/55',
+  },
+  maya: {
+    label: 'PayMaya',
+    bookingMethod: 'maya',
+    color: '#00b451',
+    activeBorder: 'border-[#00b451]',
+    activeBg: 'bg-[#00b451]/12',
+    activeText: 'text-[#00b451]',
+    inactiveBorder: 'border-[#00b451]/25',
+    inactiveText: 'text-[#00b451]/80',
+    hoverBorder: 'hover:border-[#00b451]/55',
+  },
+  qrph: {
+    label: 'QR Ph',
+    bookingMethod: 'qrph',
+    color: '#1e3a8a',
+    activeBorder: 'border-[#1e3a8a]',
+    activeBg: 'bg-[#1e3a8a]/12',
+    activeText: 'text-[#1e3a8a]',
+    inactiveBorder: 'border-[#1e3a8a]/25',
+    inactiveText: 'text-[#1e3a8a]/80',
+    hoverBorder: 'hover:border-[#1e3a8a]/55',
+  },
+};
+
+export const WALLET_PAYMENT_OPTIONS = Object.entries(WALLET_PAYMENT_THEME).map(([id, theme]) => ({
+  id: id as WalletPaymentMethod,
+  ...theme,
+}));
 
 export function resolveMediaUrl(url?: string): string | undefined {
   if (!url) return undefined;
@@ -39,11 +83,11 @@ export function availableWalletMethods(hotel: Hotel | null | undefined): WalletP
       m === 'gcash' || m === 'maya' || m === 'qrph',
     );
   }
-  const methods: WalletPaymentMethod[] = [];
-  if (hotel.paymentQrs?.gcash || hotel.paymentQrs?.generic || hotel.hasPaymentQr) methods.push('gcash');
-  if (hotel.paymentQrs?.maya || hotel.paymentQrs?.generic || hotel.hasPaymentQr) methods.push('maya');
-  if (hotel.paymentQrs?.qrph || hotel.paymentQrs?.generic || hotel.hasPaymentQr) methods.push('qrph');
-  return [...new Set(methods)];
+  return [];
+}
+
+export function walletMethodTheme(method: WalletPaymentMethod) {
+  return WALLET_PAYMENT_THEME[method];
 }
 
 /** The hotel app stores one QR image. Prefer the API-embedded bytes. */
@@ -52,12 +96,11 @@ export function hotelPaymentQrSrc(
   method: WalletPaymentMethod = 'gcash',
 ): string | undefined {
   if (!hotel) return undefined;
-  if (hotel.paymentQrDataUrl && method === 'gcash') return hotel.paymentQrDataUrl;
   const proxy = hotel.paymentQrs?.[method];
   if (proxy) return resolveMediaUrl(proxy);
-  return resolveMediaUrl(hotel.paymentQrs?.generic || hotel.paymentQrs?.gcash || hotel.paymentQrs?.maya);
+  return resolveMediaUrl(hotel.paymentQrs?.generic);
 }
 
 export function walletMethodLabel(method: WalletPaymentMethod): string {
-  return WALLET_PAYMENT_OPTIONS.find((opt) => opt.id === method)?.label ?? method;
+  return WALLET_PAYMENT_THEME[method]?.label ?? method;
 }

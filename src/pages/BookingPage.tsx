@@ -12,7 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
+import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
@@ -115,15 +115,15 @@ export default function BookingPage() {
   const [checkOut, setCheckOut] = useState(urlCheckOut);
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
   const [qrLoading, setQrLoading] = useState(false);
-  const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod>('gcash');
+  const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
     availableWalletMethods(hotel).includes(opt.id),
   );
-  const paymentMethod: BookingPaymentMethod = selectedWallet === 'gcash'
-    ? 'gcash'
-    : selectedWallet === 'maya'
-      ? 'maya'
-      : 'qrph';
+  const activeWallet = selectedWallet && walletOptions.some((o) => o.id === selectedWallet)
+    ? selectedWallet
+    : (walletOptions[0]?.id ?? 'gcash');
+  const walletTheme = walletMethodTheme(activeWallet);
+  const paymentMethod: BookingPaymentMethod = walletTheme.bookingMethod;
 
   // ── Computed Values (must match server calculateBookingPricing) ─────────────
   const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
@@ -225,10 +225,6 @@ export default function BookingPage() {
       return;
     }
     const methods = availableWalletMethods(hotel);
-    if (methods.length && !methods.includes(selectedWallet)) {
-      setSelectedWallet(methods[0]);
-      return;
-    }
     if (!methods.length) {
       setQrObjectUrl(undefined);
       return;
@@ -237,7 +233,7 @@ export default function BookingPage() {
     let objectUrl: string | undefined;
     let cancelled = false;
     const hotelId = hotel.id;
-    const method = selectedWallet;
+    const method = activeWallet;
 
     async function loadPaymentQr() {
       setQrLoading(true);
@@ -269,7 +265,7 @@ export default function BookingPage() {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [hotel, selectedWallet]);
+  }, [hotel, activeWallet]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -872,7 +868,8 @@ export default function BookingPage() {
                     </p>
                     <div className="grid grid-cols-3 gap-2">
                       {walletOptions.map((opt) => {
-                        const active = selectedWallet === opt.id;
+                        const active = activeWallet === opt.id;
+                        const theme = walletMethodTheme(opt.id);
                         return (
                           <button
                             key={opt.id}
@@ -880,9 +877,10 @@ export default function BookingPage() {
                             onClick={() => setSelectedWallet(opt.id)}
                             className={`rounded-xl border-2 px-2 py-3 text-center transition-all ${
                               active
-                                ? 'border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm'
-                                : 'border-brand-primary/15 bg-white text-brand-dark/70 hover:border-brand-primary/35'
+                                ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm ring-2 ring-offset-1`
+                                : `${theme.inactiveBorder} bg-white ${theme.inactiveText} ${theme.hoverBorder}`
                             }`}
+                            style={active ? { boxShadow: `0 0 0 3px ${theme.color}22` } : undefined}
                           >
                             <span className="block text-xs sm:text-sm font-bold">{opt.label}</span>
                           </button>
@@ -894,24 +892,33 @@ export default function BookingPage() {
 
                 {qrLoading ? (
                   <div className="px-5 py-12 sm:px-8 text-center">
-                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-brand-primary" />
-                    <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(selectedWallet)} QR…</p>
+                    <Loader2 className="mx-auto h-8 w-8 animate-spin" style={{ color: walletTheme.color }} />
+                    <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(activeWallet)} QR…</p>
                   </div>
                 ) : paymentQrUrl ? (
-                  <div className="p-5 sm:p-6 text-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-brand-primary/[0.07] via-transparent to-transparent">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-primary mb-4">
-                      Scan with {walletMethodLabel(selectedWallet)} · ₱{amountDue.toLocaleString()}
+                  <div
+                    className="p-5 sm:p-6 text-center"
+                    style={{ background: `radial-gradient(ellipse at top, ${walletTheme.color}14, transparent 65%)` }}
+                  >
+                    <p
+                      className="text-[10px] font-bold uppercase tracking-[0.2em] mb-4"
+                      style={{ color: walletTheme.color }}
+                    >
+                      Scan with {walletMethodLabel(activeWallet)} · ₱{amountDue.toLocaleString()}
                     </p>
-                    <div className="inline-flex rounded-2xl bg-white p-3 border border-brand-primary/10 shadow-sm">
+                    <div
+                      className="inline-flex rounded-2xl bg-white p-3 border shadow-sm"
+                      style={{ borderColor: `${walletTheme.color}33` }}
+                    >
                       <img
                         src={paymentQrUrl}
-                        alt={`${walletMethodLabel(selectedWallet)} payment QR`}
+                        alt={`${walletMethodLabel(activeWallet)} payment QR`}
                         className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
                         referrerPolicy="no-referrer"
                       />
                     </div>
                     <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto">
-                      Open {walletMethodLabel(selectedWallet)} and scan this code to pay the {depositPercent}% deposit.
+                      Open {walletMethodLabel(activeWallet)} and scan this code to pay the {depositPercent}% deposit.
                     </p>
                   </div>
                 ) : (
