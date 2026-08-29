@@ -51,7 +51,7 @@ const ACTIVE_BOOKING_STATUSES = ['requested', 'accepted', 'paid', 'confirmed', '
 
 // Allowlists — validated server-side, never taken verbatim from client input (OWASP A03)
 const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'villa-retreat'] as const;
-const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'bank-transfer'] as const;
+const PAYMENT_METHOD_VALUES = ['credit-card', 'debit-card', 'gcash', 'maya', 'qrph', 'bank-transfer'] as const;
 const BOOKING_STATUS_VALUES = ['requested', 'accepted', 'declined', 'paid', 'confirmed', 'pending', 'cancelled'] as const;
 
 // Guests may only cancel pre-confirmation requests — hotel app owns confirm/cancel after confirm.
@@ -101,6 +101,7 @@ function resolveServerDiscount(
 function normalizePaymentMethod(raw: string): string {
   const normalized = raw.trim().toLowerCase();
   if (normalized === 'paymaya' || normalized === 'pay maya') return 'maya';
+  if (normalized === 'qr ph' || normalized === 'qr-ph' || normalized === 'qr_ph') return 'qrph';
   if (normalized === 'credit card' || normalized === 'creditcard') return 'credit-card';
   if (normalized === 'debit card' || normalized === 'debitcard') return 'debit-card';
   if (normalized === 'bank transfer' || normalized === 'banktransfer') return 'bank-transfer';
@@ -531,7 +532,7 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     ? await HotelModel.findById(hotelIdForPolicy).lean()
     : null;
   // Wallet QR payments always collect half first; card methods follow the hotel setting.
-  const walletQrMethod = ['gcash', 'maya', 'bank-transfer'].includes(paymentMethodResult.value);
+  const walletQrMethod = ['gcash', 'maya', 'qrph', 'bank-transfer'].includes(paymentMethodResult.value);
   const paymentMode = walletQrMethod ? 'half' : resolveHotelOnlinePaymentMode(hotelDoc);
 
   let pricing;

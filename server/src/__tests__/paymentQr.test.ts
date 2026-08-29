@@ -1,4 +1,4 @@
-import { qrUrlForPaymentMethod, resolveHotelPaymentQrs, collectPaymentQrCandidates } from '../utils/paymentQr';
+import { qrUrlForPaymentMethod, resolveHotelPaymentQrs, collectPaymentQrCandidates, listAvailableWalletMethods } from '../utils/paymentQr';
 
 describe('resolveHotelPaymentQrs', () => {
   it('reads a single uploaded QR as generic', () => {
@@ -54,6 +54,15 @@ describe('collectPaymentQrCandidates', () => {
       'payment-qr/new-maya.jpg',
       'payment-qr/old.jpg',
     ]);
+  });
+});
+
+describe('listAvailableWalletMethods', () => {
+  it('lists wallet methods that have a QR or generic fallback', () => {
+    expect(listAvailableWalletMethods({
+      maya: 'payment-qr/maya.jpg',
+      generic: 'payment-qr/shared.jpg',
+    })).toEqual(['gcash', 'maya', 'qrph']);
   });
 });
 

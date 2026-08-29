@@ -38,10 +38,13 @@ export interface Hotel {
   hasPaymentQr?: boolean;
   /** Embedded QR bytes from the API when the file can be loaded. */
   paymentQrDataUrl?: string;
+  /** Wallet methods with a QR the guest can scan (gcash, maya, qrph). */
+  paymentMethodsAvailable?: Array<'gcash' | 'maya' | 'qrph'>;
   /** QR images uploaded in the hotel app. */
   paymentQrs?: {
     gcash?: string;
     maya?: string;
+    qrph?: string;
     bank?: string;
     generic?: string;
   };
@@ -96,7 +99,7 @@ export type BookingStatus =
 
 export type BookingRoomType = 'standard-room' | 'deluxe-suite' | 'family-suite' | 'villa-retreat';
 
-export type BookingPaymentMethod = 'credit-card' | 'debit-card' | 'gcash' | 'maya' | 'bank-transfer';
+export type BookingPaymentMethod = 'credit-card' | 'debit-card' | 'gcash' | 'maya' | 'qrph' | 'bank-transfer';
 
 export interface BookingRequest {
   id: string;

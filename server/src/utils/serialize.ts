@@ -3,6 +3,7 @@ import {
   hasAnyPaymentQr,
   mergePaymentAccounts,
   mergePaymentQrs,
+  listAvailableWalletMethods,
 } from './paymentQr';
 
 type AnyDocument = { _id: unknown; [key: string]: unknown };
@@ -76,8 +77,11 @@ export function serializeHotel(
   const onlinePaymentMode = resolveHotelOnlinePaymentMode(extras?.systemSettings ?? hotel);
   const paymentQrs = mergePaymentQrs(hotel, extras?.systemSettings);
   const paymentAccounts = mergePaymentAccounts(hotel, extras?.systemSettings);
+  const walletMethods = listAvailableWalletMethods(paymentQrs);
   const hotelId = toId(hotel._id);
   const proxyPath = `/hotels/${encodeURIComponent(hotelId)}/payment-qr`;
+
+  const proxyFor = (method: string) => `${proxyPath}?method=${encodeURIComponent(method)}`;
 
   return {
     id: hotelId,
@@ -93,12 +97,14 @@ export function serializeHotel(
     depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
     hasPaymentQr: hasAnyPaymentQr(paymentQrs),
     paymentQrDataUrl: extras?.paymentQrDataUrl,
+    paymentMethodsAvailable: walletMethods,
     paymentQrs: hasAnyPaymentQr(paymentQrs)
       ? {
-          gcash: paymentQrs.gcash ? proxyPath : undefined,
-          maya: paymentQrs.maya ? proxyPath : undefined,
-          bank: paymentQrs.bank ? proxyPath : undefined,
-          generic: proxyPath,
+          gcash: walletMethods.includes('gcash') ? proxyFor('gcash') : undefined,
+          maya: walletMethods.includes('maya') ? proxyFor('maya') : undefined,
+          qrph: walletMethods.includes('qrph') ? proxyFor('qrph') : undefined,
+          bank: paymentQrs.bank ? proxyFor('bank-transfer') : undefined,
+          generic: paymentQrs.generic ? proxyPath : undefined,
         }
       : paymentQrs,
     paymentAccounts,

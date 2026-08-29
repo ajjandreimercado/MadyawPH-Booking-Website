@@ -11,6 +11,7 @@ import { getHotelAppPublicUrl, getHotelStoragePublicUrl } from '../config/env';
 export interface HotelPaymentQrs {
   gcash?: string;
   maya?: string;
+  qrph?: string;
   bank?: string;
   generic?: string;
 }
@@ -192,6 +193,7 @@ function parsePaymentMethodQrs(record: Record<string, unknown> | null): HotelPay
       const normalized = key.toLowerCase();
       if (normalized.includes('gcash')) qrs.gcash = dataUrl;
       else if (normalized.includes('maya') || normalized.includes('paymaya')) qrs.maya = dataUrl;
+      else if (normalized.includes('qrph') || normalized.includes('qr-ph') || normalized.includes('qr_ph')) qrs.qrph = dataUrl;
       else if (normalized.includes('bank')) qrs.bank = dataUrl;
       else if (!qrs.generic) qrs.generic = dataUrl;
       continue;
@@ -200,6 +202,7 @@ function parsePaymentMethodQrs(record: Record<string, unknown> | null): HotelPay
     const normalized = key.toLowerCase();
     if (normalized.includes('gcash')) qrs.gcash = url;
     else if (normalized.includes('maya') || normalized.includes('paymaya')) qrs.maya = url;
+    else if (normalized.includes('qrph') || normalized.includes('qr-ph') || normalized.includes('qr_ph')) qrs.qrph = url;
     else if (normalized.includes('bank')) qrs.bank = url;
     else if (!qrs.generic) qrs.generic = url;
   }
@@ -214,6 +217,7 @@ export function collectPaymentQrCandidates(hotel: unknown, systemSettings?: unkn
   const ordered = [
     merged.maya,
     merged.gcash,
+    merged.qrph,
     merged.bank,
     merged.generic,
   ].filter((value): value is string => Boolean(value));
@@ -226,7 +230,7 @@ export async function fetchFirstPaymentQrImage(
   hotelId: string,
   options?: { skipCache?: boolean; preferredMethod?: string },
 ): Promise<{ body: Buffer; contentType: string; path: string } | null> {
-  if (!options?.skipCache) {
+  if (!options?.skipCache && !options?.preferredMethod) {
     const hotelCache = await readCachedQrForHotel(hotelId);
     if (hotelCache) {
       return { ...hotelCache, path: hotelCache.path ?? 'cached' };
@@ -284,6 +288,7 @@ export function resolveHotelPaymentQrs(hotel: unknown): HotelPaymentQrs {
   const methodQrs = parsePaymentMethodQrs(record);
   if (methodQrs.gcash) qrs.gcash = methodQrs.gcash;
   if (methodQrs.maya) qrs.maya = methodQrs.maya;
+  if (methodQrs.qrph) qrs.qrph = methodQrs.qrph;
   if (methodQrs.bank) qrs.bank = methodQrs.bank;
   if (methodQrs.generic && !qrs.generic) qrs.generic = methodQrs.generic;
   return qrs;
@@ -327,6 +332,7 @@ export function qrUrlForPaymentMethod(
   const key = method.trim().toLowerCase();
   if (key === 'gcash') return qrs.gcash || qrs.generic;
   if (key === 'maya' || key === 'paymaya') return qrs.maya || qrs.generic;
+  if (key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') return qrs.qrph || qrs.generic;
   if (key === 'bank-transfer' || key === 'bank_transfer' || key === 'bank') {
     return qrs.bank || qrs.generic;
   }
@@ -339,6 +345,7 @@ export function mergePaymentQrs(...docs: unknown[]): HotelPaymentQrs {
     const next = resolveHotelPaymentQrs(doc);
     if (next.gcash) merged.gcash = next.gcash;
     if (next.maya) merged.maya = next.maya;
+    if (next.qrph) merged.qrph = next.qrph;
     if (next.bank) merged.bank = next.bank;
     if (next.generic) merged.generic = next.generic;
   }
@@ -357,7 +364,18 @@ export function mergePaymentAccounts(...docs: unknown[]): HotelPaymentAccounts {
 }
 
 export function hasAnyPaymentQr(qrs: HotelPaymentQrs): boolean {
-  return Boolean(qrs.gcash || qrs.maya || qrs.bank || qrs.generic);
+  return Boolean(qrs.gcash || qrs.maya || qrs.qrph || qrs.bank || qrs.generic);
+}
+
+export type WalletQrMethod = 'gcash' | 'maya' | 'qrph';
+
+const WALLET_QR_METHODS: WalletQrMethod[] = ['gcash', 'maya', 'qrph'];
+
+/** Wallet methods the guest can pick when a QR exists (method-specific or generic fallback). */
+export function listAvailableWalletMethods(qrs: HotelPaymentQrs): WalletQrMethod[] {
+  const available = WALLET_QR_METHODS.filter((method) => Boolean(qrUrlForPaymentMethod(qrs, method)));
+  if (available.length > 0) return available;
+  return hasAnyPaymentQr(qrs) ? [...WALLET_QR_METHODS] : [];
 }
 
 export async function loadHotelSystemSettings(hotelId: string): Promise<Record<string, unknown> | null> {
@@ -399,8 +417,8 @@ function looksLikeImage(body: Buffer, contentType: string): boolean {
 }
 
 function hotelAppOrigins(): string[] {
-  const storage = getHotelStoragePublicUrl();
   const app = (getHotelAppPublicUrl() || 'https://madyawph.onrender.com').replace(/\/+$/, '');
+  const storage = (getHotelStoragePublicUrl() || `${app}/uploads`).replace(/\/+$/, '');
   const internal = (process.env.HOTEL_APP_INTERNAL_URL ?? '').trim().replace(/\/+$/, '');
   const extras = (process.env.HOTEL_APP_PUBLIC_URLS ?? '')
     .split(',')
@@ -425,7 +443,8 @@ function storageFetchUrls(rawPath: string): string[] {
   const storagePath = sanitizeStoragePath(rawPath);
   if (!storagePath) return [...new Set(urls)];
 
-  const storage = getHotelStoragePublicUrl();
+  const appBase = (getHotelAppPublicUrl() || 'https://madyawph.onrender.com').replace(/\/+$/, '');
+  const storage = getHotelStoragePublicUrl() || `${appBase}/uploads`;
   const pathSuffixes = [
     `/storage/${storagePath}`,
     `/public/storage/${storagePath}`,
@@ -447,11 +466,10 @@ function storageFetchUrls(rawPath: string): string[] {
     urls.push(`${root}/api/storage/${storagePath}`);
     urls.push(`${root}/api/public/storage/${storagePath}`);
     urls.push(`${root}/api/files/${storagePath}`);
+    urls.push(`${root}/api/v1/chat/media?f=${encodeURIComponent(storagePath)}`);
   }
 
-  if (storage) {
-    urls.push(`${storage}/${storagePath}`);
-  }
+  urls.push(`${storage.replace(/\/+$/, '')}/${storagePath}`);
 
   return [...new Set(urls)];
 }

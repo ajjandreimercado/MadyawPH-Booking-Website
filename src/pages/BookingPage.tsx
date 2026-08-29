@@ -12,7 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { paymentQrProxyUrl } from '../lib/paymentQr';
+import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
@@ -114,7 +114,16 @@ export default function BookingPage() {
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
-  const paymentMethod: BookingPaymentMethod = 'gcash';
+  const [qrLoading, setQrLoading] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod>('gcash');
+  const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
+    availableWalletMethods(hotel).includes(opt.id),
+  );
+  const paymentMethod: BookingPaymentMethod = selectedWallet === 'gcash'
+    ? 'gcash'
+    : selectedWallet === 'maya'
+      ? 'maya'
+      : 'qrph';
 
   // ── Computed Values (must match server calculateBookingPricing) ─────────────
   const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
@@ -143,7 +152,7 @@ export default function BookingPage() {
   const total = Math.max(0, staySubtotal - effectiveDiscount);
   const paymentMode = 'half' as const;
   const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
-  const paymentQrUrl = hotel?.paymentQrDataUrl || qrObjectUrl;
+  const paymentQrUrl = qrObjectUrl;
   const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
     ? 'Madyaw member'
     : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
@@ -211,40 +220,56 @@ export default function BookingPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!hotel?.id || hotel.paymentQrDataUrl) {
+    if (!hotel?.id) {
       setQrObjectUrl(undefined);
       return;
     }
+    const methods = availableWalletMethods(hotel);
+    if (methods.length && !methods.includes(selectedWallet)) {
+      setSelectedWallet(methods[0]);
+      return;
+    }
+    if (!methods.length) {
+      setQrObjectUrl(undefined);
+      return;
+    }
+
     let objectUrl: string | undefined;
     let cancelled = false;
-
     const hotelId = hotel.id;
+    const method = selectedWallet;
 
     async function loadPaymentQr() {
+      setQrLoading(true);
       for (const refresh of [false, true]) {
         if (cancelled) return;
         try {
-          const res = await fetch(paymentQrProxyUrl(hotelId, refresh));
+          const res = await fetch(paymentQrProxyUrl(hotelId, method, refresh));
           if (!res.ok) continue;
           const blob = await res.blob();
           if (cancelled || !blob.type.startsWith('image/')) continue;
           objectUrl = URL.createObjectURL(blob);
           setQrObjectUrl(objectUrl);
+          setQrLoading(false);
           return;
         } catch {
           // try refresh on next loop
         }
       }
-      if (!cancelled) setQrObjectUrl(undefined);
+      if (!cancelled) {
+        setQrObjectUrl(undefined);
+        setQrLoading(false);
+      }
     }
 
+    setQrObjectUrl(undefined);
     void loadPaymentQr();
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [hotel]);
+  }, [hotel, selectedWallet]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -840,21 +865,53 @@ export default function BookingPage() {
               </div>
 
               <div className="rounded-2xl border border-brand-primary/12 overflow-hidden bg-white">
-                {paymentQrUrl ? (
+                {walletOptions.length > 0 && (
+                  <div className="p-4 sm:p-5 border-b border-brand-primary/8 bg-brand-background/40">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-primary mb-3">
+                      Choose how to pay online
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {walletOptions.map((opt) => {
+                        const active = selectedWallet === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setSelectedWallet(opt.id)}
+                            className={`rounded-xl border-2 px-2 py-3 text-center transition-all ${
+                              active
+                                ? 'border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm'
+                                : 'border-brand-primary/15 bg-white text-brand-dark/70 hover:border-brand-primary/35'
+                            }`}
+                          >
+                            <span className="block text-xs sm:text-sm font-bold">{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {qrLoading ? (
+                  <div className="px-5 py-12 sm:px-8 text-center">
+                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-brand-primary" />
+                    <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(selectedWallet)} QR…</p>
+                  </div>
+                ) : paymentQrUrl ? (
                   <div className="p-5 sm:p-6 text-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-brand-primary/[0.07] via-transparent to-transparent">
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-primary mb-4">
-                      Scan to pay · ₱{amountDue.toLocaleString()}
+                      Scan with {walletMethodLabel(selectedWallet)} · ₱{amountDue.toLocaleString()}
                     </p>
                     <div className="inline-flex rounded-2xl bg-white p-3 border border-brand-primary/10 shadow-sm">
                       <img
                         src={paymentQrUrl}
-                        alt="Hotel payment QR"
+                        alt={`${walletMethodLabel(selectedWallet)} payment QR`}
                         className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
                         referrerPolicy="no-referrer"
                       />
                     </div>
                     <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto">
-                      Open GCash, Maya, or your banking app and scan this code for the deposit.
+                      Open {walletMethodLabel(selectedWallet)} and scan this code to pay the {depositPercent}% deposit.
                     </p>
                   </div>
                 ) : (

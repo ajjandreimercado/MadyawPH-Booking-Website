@@ -818,9 +818,7 @@ hotelRoutes.get('/:hotelId/payment-qr', publicReadLimiter, async (req, res) => {
   });
   if (!image) {
     console.warn('[PaymentQR] Unavailable for hotel', req.params.hotelId, 'candidates:', collectPaymentQrCandidates(hotel, systemSettings));
-    return res.status(404).json({
-      message: 'Payment QR is not available yet. The hotel may need to re-upload it after enabling persistent storage.',
-    });
+    return res.status(404).json({ message: 'No payment QR is available for this method yet.' });
   }
 
   res.setHeader('Content-Type', image.contentType);
