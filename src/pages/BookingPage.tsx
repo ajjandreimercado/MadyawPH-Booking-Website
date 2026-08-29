@@ -2,7 +2,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode, X, ZoomIn,
+  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode, X, ZoomIn, Download,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
 import { validatePromoCode, validateMembershipId } from '../services/api';
@@ -12,7 +12,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
+import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, walletPayFromGallerySteps, savePaymentQrImage, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
@@ -116,6 +116,7 @@ export default function BookingPage() {
   const [qrObjectUrl, setQrObjectUrl] = useState<string>();
   const [qrLoading, setQrLoading] = useState(false);
   const [qrLightboxOpen, setQrLightboxOpen] = useState(false);
+  const [isSavingQr, setIsSavingQr] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
     availableWalletMethods(hotel).includes(opt.id),
@@ -480,6 +481,34 @@ export default function BookingPage() {
     : walletOptions.length === 2
       ? 'grid grid-cols-2 gap-2'
       : 'grid grid-cols-3 gap-1.5 sm:gap-2';
+
+  const handleSavePaymentQr = async () => {
+    if (!paymentQrUrl || isSavingQr) return;
+    setIsSavingQr(true);
+    try {
+      const result = await savePaymentQrImage(paymentQrUrl, {
+        method: activeWallet,
+        hotelName: hotel?.name,
+      });
+      if (result === 'failed') {
+        showToast({
+          title: 'Could not save QR',
+          description: 'Please try again, or take a screenshot of the QR code.',
+          type: 'error',
+        });
+        return;
+      }
+      showToast({
+        title: result === 'shared' ? 'QR ready to save' : 'QR saved',
+        description: result === 'shared'
+          ? `Choose Save image in the share menu, then open ${walletMethodLabel(activeWallet)}.`
+          : `Open ${walletMethodLabel(activeWallet)} and upload the QR from your photos.`,
+        type: 'success',
+      });
+    } finally {
+      setIsSavingQr(false);
+    }
+  };
 
   const roomLabel = formatRoomLabel(property);
 
@@ -960,10 +989,39 @@ export default function BookingPage() {
                         </span>
                       </div>
                     </button>
-                    <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto px-1">
-                      Open {walletMethodLabel(activeWallet)} and scan this code to pay the {depositPercent}% deposit.
-                      <span className="block mt-1 text-brand-dark/40">Tap the QR to view it larger.</span>
-                    </p>
+                    <div className="mt-4 flex flex-col items-center gap-3 max-w-sm mx-auto px-1">
+                      <button
+                        type="button"
+                        onClick={() => { void handleSavePaymentQr(); }}
+                        disabled={isSavingQr}
+                        className="inline-flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2 rounded-xl border-2 px-5 py-3 text-sm font-bold transition-all touch-manipulation disabled:opacity-60"
+                        style={{
+                          borderColor: walletTheme.color,
+                          color: walletTheme.color,
+                          backgroundColor: `${walletTheme.color}10`,
+                        }}
+                      >
+                        {isSavingQr ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 shrink-0" />
+                        )}
+                        {isSavingQr ? 'Saving…' : 'Save QR to phone'}
+                      </button>
+                      <div className="w-full rounded-xl border border-brand-primary/10 bg-white/80 p-3 sm:p-4 text-left">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-2">
+                          Paying on this phone?
+                        </p>
+                        <ol className="space-y-1.5 text-xs text-brand-dark/60 leading-relaxed list-decimal list-inside">
+                          {walletPayFromGallerySteps(activeWallet, amountDue).map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                      <p className="text-xs text-brand-dark/45 leading-relaxed text-center">
+                        On another device? Tap the QR to enlarge and scan with your camera.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div className="px-5 py-8 sm:px-8 sm:py-10 text-center">
@@ -1265,8 +1323,22 @@ export default function BookingPage() {
           </p>
           <button
             type="button"
+            onClick={() => { void handleSavePaymentQr(); }}
+            disabled={isSavingQr}
+            className="mt-4 flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold touch-manipulation disabled:opacity-60 sm:mt-3"
+            style={{
+              borderColor: walletTheme.color,
+              color: walletTheme.color,
+              backgroundColor: `${walletTheme.color}10`,
+            }}
+          >
+            {isSavingQr ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {isSavingQr ? 'Saving…' : 'Save QR to phone'}
+          </button>
+          <button
+            type="button"
             onClick={() => setQrLightboxOpen(false)}
-            className="mt-4 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark sm:hidden touch-manipulation"
+            className="mt-3 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark sm:hidden touch-manipulation"
           >
             Close
           </button>

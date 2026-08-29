@@ -104,3 +104,89 @@ export function hotelPaymentQrSrc(
 export function walletMethodLabel(method: WalletPaymentMethod): string {
   return WALLET_PAYMENT_THEME[method]?.label ?? method;
 }
+
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+}
+
+export function paymentQrFilename(
+  method: WalletPaymentMethod,
+  hotelName?: string,
+): string {
+  const hotel = sanitizeFilenamePart(hotelName || 'madyaw-hotel');
+  const wallet = sanitizeFilenamePart(walletMethodLabel(method));
+  return `${hotel}-${wallet}-payment-qr.png`;
+}
+
+/** Steps shown when the guest pays on the same phone (no second device to scan). */
+export function walletPayFromGallerySteps(method: WalletPaymentMethod, amount?: number): string[] {
+  const app = walletMethodLabel(method);
+  const amountLine = amount != null
+    ? `Pay exactly ₱${amount.toLocaleString()}.`
+    : 'Pay the deposit amount shown above.';
+  return [
+    'Tap Save QR below and add the image to your photos.',
+    `Open ${app} → Pay QR → Upload from gallery (or Scan from photos).`,
+    amountLine,
+    'Return here to upload your receipt and reference number.',
+  ];
+}
+
+export type SavePaymentQrResult = 'downloaded' | 'shared' | 'failed';
+
+/**
+ * Save the payment QR to the device (download or native share sheet → Save image).
+ * Works with blob: URLs from checkout and remote/proxy URLs.
+ */
+export async function savePaymentQrImage(
+  imageUrl: string,
+  options?: {
+    method?: WalletPaymentMethod;
+    hotelName?: string;
+  },
+): Promise<SavePaymentQrResult> {
+  const method = options?.method ?? 'gcash';
+  const filename = paymentQrFilename(method, options?.hotelName);
+
+  let blob: Blob;
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return 'failed';
+    blob = await response.blob();
+    if (!blob.type.startsWith('image/')) {
+      blob = new Blob([blob], { type: 'image/png' });
+    }
+  } catch {
+    return 'failed';
+  }
+
+  const file = new File([blob], filename, { type: blob.type || 'image/png' });
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: `${walletMethodLabel(method)} payment QR`,
+        text: `Payment QR for ${walletMethodLabel(method)}`,
+      });
+      return 'shared';
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return 'failed';
+    }
+  }
+
+  try {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+    return 'downloaded';
+  } catch {
+    return 'failed';
+  }
+}
