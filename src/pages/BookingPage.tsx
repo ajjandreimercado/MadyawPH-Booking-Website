@@ -273,8 +273,13 @@ export default function BookingPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setQrLightboxOpen(false);
     };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [qrLightboxOpen]);
 
   useEffect(() => {
@@ -469,6 +474,12 @@ export default function BookingPage() {
       </div>
     );
   }
+
+  const walletGridClass = walletOptions.length <= 1
+    ? 'grid grid-cols-1 max-w-[14rem] mx-auto'
+    : walletOptions.length === 2
+      ? 'grid grid-cols-2 gap-2'
+      : 'grid grid-cols-3 gap-1.5 sm:gap-2';
 
   const roomLabel = formatRoomLabel(property);
 
@@ -845,8 +856,8 @@ export default function BookingPage() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center sm:text-left">
+              <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center min-[400px]:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
                     Pay now
                   </p>
@@ -855,7 +866,7 @@ export default function BookingPage() {
                   </p>
                   <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">{depositPercent}% deposit</p>
                 </div>
-                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
+                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center min-[400px]:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
                     Later
                   </p>
@@ -864,7 +875,7 @@ export default function BookingPage() {
                   </p>
                   <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">At check-out</p>
                 </div>
-                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
+                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center min-[400px]:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
                     Total
                   </p>
@@ -877,11 +888,11 @@ export default function BookingPage() {
 
               <div className="rounded-2xl border border-brand-primary/12 overflow-hidden bg-white">
                 {walletOptions.length > 0 && (
-                  <div className="p-4 sm:p-5 border-b border-brand-primary/8 bg-brand-background/40">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-primary mb-3">
+                  <div className="p-3 sm:p-5 border-b border-brand-primary/8 bg-brand-background/40">
+                    <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] text-brand-primary mb-3 text-center sm:text-left">
                       Choose how to pay online
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className={walletGridClass}>
                       {walletOptions.map((opt) => {
                         const active = activeWallet === opt.id;
                         const theme = walletMethodTheme(opt.id);
@@ -890,14 +901,14 @@ export default function BookingPage() {
                             key={opt.id}
                             type="button"
                             onClick={() => setSelectedWallet(opt.id)}
-                            className={`rounded-xl border-2 px-2 py-3 text-center transition-all ${
+                            className={`min-h-[48px] rounded-xl border-2 px-2 py-3 sm:py-3.5 text-center transition-all touch-manipulation active:scale-[0.98] ${
                               active
-                                ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm ring-2 ring-offset-1`
+                                ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm ring-2 ring-offset-0 sm:ring-offset-1`
                                 : `${theme.inactiveBorder} bg-white ${theme.inactiveText} ${theme.hoverBorder}`
                             }`}
                             style={active ? { boxShadow: `0 0 0 3px ${theme.color}22` } : undefined}
                           >
-                            <span className="block text-xs sm:text-sm font-bold">{opt.label}</span>
+                            <span className="block text-[11px] sm:text-sm font-bold leading-tight">{opt.label}</span>
                           </button>
                         );
                       })}
@@ -912,41 +923,44 @@ export default function BookingPage() {
                   </div>
                 ) : paymentQrUrl ? (
                   <div
-                    className="p-5 sm:p-6 text-center"
+                    className="px-3 py-5 sm:p-6 text-center"
                     style={{ background: `radial-gradient(ellipse at top, ${walletTheme.color}14, transparent 65%)` }}
                   >
                     <p
-                      className="text-[10px] font-bold uppercase tracking-[0.2em] mb-4"
+                      className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] mb-4 px-1 leading-relaxed"
                       style={{ color: walletTheme.color }}
                     >
-                      Scan with {walletMethodLabel(activeWallet)} · ₱{amountDue.toLocaleString()}
+                      <span className="block sm:inline">Scan with {walletMethodLabel(activeWallet)}</span>
+                      <span className="hidden sm:inline"> · </span>
+                      <span className="block sm:inline tabular-nums">₱{amountDue.toLocaleString()}</span>
                     </p>
                     <button
                       type="button"
                       onClick={() => setQrLightboxOpen(true)}
-                      className="group inline-flex flex-col items-center rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                      className="group inline-flex w-full max-w-[min(100%,16rem)] sm:max-w-none sm:w-auto flex-col items-center rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 mx-auto"
                       style={{ ['--tw-ring-color' as string]: walletTheme.color }}
                       aria-label={`Enlarge ${walletMethodLabel(activeWallet)} payment QR`}
                     >
                       <div
-                        className="relative inline-flex rounded-2xl bg-white p-3 border shadow-sm transition-transform group-hover:scale-[1.02] group-active:scale-[0.98]"
+                        className="relative inline-flex w-full justify-center rounded-2xl bg-white p-2.5 sm:p-3 border shadow-sm transition-transform group-hover:scale-[1.02] group-active:scale-[0.98]"
                         style={{ borderColor: `${walletTheme.color}33` }}
                       >
                         <img
                           src={paymentQrUrl}
                           alt={`${walletMethodLabel(activeWallet)} payment QR`}
-                          className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+                          className="w-full max-w-[11rem] sm:max-w-none sm:w-56 sm:h-56 aspect-square object-contain"
                           referrerPolicy="no-referrer"
                         />
                         <span
-                          className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-brand-dark/75 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition-opacity group-hover:opacity-100"
+                          className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-brand-dark/80 px-2 py-1 text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 pointer-events-none"
                         >
-                          <ZoomIn className="h-3 w-3" />
-                          Tap to enlarge
+                          <ZoomIn className="h-3 w-3 shrink-0" />
+                          <span className="hidden sm:inline">Tap to enlarge</span>
+                          <span className="sm:hidden">Enlarge</span>
                         </span>
                       </div>
                     </button>
-                    <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto">
+                    <p className="mt-4 text-xs text-brand-dark/55 leading-relaxed max-w-sm mx-auto px-1">
                       Open {walletMethodLabel(activeWallet)} and scan this code to pay the {depositPercent}% deposit.
                       <span className="block mt-1 text-brand-dark/40">Tap the QR to view it larger.</span>
                     </p>
@@ -1204,7 +1218,13 @@ export default function BookingPage() {
 
     {qrLightboxOpen && paymentQrUrl && (
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/90 p-4 backdrop-blur-sm"
+        className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-brand-dark/90 p-3 sm:p-4 backdrop-blur-sm overscroll-contain"
+        style={{
+          paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+        }}
         onClick={() => setQrLightboxOpen(false)}
         role="dialog"
         aria-modal="true"
@@ -1212,31 +1232,44 @@ export default function BookingPage() {
       >
         <button
           type="button"
-          className="absolute top-4 right-4 rounded-full p-2 text-brand-cream hover:bg-white/10"
+          className="absolute flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full p-2 text-brand-cream hover:bg-white/10 touch-manipulation"
+          style={{
+            top: 'max(0.75rem, env(safe-area-inset-top))',
+            right: 'max(0.75rem, env(safe-area-inset-right))',
+          }}
           onClick={() => setQrLightboxOpen(false)}
           aria-label="Close enlarged QR"
         >
-          <X className="h-8 w-8" />
+          <X className="h-7 w-7 sm:h-8 sm:w-8" />
         </button>
         <div
-          className="max-w-[min(92vw,28rem)] rounded-3xl bg-white p-5 sm:p-6 shadow-2xl"
+          className="w-full max-w-[min(100%,28rem)] max-h-[min(92dvh,36rem)] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           <p
-            className="mb-4 text-center text-[10px] font-bold uppercase tracking-[0.2em]"
+            className="mb-3 sm:mb-4 text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] leading-relaxed px-1"
             style={{ color: walletTheme.color }}
           >
-            {walletMethodLabel(activeWallet)} · ₱{amountDue.toLocaleString()}
+            <span className="block sm:inline">{walletMethodLabel(activeWallet)}</span>
+            <span className="hidden sm:inline"> · </span>
+            <span className="block sm:inline tabular-nums">₱{amountDue.toLocaleString()}</span>
           </p>
           <img
             src={paymentQrUrl}
             alt={`${walletMethodLabel(activeWallet)} payment QR enlarged`}
-            className="mx-auto w-full max-w-[min(80vw,22rem)] aspect-square object-contain"
+            className="mx-auto w-full max-w-[min(85vw,22rem)] aspect-square object-contain"
             referrerPolicy="no-referrer"
           />
-          <p className="mt-4 text-center text-xs text-brand-dark/55">
+          <p className="mt-3 sm:mt-4 text-center text-xs text-brand-dark/55 px-2">
             Scan with {walletMethodLabel(activeWallet)} to pay your deposit
           </p>
+          <button
+            type="button"
+            onClick={() => setQrLightboxOpen(false)}
+            className="mt-4 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark sm:hidden touch-manipulation"
+          >
+            Close
+          </button>
         </div>
       </div>
     )}
