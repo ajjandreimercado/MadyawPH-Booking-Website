@@ -1,7 +1,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe, Utensils,
+  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe,
   Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode, X, ZoomIn, Download,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
@@ -56,10 +56,6 @@ const BOOKING_DISCOUNT_OPTIONS = [
   })),
 ];
 
-const DEFAULT_FOOD_AMENITIES = [
-  'Breakfast', 'Lunch', 'Dinner', 'All-Day Dining', 'Welcome Drink',
-  'Mini Bar', 'Room Service', 'Poolside Bar', 'Snack Basket',
-];
 
 export default function BookingPage() {
   const { propertyId } = useParams();
@@ -99,8 +95,6 @@ export default function BookingPage() {
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
   const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
-
-  const [selectedComplimentary, setSelectedComplimentary] = useState<string[]>([]);
 
   const [discountType, setDiscountType] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -166,15 +160,6 @@ export default function BookingPage() {
         : discountType === 'senior citizen'
           ? 'Senior Citizen Discount (20%)'
           : '';
-
-  // ── Derive food amenities from property ─────────────────────────────────────
-  const foodAmenities = (() => {
-    const propAmenities: string[] = (property as any)?.amenities ?? [];
-    const food = propAmenities.filter(a =>
-      DEFAULT_FOOD_AMENITIES.some(f => f.toLowerCase() === a.toLowerCase())
-    );
-    return food.length > 0 ? food : DEFAULT_FOOD_AMENITIES;
-  })();
 
   useEffect(() => {
     if (!propertyId) return;
@@ -385,14 +370,6 @@ export default function BookingPage() {
     return () => window.clearTimeout(timer);
   }, [membershipId, staySubtotal]);
 
-  const toggleComplimentary = (item: string) => {
-    startTransition(() => {
-      setSelectedComplimentary((prev) =>
-        prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item],
-      );
-    });
-  };
-
   const requiresPaymentProof = true;
 
   const isFormValid =
@@ -488,7 +465,6 @@ export default function BookingPage() {
             : '',
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
-          selectedComplimentary.length > 0 ? `Complimentary: ${selectedComplimentary.join(', ')}` : '',
           `Payment: hotel QR (50% deposit)`,
         ].filter(Boolean).join(' | ') || undefined,
       });
@@ -781,37 +757,6 @@ export default function BookingPage() {
                     />
                   </div>
                 </div>
-              </div>
-            </section>
-
-            <div className="h-px bg-brand-primary/8" />
-
-            {/* Section: Complimentary Items */}
-            <section>
-              <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-1 flex items-center gap-2">
-                <Utensils className="w-4 h-4" /> Complimentary Items
-              </h2>
-              <p className="text-xs text-brand-dark/50 font-bold mb-3">Select any complimentary dining or beverage items you'd like included.</p>
-              <div className="flex flex-wrap gap-2">
-                {foodAmenities.map(item => {
-                  const selected = selectedComplimentary.includes(item);
-                  return (
-                    <button
-                      key={item}
-                      type="button"
-                      id={`complimentary-${item.toLowerCase().replace(/\s+/g, '-')}`}
-                      onClick={() => toggleComplimentary(item)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all duration-200 ${
-                        selected
-                          ? 'bg-brand-primary text-white border-brand-primary shadow-sm scale-105'
-                          : 'bg-white/60 text-brand-dark/60 border-brand-primary/20 hover:border-brand-primary/50'
-                      }`}
-                    >
-                      {selected && <CheckCircle2 className="inline w-3 h-3 mr-1" />}
-                      {item}
-                    </button>
-                  );
-                })}
               </div>
             </section>
 
@@ -1279,14 +1224,6 @@ export default function BookingPage() {
                 <span className="text-brand-dark/60">Guests</span>
                 <span className="text-brand-dark">{adults + children} guest{adults + children !== 1 ? 's' : ''}</span>
               </div>
-              {selectedComplimentary.length > 0 && (
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Complimentary</span>
-                  <span className="text-brand-dark text-right text-xs max-w-[140px] leading-tight">
-                    {selectedComplimentary.join(', ')}
-                  </span>
-                </div>
-              )}
             </div>
 
             <div className="border-t border-brand-primary/8 pt-3 space-y-2">
