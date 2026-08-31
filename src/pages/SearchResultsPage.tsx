@@ -7,6 +7,7 @@ import {
   Grid3X3, List, X, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
+import { formatHotelLocation, hotelCardImageSrc } from '../lib/hotelImage';
 import StarRating from '../components/ui/StarRating';
 import { HotelCardSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
@@ -65,7 +66,8 @@ function HotelCard({
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
     ...(hotel.images || [])
   ];
-  const displayImages = images.length > 0 ? images : ['/hero/slide-1.png'];
+  const displayImages = images.length > 0 ? images.map((src) => hotelCardImageSrc(src) ?? src) : ['/hero/slide-1.png'];
+  const locationLabel = formatHotelLocation(hotel.location, hotel.city);
   const navigate = useNavigate();
 
   return (
@@ -124,9 +126,9 @@ function HotelCard({
           <div className="flex items-start justify-between gap-3 mb-2">
             <h3 className="font-serif font-bold text-lg text-brand-dark leading-snug line-clamp-2">{hotel.name}</h3>
           </div>
-          <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-1">
-            <MapPin className="w-3.5 h-3.5" />
-            {hotel.location}
+          <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-1 min-w-0">
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate" title={hotel.location}>{locationLabel}</span>
           </p>
           {typeof hotel.distanceKm === 'number' && (
             <p className="text-xs font-bold text-brand-primary mb-3">

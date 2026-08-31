@@ -20,6 +20,46 @@ export function pickImageSource(record: unknown): string | undefined {
   return undefined;
 }
 
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return String(Math.abs(hash));
+}
+
+function coerceRevision(raw: unknown): string | undefined {
+  if (raw instanceof Date) return String(raw.getTime());
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(Math.floor(raw));
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return String(parsed);
+    return raw.trim().slice(0, 40);
+  }
+  return undefined;
+}
+
+/**
+ * Cache-bust token from Mongo timestamps or the stored image path.
+ * When the hotel app uploads a new image, updated_at or image_url changes → new website URL.
+ */
+export function imageRevisionToken(record: unknown, rawImage?: string): string | undefined {
+  if (record && typeof record === 'object') {
+    const source = record as AnyRecord;
+    for (const field of [
+      source.updated_at,
+      source.updatedAt,
+      source.image_updated_at,
+      source.imageUpdatedAt,
+    ]) {
+      const token = coerceRevision(field);
+      if (token) return token;
+    }
+  }
+  const imageRaw = rawImage ?? (record ? pickImageSource(record) : undefined);
+  return imageRaw ? hashString(imageRaw) : undefined;
+}
+
 /** Pull a Laravel storage path from chat/media URLs, absolute hotel URLs, or relative paths. */
 export function extractStoragePath(raw: string): string | null {
   const trimmed = raw.trim();
@@ -93,16 +133,25 @@ export function shouldProxyHotelImage(raw: string): boolean {
   return false;
 }
 
-export function hotelMediaProxyUrl(storagePath: string): string {
+export function hotelMediaProxyUrl(
+  storagePath: string,
+  options?: { width?: number; version?: string },
+): string {
   const apiBase = getMadyawApiPublicUrl().replace(/\/+$/, '');
-  return `${apiBase}/hotels/media?f=${encodeURIComponent(storagePath)}`;
+  const params = new URLSearchParams({ f: storagePath });
+  if (options?.width && options.width > 0) params.set('w', String(Math.min(options.width, 1200)));
+  if (options?.version) params.set('v', options.version);
+  return `${apiBase}/hotels/media?${params.toString()}`;
 }
 
 /**
  * Turn hotel-app image references into browser-loadable URLs.
  * Hotel uploads are proxied through the booking API so we can try multiple origins.
  */
-export function resolveHotelImageUrl(raw: string | undefined | null): string | undefined {
+export function resolveHotelImageUrl(
+  raw: string | undefined | null,
+  options?: { width?: number; version?: string },
+): string | undefined {
   if (!raw?.trim()) return undefined;
   const value = raw.trim();
   if (value.startsWith('data:image/')) return value;
@@ -113,5 +162,29 @@ export function resolveHotelImageUrl(raw: string | undefined | null): string | u
     return value.startsWith('http://') || value.startsWith('https://') ? value : undefined;
   }
 
-  return hotelMediaProxyUrl(storagePath);
+  return hotelMediaProxyUrl(storagePath, options);
+}
+
+/** Resolve image URL from a Mongo hotel/room/category document (includes cache-bust version). */
+export function resolveHotelImageUrlFromRecord(
+  record: unknown,
+  rawOverride?: string,
+  options?: { width?: number },
+): string | undefined {
+  const raw = rawOverride ?? pickImageSource(record);
+  if (!raw) return undefined;
+  const version = imageRevisionToken(record, raw);
+  return resolveHotelImageUrl(raw, { ...options, version });
+}
+
+export function decodeHotelMediaBase64(
+  rawBase64: string,
+  mime = 'image/jpeg',
+): { body: Buffer; contentType: string } | null {
+  const payload = rawBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').trim();
+  if (!payload) return null;
+  const body = Buffer.from(payload, 'base64');
+  if (body.length < 32) return null;
+  const contentType = mime.startsWith('image/') ? mime.split(';')[0] : 'image/jpeg';
+  return { body, contentType };
 }

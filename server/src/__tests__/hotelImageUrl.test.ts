@@ -1,8 +1,10 @@
 import {
   extractStoragePath,
   hotelMediaProxyUrl,
+  imageRevisionToken,
   pickImageSource,
   resolveHotelImageUrl,
+  resolveHotelImageUrlFromRecord,
   shouldProxyHotelImage,
 } from '../utils/hotelImageUrl';
 
@@ -45,5 +47,23 @@ describe('hotelImageUrl', () => {
     expect(hotelMediaProxyUrl('categories/test.jpg')).toBe(
       'https://madyaw-api.onrender.com/api/hotels/media?f=categories%2Ftest.jpg',
     );
+  });
+
+  it('appends version token from updated_at for automatic cache busting', () => {
+    const record = {
+      image_url: 'categories/room-a.jpg',
+      updated_at: '2026-08-31T12:00:00.000Z',
+    };
+    const token = imageRevisionToken(record);
+    expect(token).toBeTruthy();
+    const url = resolveHotelImageUrlFromRecord(record);
+    expect(url).toContain(`v=${token}`);
+    expect(url).toContain('f=categories%2Froom-a.jpg');
+  });
+
+  it('changes version when image_url changes in Mongo', () => {
+    const before = resolveHotelImageUrlFromRecord({ image_url: 'rooms/a.jpg' });
+    const after = resolveHotelImageUrlFromRecord({ image_url: 'rooms/b.jpg' });
+    expect(before).not.toBe(after);
   });
 });

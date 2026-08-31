@@ -1,5 +1,5 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
-import { pickImageSource, resolveHotelImageUrl } from './hotelImageUrl';
+import { resolveHotelImageUrlFromRecord } from './hotelImageUrl';
 import {
   hasAnyPaymentQr,
   mergePaymentAccounts,
@@ -52,7 +52,7 @@ export function serializeProperty(property: AnyDocument) {
     rating: Number(source.rating ?? source.average_rating ?? 4.8),
     reviews: Number(source.reviews ?? source.review_count ?? 0),
     price: Number(source.price_per_night ?? source.price ?? 0),
-    image: resolveHotelImageUrl(String(source.image_url ?? source.image ?? '')) ?? '',
+    image: resolveHotelImageUrlFromRecord(source) ?? '',
     amenities: toStringArray(source.amenities),
     type: String(source.room_type ?? source.type ?? ''),
     featured: roomStatus ? String(roomStatus) === 'available' : Boolean(source.featured),
@@ -91,10 +91,7 @@ export function serializeHotel(
     location: hotel.location,
     city: hotel.city ? String(hotel.city) : undefined,
     contactNumber: hotel.contact_number,
-    imageUrl: (() => {
-      const raw = pickImageSource(hotel);
-      return raw ? resolveHotelImageUrl(raw) : undefined;
-    })(),
+    imageUrl: resolveHotelImageUrlFromRecord(hotel),
     latitude: hasCoords ? latitude : undefined,
     longitude: hasCoords ? longitude : undefined,
     onlinePaymentMode,
@@ -126,7 +123,7 @@ export function serializeRoomCategory(category: AnyDocument) {
     name: String(source.name ?? ''),
     description: String(source.description ?? ''),
     defaultPrice: Number(source.default_price ?? source.defaultPrice ?? 0),
-    imageUrl: resolveHotelImageUrl(String(source.image_url ?? source.imageUrl ?? '')) ?? '',
+    imageUrl: resolveHotelImageUrlFromRecord(category) ?? '',
   };
 }
 

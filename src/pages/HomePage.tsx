@@ -6,6 +6,7 @@ import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
 import { peekCache, cacheKey } from '../lib/queryCache';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
+import { formatHotelLocation, hotelCardImageSrc } from '../lib/hotelImage';
 
 const DESTINATION_IMAGES: Record<string, string> = {
   'boracay': '/images/boracay.png',
@@ -47,39 +48,57 @@ function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => 
   );
 }
 
-function FeaturedHotelCard({ hotel }: { hotel: SearchResultHotel }) {
+function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHotel; priority?: boolean }) {
   const navigate = useNavigate();
+  const rawSrc = hotel.imageUrl || hotel.images?.[0];
+  const imgSrc = hotelCardImageSrc(rawSrc) ?? rawSrc;
+  const locationLabel = formatHotelLocation(hotel.location, hotel.city);
+
   return (
     <div
-      className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer"
+      className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer w-full max-w-sm mx-auto sm:max-w-none sm:mx-0 hover:shadow-md transition-shadow"
       onClick={() => navigate(`/hotels/${hotel.id}`)}
     >
-      <div className="h-44 bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 flex items-center justify-center relative">
-        {hotel.imageUrl || (hotel.images && hotel.images.length > 0) ? (
-          <img src={hotel.imageUrl || hotel.images[0]} alt={hotel.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }} />
+      <div className="relative aspect-[4/3] bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 overflow-hidden">
+        {imgSrc ? (
+          <img
+            src={imgSrc}
+            alt={hotel.name}
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchPriority={priority ? 'high' : 'auto'}
+            className="absolute inset-0 w-full h-full object-cover object-center"
+            onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
+          />
         ) : (
-          <MapPin className="w-12 h-12 text-brand-primary/30" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <MapPin className="w-12 h-12 text-brand-primary/30" />
+          </div>
         )}
         <div className="absolute top-3 right-3 bg-brand-cream/90 px-2 py-1 rounded-lg shadow-sm">
-          <p className="text-xs font-bold text-brand-dark"><span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>{hotel.minPrice?.toLocaleString() || 0}</p>
+          <p className="text-xs font-bold text-brand-dark tabular-nums">
+            <span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>
+            {hotel.minPrice?.toLocaleString() || 0}
+          </p>
         </div>
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-brand-dark/80 text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
-          <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star" />
+          <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star shrink-0" />
           {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
           {hotel.totalReviews > 0 && (
             <span className="text-[10px] font-bold text-white/70">({hotel.totalReviews})</span>
           )}
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <h3 className="font-serif font-bold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
-        <p className="flex items-start gap-1.5 text-xs font-bold text-brand-dark/50 mb-3 line-clamp-2">
-          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />{hotel.location}
+        <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mb-3 min-w-0">
+          <MapPin className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate" title={hotel.location}>{locationLabel}</span>
         </p>
         <div className="flex items-center justify-end">
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); navigate(`/hotels/${hotel.id}`); }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/hotels/${hotel.id}`); }}
             className="text-xs font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1 transition-colors"
           >
             View rooms <ArrowRight className="w-3.5 h-3.5" />
@@ -148,6 +167,18 @@ export default function HomePage() {
 
   const featuredHotels = hotels.slice(0, 4);
 
+  useEffect(() => {
+    if (featuredHotels.length === 0) return;
+    const src = hotelCardImageSrc(featuredHotels[0].imageUrl || featuredHotels[0].images?.[0]);
+    if (!src) return;
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'image';
+    link.href = src;
+    document.head.appendChild(link);
+    return () => { link.remove(); };
+  }, [featuredHotels]);
+
   return (
     <div className="w-full">
       <Hero initialDestination="" />
@@ -191,8 +222,10 @@ export default function HomePage() {
                 All properties <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className="fluid-card-grid">
-              {featuredHotels.map(hotel => <FeaturedHotelCard key={hotel.id} hotel={hotel} />)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 justify-items-stretch">
+              {featuredHotels.map((hotel, index) => (
+                <FeaturedHotelCard key={hotel.id} hotel={hotel} priority={index === 0} />
+              ))}
             </div>
           </section>
         )}

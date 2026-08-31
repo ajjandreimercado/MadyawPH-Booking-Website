@@ -410,7 +410,7 @@ export async function fetchHotelById(hotelId: string, options?: { force?: boolea
       const response = await api.get<Hotel & { _id?: string; id?: string | number }>(`/hotels/${encodeURIComponent(hotelId)}`);
       return normalizeHotel(response.data);
     },
-    { softTtlMs: 60_000, ttlMs: 15 * 60_000, force: options?.force },
+    { softTtlMs: 20_000, ttlMs: 3 * 60_000, force: options?.force },
   );
 }
 
@@ -432,7 +432,7 @@ export async function fetchHotelDetailById(hotelId: string): Promise<HotelDetail
         totals: response.data.totals,
       };
     },
-    { softTtlMs: 45_000, ttlMs: 10 * 60_000 },
+    { softTtlMs: 20_000, ttlMs: 3 * 60_000 },
   );
 }
 
@@ -527,7 +527,7 @@ export async function searchHotels(params: SearchParams = {}): Promise<{
       const response = await api.get('/hotels/search', { params });
       return response.data;
     },
-    { softTtlMs: 30_000, ttlMs: 5 * 60_000 },
+    { softTtlMs: 15_000, ttlMs: 2 * 60_000 },
   );
 }
 

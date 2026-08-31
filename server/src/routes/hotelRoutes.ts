@@ -1,8 +1,25 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
-import { resolveHotelImageUrl } from '../utils/hotelImageUrl';
-import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath, fetchFirstPaymentQrImage, collectPaymentQrCandidates, cachePaymentQrFromBase64, schedulePaymentQrWarm } from '../utils/paymentQr';
+import { resolveHotelImageUrlFromRecord, decodeHotelMediaBase64, extractStoragePath } from '../utils/hotelImageUrl';
+import {
+  buildMediaCacheKey,
+  getCachedMedia,
+  invalidateCachedMedia,
+  setCachedMedia,
+} from '../utils/mediaCache';
+import {
+  fetchHotelPaymentQrImage,
+  loadHotelSystemSettings,
+  mergePaymentQrs,
+  resolveDisplayablePaymentQr,
+  cachePaymentQrImage,
+  sanitizeStoragePath,
+  fetchFirstPaymentQrImage,
+  collectPaymentQrCandidates,
+  cachePaymentQrFromBase64,
+  schedulePaymentQrWarm,
+} from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { validateId } from '../utils/validators';
@@ -83,6 +100,53 @@ hotelRoutes.post('/payment-qr-cache', hotelWebhookLimiter, async (req, res) => {
   }
 
   return res.json({ ok: true, hotelId, path: storagePath, cached: true });
+});
+
+// ─── POST /media-cache ────────────────────────────────────────────────────────
+// Hotel app calls after uploading a room/hotel/category image (optional instant push).
+// Auth: Authorization: Bearer <HOTEL_WEBHOOK_SECRET>
+
+hotelRoutes.post('/media-cache', hotelWebhookLimiter, async (req, res) => {
+  if (!getHotelWebhookSecret()) {
+    return res.status(503).json({ message: USER_MESSAGES.serviceUnavailable });
+  }
+  if (!isHotelWebhookAuthorized(req)) {
+    return res.status(401).json({ message: 'Unauthorized request.' });
+  }
+
+  const rawPath = String(
+    req.body?.image_url ?? req.body?.imageUrl ?? req.body?.path ?? req.body?.storage_path ?? '',
+  ).trim();
+  if (!rawPath) {
+    return res.status(400).json({ message: 'image_url is required.' });
+  }
+
+  const storagePath = sanitizeStoragePath(extractStoragePath(rawPath) ?? rawPath);
+  if (!storagePath) {
+    return res.status(400).json({ message: 'Invalid image_url.' });
+  }
+
+  invalidateCachedMedia(storagePath);
+
+  const rawBase64 = typeof req.body?.base64 === 'string' ? req.body.base64 : '';
+  const version = typeof req.body?.version === 'string' && req.body.version.trim()
+    ? req.body.version.trim()
+    : typeof req.body?.updated_at === 'string' && req.body.updated_at.trim()
+      ? req.body.updated_at.trim()
+      : String(Date.now());
+
+  if (rawBase64) {
+    const mime = typeof req.body?.mime === 'string' ? req.body.mime : 'image/jpeg';
+    const decoded = decodeHotelMediaBase64(rawBase64, mime);
+    if (!decoded) {
+      return res.status(400).json({ message: 'Invalid image payload.' });
+    }
+    const cacheKey = buildMediaCacheKey(storagePath, { version });
+    setCachedMedia(cacheKey, decoded);
+    setCachedMedia(buildMediaCacheKey(storagePath, { version, width: 640 }), decoded);
+  }
+
+  return res.json({ ok: true, path: storagePath, version, cached: Boolean(rawBase64) });
 });
 
 const DEFAULT_NEAR_RADIUS_KM = 50;
@@ -352,7 +416,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     const price = Number(room.price_per_night ?? 0);
     if (price > 0 && price < existing.minPrice) existing.minPrice = price;
     if (room.image_url && existing.images.length < 3) {
-      const resolved = resolveHotelImageUrl(String(room.image_url));
+      const resolved = resolveHotelImageUrlFromRecord(room);
       if (resolved) existing.images.push(resolved);
     }
     if (room.room_type) existing.types.add(String(room.room_type));
@@ -626,13 +690,28 @@ hotelRoutes.get('/media', publicReadLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Invalid image path.' });
   }
 
-  const image = await fetchHotelPaymentQrImage(storagePath, undefined, { skipCache: true });
+  const widthParam = typeof req.query.w === 'string' ? Number.parseInt(req.query.w, 10) : 0;
+  const version = typeof req.query.v === 'string' ? req.query.v.trim() : '';
+  const cacheKey = buildMediaCacheKey(storagePath, {
+    version: version || '0',
+    width: widthParam > 0 ? widthParam : undefined,
+  });
+  const cached = getCachedMedia(cacheKey);
+  if (cached) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    return res.send(cached.body);
+  }
+
+  const image = await fetchHotelPaymentQrImage(storagePath);
   if (!image) {
     return res.status(404).json({ message: 'Image not found.' });
   }
 
+  setCachedMedia(cacheKey, image);
   res.setHeader('Content-Type', image.contentType);
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   return res.send(image.body);
 });
