@@ -109,6 +109,26 @@ export function getMadyawPublicUrl(): string {
   return firstOrigin ? firstOrigin.replace(/\/+$/, '') : 'https://madyaw.com';
 }
 
+/** Public booking API base (includes /api suffix) for proxied hotel media URLs. */
+export function getMadyawApiPublicUrl(): string {
+  const raw = optionalEnv('MADYAW_API_PUBLIC_URL');
+  if (raw) return raw.replace(/\/+$/, '');
+  return 'https://madyaw-api.onrender.com/api';
+}
+
+/**
+ * Database name for Mongoose. Defaults to `hotel_hms` (shared with the hotel app)
+ * so a cluster URL copied without a path does not silently use empty `test` DB.
+ * Set MONGODB_DB_NAME=auto to use only the path in MONGODB_URI.
+ */
+export function getMongoDbName(): string | undefined {
+  const raw = optionalEnv('MONGODB_DB_NAME');
+  if (raw.toLowerCase() === 'auto') return undefined;
+  if (raw) return raw;
+  if (process.env.NODE_ENV === 'test') return undefined;
+  return 'hotel_hms';
+}
+
 export function isMessengerEnabled(): boolean {
   return Boolean(getMessengerPageAccessToken() && getMessengerVerifyToken());
 }

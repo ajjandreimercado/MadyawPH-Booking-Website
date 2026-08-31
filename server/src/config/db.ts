@@ -1,6 +1,27 @@
 import mongoose from 'mongoose';
-import { MONGODB_URI } from './env';
+import { MONGODB_URI, getMongoDbName } from './env';
 import { invalidSummaryOnlyFilter } from '../utils/bookingHotelFields';
+
+async function logDatabaseInventory(): Promise<void> {
+  if (process.env.NODE_ENV === 'test') return;
+  try {
+    const db = mongoose.connection.db;
+    if (!db) return;
+    const [hotels, rooms] = await Promise.all([
+      db.collection('hotels').countDocuments(),
+      db.collection('rooms').countDocuments(),
+    ]);
+    console.log(`[INFO] MongoDB database "${db.databaseName}" — hotels: ${hotels}, rooms: ${rooms}`);
+    if (hotels === 0) {
+      console.warn(
+        '[WARN] No hotels found. Set MONGODB_URI to the hotel app cluster and ensure MONGODB_DB_NAME=hotel_hms (default).',
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[WARN] Could not read MongoDB inventory:', message);
+  }
+}
 
 async function healBookingsSummaryOnly(): Promise<void> {
   if (process.env.NODE_ENV === 'test' || process.env.SKIP_SUMMARY_ONLY_HEAL === '1') {
@@ -28,18 +49,21 @@ async function healBookingsSummaryOnly(): Promise<void> {
 
 export async function connectDatabase(): Promise<void> {
   try {
+    const dbName = getMongoDbName();
     // maxPoolSize: limits concurrent connections.
     // serverSelectionTimeoutMS: fail fast if Atlas is unreachable.
     // socketTimeoutMS: release idle sockets after 45 s.
     await mongoose.connect(MONGODB_URI, {
+      ...(dbName ? { dbName } : {}),
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 8_000,
       socketTimeoutMS: 45_000,
     });
     // Log the host only — never log the full URI (it contains credentials).
     const safeUri = MONGODB_URI.replace(/:\/\/[^@]*@/, '://***:***@');
-    console.log(`[INFO] Connected to MongoDB: ${safeUri}`);
+    console.log(`[INFO] Connected to MongoDB: ${safeUri}${dbName ? ` (db: ${dbName})` : ''}`);
     await healBookingsSummaryOnly();
+    await logDatabaseInventory();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown database connection error.';
     console.error('[FATAL] Failed to connect to MongoDB:', message);

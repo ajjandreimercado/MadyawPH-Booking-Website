@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import mongoose from 'mongoose';
 import { CLIENT_ORIGINS } from './config/env';
 import authRoutes from './routes/authRoutes';
 import hotelRoutes from './routes/hotelRoutes';
@@ -102,12 +103,31 @@ app.use('/api/messenger', messengerRoutes);
 app.use(apiLimiter);
 
 // ─── Health check (no auth, before route handlers) ───────────────────────────
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+  let database: string | undefined;
+  let hotels: number | undefined;
+  let rooms: number | undefined;
+
+  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+    try {
+      database = mongoose.connection.db.databaseName;
+      [hotels, rooms] = await Promise.all([
+        mongoose.connection.db.collection('hotels').countDocuments(),
+        mongoose.connection.db.collection('rooms').countDocuments(),
+      ]);
+    } catch {
+      // omit inventory when counts fail
+    }
+  }
+
   res.json({
     ok: true,
     service: 'madyaw-booking-api',
     uptime: Math.round(getUptimeMs() / 1000),
     timestamp: new Date().toISOString(),
+    database,
+    hotels,
+    rooms,
   });
 });
 

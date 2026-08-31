@@ -1,0 +1,117 @@
+import { getHotelAppPublicUrl, getMadyawApiPublicUrl } from '../config/env';
+import { sanitizeStoragePath } from './paymentQr';
+
+const EXTERNAL_IMAGE_PATTERN = /unsplash\.com|googleusercontent|gravatar|cloudinary|imgix|placeholder/i;
+
+type AnyRecord = Record<string, unknown>;
+
+export function pickImageSource(record: unknown): string | undefined {
+  if (!record || typeof record !== 'object') return undefined;
+  const source = record as AnyRecord;
+  const candidates = [
+    source.image_url,
+    source.imageUrl,
+    source.image,
+    Array.isArray(source.images) ? source.images[0] : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
+/** Pull a Laravel storage path from chat/media URLs, absolute hotel URLs, or relative paths. */
+export function extractStoragePath(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith('data:')) return null;
+
+  if (/chat\/media/i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const file = url.searchParams.get('f');
+      if (file) return sanitizeStoragePath(decodeURIComponent(file));
+    } catch {
+      // fall through
+    }
+  }
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      const parsed = new URL(trimmed);
+      const pathname = parsed.pathname.replace(/^\/+/, '');
+      const markers = [
+        'uploads/',
+        'storage/app/public/',
+        'public/storage/',
+        'storage/',
+        'api/storage/',
+        'api/files/',
+        'rooms/',
+        'categories/',
+        'hotels/',
+        'images/',
+      ];
+      for (const marker of markers) {
+        const idx = pathname.indexOf(marker);
+        if (idx < 0) continue;
+        let slice = pathname.slice(idx);
+        if (slice.startsWith('uploads/')) slice = slice.slice('uploads/'.length);
+        if (slice.startsWith('storage/app/public/')) slice = slice.slice('storage/app/public/'.length);
+        if (slice.startsWith('public/storage/')) slice = slice.slice('public/storage/'.length);
+        if (slice.startsWith('storage/')) slice = slice.slice('storage/'.length);
+        if (slice.startsWith('api/storage/')) slice = slice.slice('api/storage/'.length);
+        if (slice.startsWith('api/files/')) slice = slice.slice('api/files/'.length);
+        const path = sanitizeStoragePath(slice);
+        if (path) return path;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return sanitizeStoragePath(trimmed);
+}
+
+export function shouldProxyHotelImage(raw: string): boolean {
+  if (!raw || raw.startsWith('data:')) return false;
+  if (EXTERNAL_IMAGE_PATTERN.test(raw)) return false;
+
+  const app = getHotelAppPublicUrl();
+  if (app && raw.startsWith(app)) return true;
+  if (/chat\/media/i.test(raw)) return true;
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) return true;
+
+  try {
+    const parsed = new URL(raw);
+    const appHost = app ? new URL(app).host : '';
+    const defaultHotelHost = 'madyawph.onrender.com';
+    if (parsed.host === appHost || parsed.host === defaultHotelHost) return true;
+  } catch {
+    return true;
+  }
+
+  return false;
+}
+
+export function hotelMediaProxyUrl(storagePath: string): string {
+  const apiBase = getMadyawApiPublicUrl().replace(/\/+$/, '');
+  return `${apiBase}/hotels/media?f=${encodeURIComponent(storagePath)}`;
+}
+
+/**
+ * Turn hotel-app image references into browser-loadable URLs.
+ * Hotel uploads are proxied through the booking API so we can try multiple origins.
+ */
+export function resolveHotelImageUrl(raw: string | undefined | null): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const value = raw.trim();
+  if (value.startsWith('data:image/')) return value;
+  if (!shouldProxyHotelImage(value)) return value;
+
+  const storagePath = extractStoragePath(value);
+  if (!storagePath) {
+    return value.startsWith('http://') || value.startsWith('https://') ? value : undefined;
+  }
+
+  return hotelMediaProxyUrl(storagePath);
+}

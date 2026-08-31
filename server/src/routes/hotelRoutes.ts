@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
 import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
+import { resolveHotelImageUrl } from '../utils/hotelImageUrl';
 import { fetchHotelPaymentQrImage, loadHotelSystemSettings, mergePaymentQrs, qrUrlForPaymentMethod, resolveDisplayablePaymentQr, cachePaymentQrImage, sanitizeStoragePath, fetchFirstPaymentQrImage, collectPaymentQrCandidates, cachePaymentQrFromBase64, schedulePaymentQrWarm } from '../utils/paymentQr';
 // OWASP A03/A04: public rate limiter + ID param validation
 import { publicReadLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
@@ -350,7 +351,10 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     if (room.status === 'available') existing.availableRooms += 1;
     const price = Number(room.price_per_night ?? 0);
     if (price > 0 && price < existing.minPrice) existing.minPrice = price;
-    if (room.image_url && existing.images.length < 3) existing.images.push(String(room.image_url));
+    if (room.image_url && existing.images.length < 3) {
+      const resolved = resolveHotelImageUrl(String(room.image_url));
+      if (resolved) existing.images.push(resolved);
+    }
     if (room.room_type) existing.types.add(String(room.room_type));
     hotelStatsMap.set(hid, existing);
   }
@@ -610,6 +614,27 @@ hotelRoutes.get('/filters', publicReadLimiter, async (_req, res) => {
     console.error('Error fetching filters:', error);
     return res.status(500).json({ message: 'We could not load search filters right now. Please try again.' });
   }
+});
+
+// ─── GET /media ───────────────────────────────────────────────────────────────
+// Proxy hotel-app uploaded room/category images (tries multiple storage origins).
+
+hotelRoutes.get('/media', publicReadLimiter, async (req, res) => {
+  const raw = typeof req.query.f === 'string' ? req.query.f.trim() : '';
+  const storagePath = sanitizeStoragePath(raw);
+  if (!storagePath) {
+    return res.status(400).json({ message: 'Invalid image path.' });
+  }
+
+  const image = await fetchHotelPaymentQrImage(storagePath, undefined, { skipCache: true });
+  if (!image) {
+    return res.status(404).json({ message: 'Image not found.' });
+  }
+
+  res.setHeader('Content-Type', image.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  return res.send(image.body);
 });
 
 // ─── GET /:hotelId/detail ─────────────────────────────────────────────────────
