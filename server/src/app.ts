@@ -57,6 +57,14 @@ app.use(
     // X-Frame-Options, X-Content-Type-Options, X-DNS-Prefetch-Control all on by default
   }),
 );
+app.use((_req, res, next) => {
+  // Helmet v7 does not set Permissions-Policy by default; securityheaders.com flags it.
+  res.setHeader(
+    'Permissions-Policy',
+    'accelerometer=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), xr-spatial-tracking=()',
+  );
+  next();
+});
 
 // ─── CORS — explicit allowlist, never wildcard ────────────────────────────────
 // CLIENT_ORIGINS is parsed from the comma-separated CLIENT_ORIGIN env var.
