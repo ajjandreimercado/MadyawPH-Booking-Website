@@ -52,12 +52,38 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     headers:
+      # ── Cache ──────────────────────────────────────────────────────────────
       - path: /*
         name: Cache-Control
         value: no-cache
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
+      # ── Security headers (securityheaders.com) ─────────────────────────────
+      # HSTS — force HTTPS for 1 year (include www + apex)
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains; preload
+      # Clickjacking protection
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      # MIME sniffing (already present via Cloudflare; keep explicit)
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      # Referrer leakage control
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      # Disable unused browser features (geolocation kept for "Hotels Near Me")
+      - path: /*
+        name: Permissions-Policy
+        value: "accelerometer=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), xr-spatial-tracking=()"
+      # XSS / injection baseline — allow Google OAuth, fonts, API, HTTPS images
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' https: data: blob:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; connect-src 'self' https://madyaw-api.onrender.com https://accounts.google.com https://oauth2.googleapis.com; frame-src 'self' https://accounts.google.com https://apis.google.com; worker-src 'self' blob:; upgrade-insecure-requests"
     routes:
       # SPA fallback — all unknown routes serve index.html (React Router handles them)
       - type: rewrite
