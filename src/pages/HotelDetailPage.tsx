@@ -12,17 +12,7 @@ import { HotelDetailSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
 import { buildGoogleMapsDirectionsUrl, getCurrentPosition, resolveHotelMapsDestination } from '../lib/nearMe';
-
-// Track recently viewed in localStorage
-function trackRecentlyViewed(hotel: Hotel) {
-  try {
-    const stored = localStorage.getItem('madyaw_recently_viewed');
-    const list: Array<{ id: string; name: string; location: string; imageUrl?: string }> = stored ? JSON.parse(stored) : [];
-    const filtered = list.filter(i => i.id !== hotel.id);
-    filtered.unshift({ id: hotel.id, name: hotel.name, location: hotel.location, imageUrl: hotel.imageUrl });
-    localStorage.setItem('madyaw_recently_viewed', JSON.stringify(filtered.slice(0, 8)));
-  } catch {}
-}
+import { removeRecentlyViewed, trackRecentlyViewed } from '../lib/recentlyViewed';
 
 const AMENITY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   wifi: Wifi, pool: Waves, restaurant: Utensils, gym: Dumbbell,
@@ -253,6 +243,7 @@ export default function HotelDetailPage() {
         trackRecentlyViewed(hotelDetail.hotel);
       } catch (err) {
         if (!isActive) return;
+        if (hotelId) removeRecentlyViewed(hotelId);
         if (!cachedDetail) {
           setError(errorMessageFromUnknown(err, 'Unable to load hotel details right now.'));
         }

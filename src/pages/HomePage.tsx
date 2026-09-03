@@ -5,8 +5,13 @@ import Hero from '../components/home/Hero';
 import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
 import { peekCache, cacheKey } from '../lib/queryCache';
-import { searchHotels, fetchDestinations, fetchFeaturedPromo, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
+import { searchHotels, fetchDestinations, fetchFeaturedPromo, fetchHotels, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
 import { formatHotelLocation, hotelCardImageSrc } from '../lib/hotelImage';
+import {
+  pruneRecentlyViewed,
+  readRecentlyViewed,
+  type RecentlyViewedHotel,
+} from '../lib/recentlyViewed';
 
 const DESTINATION_IMAGES: Record<string, string> = {
   'boracay': '/images/boracay.png',
@@ -19,12 +24,7 @@ function getDestinationImage(name: string) {
   return DESTINATION_IMAGES[name.toLowerCase()] || '/hero/slide-1.png';
 }
 
-interface RecentlyViewedItem {
-  id: string;
-  name: string;
-  location: string;
-  imageUrl?: string;
-}
+interface RecentlyViewedItem extends RecentlyViewedHotel {}
 
 function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
   return (
@@ -157,12 +157,20 @@ export default function HomePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load recently viewed from localStorage
+  // Load recently viewed, then drop hotels that no longer exist on the API
+  // (old Gloreto / Datest IDs from before the Mongo switch).
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('madyaw_recently_viewed');
-      if (stored) setRecentlyViewed(JSON.parse(stored) as RecentlyViewedItem[]);
-    } catch {}
+    setRecentlyViewed(readRecentlyViewed());
+    let cancelled = false;
+    void fetchHotels()
+      .then((list) => {
+        if (cancelled) return;
+        setRecentlyViewed(pruneRecentlyViewed(list.map((h) => h.id)));
+      })
+      .catch(() => {
+        // Keep cached history if the hotels list request fails.
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const featuredHotels = hotels.slice(0, 4);
@@ -277,8 +285,11 @@ export default function HomePage() {
                     )}
                   </div>
                   <p className="font-serif font-bold text-lg text-brand-dark line-clamp-1">{item.name}</p>
-                  <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mt-1.5">
-                    <MapPin className="w-3.5 h-3.5" />{item.location}
+                  <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mt-1.5 min-w-0">
+                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate" title={item.location}>
+                      {formatHotelLocation(item.location) || item.location}
+                    </span>
                   </p>
                 </button>
               ))}
