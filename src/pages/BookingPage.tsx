@@ -1029,8 +1029,8 @@ export default function BookingPage() {
                     </p>
                     <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
                       {hotel?.hasPaymentQr
-                        ? 'The hotel’s QR isn’t loading right now. You can still submit this request — they’ll send payment instructions after review.'
-                        : 'This hotel hasn’t published a payment QR yet. Submit your request and they’ll share how to pay the deposit.'}
+                        ? 'The hotel’s QR isn’t loading right now. Contact the hotel for payment instructions, then upload your proof and reference below to submit.'
+                        : 'This hotel hasn’t published a payment QR yet. Contact them for how to pay the deposit, then upload your proof and reference below to submit.'}
                     </p>
                   </div>
                 )}
@@ -1192,7 +1192,7 @@ export default function BookingPage() {
                 src={(property as any).imageUrl ?? property.image}
                 alt={roomLabel}
                 className="w-full h-36 object-cover rounded-xl"
-                onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }}
+                onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
               />
             )}
 

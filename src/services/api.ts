@@ -1,4 +1,4 @@
-import axios, { AxiosError, isAxiosError } from 'axios';
+import axios, { AxiosError } from 'axios';
 import type { BookingDraft } from '../lib/bookingFlow';
 import { humanizeApiError } from '../lib/apiError';
 import { cacheKey, cachedQuery } from '../lib/queryCache';

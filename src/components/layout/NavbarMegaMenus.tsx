@@ -193,7 +193,7 @@ export function DestinationsMenu({ isOpen, activeCategory, onCategoryChange, onC
                       onClick={onClose}
                       className="group/card relative rounded-xl overflow-hidden aspect-[4/3] cursor-pointer shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-cream"
                     >
-                      <img src={dest.image} alt={dest.name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.jpg'; }} />
+                      <img src={dest.image} alt={dest.name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }} />
                       <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/80 to-transparent" />
                       <span className="absolute bottom-4 left-4 text-brand-cream font-bold text-sm tracking-wide">{dest.name}</span>
                     </Link>

@@ -53,6 +53,10 @@ export const PAYMENT_METHOD_OPTIONS: Record<BookingPaymentMethod, { label: strin
     label: 'Maya',
     description: 'Pay via Maya digital wallet.',
   },
+  qrph: {
+    label: 'QR Ph',
+    description: 'Pay via QR Ph / InstaPay QR.',
+  },
   'bank-transfer': {
     label: 'Bank Transfer',
     description: 'Best for travelers who prefer a manual transfer.',
