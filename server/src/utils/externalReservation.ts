@@ -72,9 +72,12 @@ export function buildExternalReservationDoc(input: {
   amountDue?: number;
   /** @deprecated Use amountDue */
   halfPayment?: number;
+  /** Amount already paid (0 until guest pays after confirmation). */
+  amountPaid?: number;
   balanceDue?: number;
   depositPercent?: number;
   onlinePaymentMode?: 'half' | 'full';
+  paymentStatus?: 'unpaid' | 'partial' | 'paid';
   nights: number;
   adults: number;
   children?: number;
@@ -91,17 +94,25 @@ export function buildExternalReservationDoc(input: {
 }) {
   const now = input.now ?? new Date();
   const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
+  const amountPaid = Number(
+    input.amountPaid != null ? input.amountPaid : amountDue,
+  );
   const balanceDue = Number(
     input.balanceDue
-    ?? Math.max(0, Number(input.totalAmount) - amountDue),
+    ?? Math.max(0, Number(input.totalAmount) - amountPaid),
   );
   const mode = input.onlinePaymentMode
     ?? (amountDue > 0 && amountDue >= Number(input.totalAmount) ? 'full' : 'half');
   const depositPercent = Number(input.depositPercent ?? (mode === 'full' ? 100 : 50));
-  const paymentStatus = mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial';
-  const note = mode === 'full'
-    ? 'Website full stay payment — no remaining balance at hotel check-out'
-    : 'Website half deposit — remaining balance due at hotel check-out';
+  const paymentStatus = input.paymentStatus
+    ?? (amountPaid <= 0
+      ? 'unpaid'
+      : (mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial'));
+  const note = amountPaid <= 0
+    ? 'Website booking — deposit due after hotel confirmation'
+    : (mode === 'full'
+      ? 'Website full stay payment — no remaining balance at hotel check-out'
+      : 'Website half deposit — remaining balance due at hotel check-out');
 
   const metadata = {
     // Hotel Online Bookings queue filters external_reservations (often by app-customer + pending_approval).
@@ -111,7 +122,8 @@ export function buildExternalReservationDoc(input: {
     booking_reference: input.bookingReference,
     payment_method: input.paymentMethod,
     estimated_total: input.totalAmount,
-    amount_paid: amountDue,
+    amount_due: amountDue,
+    amount_paid: amountPaid,
     balance_due: balanceDue,
     payment_status: paymentStatus,
     online_payment_mode: mode,

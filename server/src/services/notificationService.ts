@@ -1,5 +1,7 @@
 import { BookingModel } from '../data/mongoModels';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
+import { signReceiptToken } from '../utils/receiptToken';
+import { computeOnlinePaymentDue, resolveOnlinePaymentModeFromBooking } from '../utils/halfPayment';
 
 export interface BookingNotificationTarget {
   _id?: unknown;
@@ -13,6 +15,13 @@ export interface BookingNotificationTarget {
   guest_phone?: string;
   checkInDate?: string;
   checkOutDate?: string;
+  totalPrice?: number;
+  total_amount?: number;
+  deposit_amount?: number;
+  amount_paid?: number;
+  amountPaid?: number;
+  online_payment_mode?: string;
+  deposit_percent?: number;
   confirmationSendStatus?: string;
   confirmationSentAt?: Date | string | null;
   confirmationSendError?: string;
@@ -21,6 +30,21 @@ export interface BookingNotificationTarget {
   declineSendStatus?: string;
   declineSentAt?: Date | string | null;
   save?: () => Promise<unknown>;
+}
+
+/** Secure pay-deposit link for the guest (receipt token, 7-day expiry). */
+export function buildPayDepositUrl(booking: BookingNotificationTarget): string {
+  const origin = frontendOrigin();
+  const bookingId = String(booking._id ?? '');
+  const email = String(booking.guestEmail ?? '').trim().toLowerCase();
+  if (!bookingId || !email) return `${origin}/search`;
+  const token = signReceiptToken(bookingId, email);
+  const params = new URLSearchParams({
+    token,
+    email,
+    pay: '1',
+  });
+  return `${origin}/booking/confirm/${encodeURIComponent(bookingId)}?${params.toString()}`;
 }
 
 interface EmailSendResult {
@@ -150,9 +174,9 @@ export async function sendBookingRequestReceivedNotification(
     `Check-in: ${checkIn}`,
     `Check-out: ${checkOut}`,
     '',
-    'The hotel is reviewing your request. You will receive another email at this address when your reservation is confirmed or if it cannot be accommodated.',
+    'The hotel is reviewing your request. You will receive another email when they confirm — then you can pay the deposit online.',
     '',
-    'No further action is needed right now.',
+    'No payment is needed until the hotel confirms your reservation.',
     '',
     '— Madyaw Bookings',
   ].join('\n');
@@ -194,21 +218,47 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
   const checkOutDate = booking.checkOutDate || 'your check-out date';
   const ref = booking.booking_reference || String(booking._id || '');
   const guestContact = booking.guestEmail || booking.guest_phone || '';
+  const payUrl = buildPayDepositUrl(booking);
+  const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
+  const mode = resolveOnlinePaymentModeFromBooking(booking);
+  const due = computeOnlinePaymentDue(stayTotal, mode);
+  const depositDue = Number(booking.deposit_amount ?? due.amountDue);
+  const alreadyPaid = Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0;
+  const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
 
-  const subject = 'Your reservation is confirmed';
-  const messageBody = [
-    `Hi ${guestFirstName(booking)},`,
-    '',
-    `Great news — your reservation at ${propertyName} has been confirmed.`,
-    '',
-    `Reference: ${ref}`,
-    `Check-in: ${checkInDate}`,
-    `Check-out: ${checkOutDate}`,
-    '',
-    'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact the hotel directly.',
-    '',
-    '— Madyaw Bookings',
-  ].join('\n');
+  const subject = alreadyPaid
+    ? 'Your reservation is confirmed'
+    : 'Reservation confirmed — please pay your deposit';
+  const messageBody = alreadyPaid
+    ? [
+      `Hi ${guestFirstName(booking)},`,
+      '',
+      `Great news — your reservation at ${propertyName} has been confirmed.`,
+      '',
+      `Reference: ${ref}`,
+      `Check-in: ${checkInDate}`,
+      `Check-out: ${checkOutDate}`,
+      '',
+      'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact the hotel directly.',
+      '',
+      '— Madyaw Bookings',
+    ].join('\n')
+    : [
+      `Hi ${guestFirstName(booking)},`,
+      '',
+      `Great news — your reservation at ${propertyName} has been confirmed.`,
+      '',
+      `Reference: ${ref}`,
+      `Check-in: ${checkInDate}`,
+      `Check-out: ${checkOutDate}`,
+      '',
+      `Please pay your ${depositLabel} of ₱${depositDue.toLocaleString()} to secure your stay:`,
+      payUrl,
+      '',
+      'This secure link opens the Madyaw website where you can scan the hotel QR and upload your payment proof. It works even if you closed the browser earlier.',
+      '',
+      '— Madyaw Bookings',
+    ].join('\n');
 
   try {
     if (String(booking.guestEmail).toLowerCase() === 'fail@notification.test' || String(booking.guest_phone) === 'FAIL') {

@@ -2,17 +2,16 @@ import { useEffect, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe,
-  Phone, Mail, User, Calendar, Tag, Info, Smartphone, Upload, QrCode, X, ZoomIn, Download,
+  Phone, Mail, User, Calendar, Tag, Info, Upload,
 } from 'lucide-react';
-import { fetchPropertyById, createBookingRequestApi, fetchHotelById } from '../api/propertyService';
+import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
 import { validatePromoCode, validateMembershipId } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import type { BookingPaymentMethod, BookingRoomType, Hotel, Property } from '../types';
+import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
-import { paymentQrProxyUrl, availableWalletMethods, walletMethodLabel, walletMethodTheme, walletPayFromGallerySteps, manualQrSaveInstructions, savePaymentQrImage, WALLET_PAYMENT_OPTIONS, type WalletPaymentMethod } from '../lib/paymentQr';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { format, addDays } from 'date-fns';
@@ -72,7 +71,6 @@ export default function BookingPage() {
   const [property, setProperty] = useState<Property | null>(() =>
     propertyId ? peekCache<Property>(cacheKey(['property', propertyId])) ?? null : null,
   );
-  const [hotel, setHotel] = useState<Hotel | null>(null);
   const [isLoading, setIsLoading] = useState(() =>
     !(propertyId && peekCache(cacheKey(['property', propertyId]))),
   );
@@ -92,9 +90,6 @@ export default function BookingPage() {
 
   const [nationality, setNationality] = useState('Filipino');
   const [validIdFile, setValidIdFile] = useState<File | null>(null);
-  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
-  const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
-  const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
 
   const [discountType, setDiscountType] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -107,21 +102,7 @@ export default function BookingPage() {
 
   const [checkIn, setCheckIn] = useState(urlCheckIn);
   const [checkOut, setCheckOut] = useState(urlCheckOut);
-  const [qrObjectUrl, setQrObjectUrl] = useState<string>();
-  const [qrBlob, setQrBlob] = useState<Blob | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
-  const [qrLightboxOpen, setQrLightboxOpen] = useState(false);
-  const [qrSaveSheetOpen, setQrSaveSheetOpen] = useState(false);
-  const [isSavingQr, setIsSavingQr] = useState(false);
-  const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
-  const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
-    availableWalletMethods(hotel).includes(opt.id),
-  );
-  const activeWallet = selectedWallet && walletOptions.some((o) => o.id === selectedWallet)
-    ? selectedWallet
-    : (walletOptions[0]?.id ?? 'gcash');
-  const walletTheme = walletMethodTheme(activeWallet);
-  const paymentMethod: BookingPaymentMethod = walletTheme.bookingMethod;
+  const paymentMethod: BookingPaymentMethod = 'gcash';
 
   // ── Computed Values (must match server calculateBookingPricing) ─────────────
   const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
@@ -150,7 +131,6 @@ export default function BookingPage() {
   const total = Math.max(0, staySubtotal - effectiveDiscount);
   const paymentMode = 'half' as const;
   const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
-  const paymentQrUrl = qrObjectUrl;
   const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
     ? 'Madyaw member'
     : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
@@ -168,30 +148,15 @@ export default function BookingPage() {
     if (cachedProperty) {
       setProperty(cachedProperty);
       setIsLoading(false);
-      if (cachedProperty.hotelId) {
-        const cachedHotel = peekCache<Hotel>(cacheKey(['hotel', cachedProperty.hotelId]));
-        if (cachedHotel) setHotel(cachedHotel);
-      }
     } else {
       setIsLoading(true);
     }
 
     fetchPropertyById(propertyId)
-      .then(async (p) => {
+      .then((p) => {
         if (cancelled) return;
         startTransition(() => setProperty(p));
-        const hotelId = p.hotelId;
-        if (hotelId) {
-          try {
-            const h = await fetchHotelById(hotelId, { force: true });
-            if (!cancelled) startTransition(() => setHotel(h));
-          } catch {
-            if (!cancelled) setHotel(null);
-          }
-        } else if (!cancelled) {
-          setHotel(null);
-        }
-        if (!cancelled) setIsLoading(false);
+        setIsLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
@@ -207,114 +172,6 @@ export default function BookingPage() {
     if (user.email) setEmail(prev => prev.trim() ? prev : user.email);
     if (user.name) setFullName(prev => prev.trim() ? prev : user.name);
   }, [user]);
-
-  useEffect(() => {
-    if (!hotel?.id) {
-      setQrBlob(null);
-      setQrObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return undefined;
-      });
-      return;
-    }
-    const methods = availableWalletMethods(hotel);
-    if (!methods.length) {
-      setQrBlob(null);
-      setQrObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return undefined;
-      });
-      return;
-    }
-
-    let objectUrl: string | undefined;
-    let cancelled = false;
-    const hotelId = hotel.id;
-    const method = activeWallet;
-
-    async function loadPaymentQr() {
-      setQrLoading(true);
-      for (const refresh of [false, true]) {
-        if (cancelled) return;
-        try {
-          const res = await fetch(paymentQrProxyUrl(hotelId, method, refresh));
-          if (!res.ok) continue;
-          const blob = await res.blob();
-          const mime = blob.type || res.headers.get('content-type') || '';
-          const looksLikeImage = mime.startsWith('image/')
-            || mime === 'application/octet-stream'
-            || mime === 'binary/octet-stream'
-            || mime === '';
-          if (cancelled || blob.size < 32 || !looksLikeImage) continue;
-          objectUrl = URL.createObjectURL(blob);
-          setQrBlob(blob);
-          setQrObjectUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return objectUrl;
-          });
-          setQrLoading(false);
-          return;
-        } catch {
-          // try refresh on next loop
-        }
-      }
-      if (!cancelled) {
-        setQrBlob(null);
-        setQrObjectUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return undefined;
-        });
-        setQrLoading(false);
-      }
-    }
-
-    setQrBlob(null);
-    setQrObjectUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return undefined;
-    });
-    void loadPaymentQr();
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [hotel, activeWallet]);
-
-  useEffect(() => {
-    if (!qrLightboxOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setQrLightboxOpen(false);
-    };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [qrLightboxOpen]);
-
-  useEffect(() => {
-    if (!paymentQrUrl) {
-      setQrLightboxOpen(false);
-      setQrSaveSheetOpen(false);
-    }
-  }, [paymentQrUrl, activeWallet]);
-
-  useEffect(() => {
-    if (!qrSaveSheetOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setQrSaveSheetOpen(false);
-    };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [qrSaveSheetOpen]);
 
   const isGoogleVerifiedEmail = Boolean(
     user?.email
@@ -370,8 +227,6 @@ export default function BookingPage() {
     return () => window.clearTimeout(timer);
   }, [membershipId, staySubtotal]);
 
-  const requiresPaymentProof = true;
-
   const isFormValid =
     fullName.trim() &&
     email.trim() &&
@@ -379,9 +234,7 @@ export default function BookingPage() {
     checkIn &&
     checkOut &&
     new Date(checkOut) > new Date(checkIn) &&
-    Boolean(validIdFile) &&
-    Boolean(paymentProofFile) &&
-    paymentTransactionRef.trim().length >= 6;
+    Boolean(validIdFile);
 
   const handleSubmit = async () => {
     if (!property || !propertyId) return;
@@ -401,29 +254,6 @@ export default function BookingPage() {
     if (validIdFile.size > 5 * 1024 * 1024) {
       showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
       return;
-    }
-    if (requiresPaymentProof && !paymentProofFile) {
-      showToast({ title: 'Please upload your payment screenshot after paying via the hotel QR', type: 'error' });
-      return;
-    }
-    if (paymentProofFile) {
-      if (!allowedTypes.includes(paymentProofFile.type)) {
-        showToast({ title: 'Payment proof must be a JPG, PNG, WEBP, or PDF', type: 'error' });
-        return;
-      }
-      if (paymentProofFile.size > 5 * 1024 * 1024) {
-        showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
-        return;
-      }
-      const ref = paymentTransactionRef.replace(/\s+/g, '').trim();
-      if (ref.length < 6) {
-        showToast({
-          title: 'Enter your transaction reference',
-          description: 'Copy the GCash/Maya/bank reference number from your receipt (at least 6 characters).',
-          type: 'error',
-        });
-        return;
-      }
     }
 
     setIsSubmitting(true);
@@ -450,22 +280,11 @@ export default function BookingPage() {
         promoCode: promoCode.trim() || undefined,
         membershipId: membershipId.trim() || undefined,
         validIdFile,
-        paymentProofFile: paymentProofFile ?? undefined,
-        paymentTransactionRef: paymentProofFile
-          ? paymentTransactionRef.replace(/\s+/g, '').trim()
-          : undefined,
-        paymentProofAmountClaimed: paymentProofFile
-          ? Number(paymentProofAmountClaimed || amountDue) || amountDue
-          : undefined,
         specialRequests: [
           `Valid ID uploaded: ${validIdFile.name}`,
-          paymentProofFile ? `Payment proof uploaded: ${paymentProofFile.name}` : '',
-          paymentProofFile
-            ? `Txn ref: ${paymentTransactionRef.replace(/\s+/g, '').trim().toUpperCase()}`
-            : '',
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
-          `Payment: hotel QR (50% deposit)`,
+          `Payment: deposit after hotel confirmation (${depositPercent}%)`,
         ].filter(Boolean).join(' | ') || undefined,
       });
       appendBooking(booking);
@@ -495,47 +314,6 @@ export default function BookingPage() {
       </div>
     );
   }
-
-  const walletGridClass = walletOptions.length <= 1
-    ? 'grid grid-cols-1 max-w-[14rem] mx-auto'
-    : walletOptions.length === 2
-      ? 'grid grid-cols-2 gap-2'
-      : 'grid grid-cols-3 gap-1.5 sm:gap-2';
-
-  const handleSavePaymentQr = async () => {
-    if ((!paymentQrUrl && !qrBlob) || isSavingQr) return;
-    setIsSavingQr(true);
-    try {
-      const result = await savePaymentQrImage(qrBlob ?? paymentQrUrl!, {
-        method: activeWallet,
-        hotelName: hotel?.name,
-      });
-      if (result === 'manual') {
-        setQrSaveSheetOpen(true);
-        return;
-      }
-      if (result === 'failed') {
-        showToast({
-          title: 'Could not save QR',
-          description: 'Use the steps below to save the image manually.',
-          type: 'error',
-        });
-        setQrSaveSheetOpen(true);
-        return;
-      }
-      showToast({
-        title: result === 'shared' ? 'QR ready to save' : 'QR saved',
-        description: result === 'shared'
-          ? `Choose Save image in the share menu, then open ${walletMethodLabel(activeWallet)}.`
-          : `Open ${walletMethodLabel(activeWallet)} and upload the QR from your photos.`,
-        type: 'success',
-      });
-    } finally {
-      setIsSavingQr(false);
-    }
-  };
-
-  const manualQrSave = manualQrSaveInstructions();
 
   const roomLabel = formatRoomLabel(property);
 
@@ -870,26 +648,26 @@ export default function BookingPage() {
 
             <div className="h-px bg-brand-primary/8" />
 
-            {/* Section: Payment — hotel-app QR image only */}
-            <section className="space-y-5">
+            {/* Section: Payment timing */}
+            <section className="space-y-4">
               <div>
                 <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary flex items-center gap-2">
-                  <Smartphone className="w-4 h-4" /> Half Payment First
+                  <Info className="w-4 h-4" /> Payment after confirmation
                 </h2>
                 <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
-                  Pay {depositPercent}% now · settle the rest at check-out.
+                  No payment is needed now. After the hotel confirms your request, you will get an email with a secure link to pay the {depositPercent}% deposit on this website.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 sm:gap-3">
                 <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center min-[400px]:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
-                    Pay now
+                    Deposit due later
                   </p>
                   <p className="font-serif font-bold text-lg sm:text-2xl text-brand-primary tabular-nums">
                     ₱{amountDue.toLocaleString()}
                   </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">{depositPercent}% deposit</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">{depositPercent}% after confirm</p>
                 </div>
                 <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center min-[400px]:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
@@ -909,256 +687,6 @@ export default function BookingPage() {
                   </p>
                   <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">Full stay</p>
                 </div>
-              </div>
-
-              <div className="rounded-2xl border border-brand-primary/12 overflow-hidden bg-white">
-                {walletOptions.length > 0 && (
-                  <div className="p-3 sm:p-5 border-b border-brand-primary/8 bg-brand-background/40">
-                    <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] text-brand-primary mb-3 text-center sm:text-left">
-                      Choose how to pay online
-                    </p>
-                    <div className={walletGridClass}>
-                      {walletOptions.map((opt) => {
-                        const active = activeWallet === opt.id;
-                        const theme = walletMethodTheme(opt.id);
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setSelectedWallet(opt.id)}
-                            className={`min-h-[48px] rounded-xl border-2 px-2 py-3 sm:py-3.5 text-center transition-all touch-manipulation active:scale-[0.98] ${
-                              active
-                                ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm ring-2 ring-offset-0 sm:ring-offset-1`
-                                : `${theme.inactiveBorder} bg-white ${theme.inactiveText} ${theme.hoverBorder}`
-                            }`}
-                            style={active ? { boxShadow: `0 0 0 3px ${theme.color}22` } : undefined}
-                          >
-                            <span className="block text-[11px] sm:text-sm font-bold leading-tight">{opt.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {qrLoading ? (
-                  <div className="px-5 py-12 sm:px-8 text-center">
-                    <Loader2 className="mx-auto h-8 w-8 animate-spin" style={{ color: walletTheme.color }} />
-                    <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(activeWallet)} QR…</p>
-                  </div>
-                ) : paymentQrUrl ? (
-                  <div
-                    className="px-3 py-5 sm:p-6 text-center"
-                    style={{ background: `radial-gradient(ellipse at top, ${walletTheme.color}14, transparent 65%)` }}
-                  >
-                    <p
-                      className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] mb-4 px-1 leading-relaxed"
-                      style={{ color: walletTheme.color }}
-                    >
-                      <span className="block sm:inline">Scan with {walletMethodLabel(activeWallet)}</span>
-                      <span className="hidden sm:inline"> · </span>
-                      <span className="block sm:inline tabular-nums">₱{amountDue.toLocaleString()}</span>
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setQrLightboxOpen(true)}
-                      className="group inline-flex w-full max-w-[min(100%,16rem)] sm:max-w-none sm:w-auto flex-col items-center rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 mx-auto"
-                      style={{ ['--tw-ring-color' as string]: walletTheme.color }}
-                      aria-label={`Enlarge ${walletMethodLabel(activeWallet)} payment QR`}
-                    >
-                      <div
-                        className="relative inline-flex w-full justify-center rounded-2xl bg-white p-2.5 sm:p-3 border shadow-sm transition-transform group-hover:scale-[1.02] group-active:scale-[0.98]"
-                        style={{ borderColor: `${walletTheme.color}33` }}
-                      >
-                        <img
-                          src={paymentQrUrl}
-                          alt={`${walletMethodLabel(activeWallet)} payment QR`}
-                          className="w-full max-w-[11rem] sm:max-w-none sm:w-56 sm:h-56 aspect-square object-contain"
-                          referrerPolicy="no-referrer"
-                        />
-                        <span
-                          className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-brand-dark/80 px-2 py-1 text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 pointer-events-none"
-                        >
-                          <ZoomIn className="h-3 w-3 shrink-0" />
-                          <span className="hidden sm:inline">Tap to enlarge</span>
-                          <span className="sm:hidden">Enlarge</span>
-                        </span>
-                      </div>
-                    </button>
-                    <div className="mt-4 flex flex-col items-center gap-3 max-w-sm mx-auto px-1">
-                      <button
-                        type="button"
-                        onClick={() => { void handleSavePaymentQr(); }}
-                        disabled={isSavingQr}
-                        className="inline-flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2 rounded-xl border-2 px-5 py-3 text-sm font-bold transition-all touch-manipulation disabled:opacity-60"
-                        style={{
-                          borderColor: walletTheme.color,
-                          color: walletTheme.color,
-                          backgroundColor: `${walletTheme.color}10`,
-                        }}
-                      >
-                        {isSavingQr ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4 shrink-0" />
-                        )}
-                        {isSavingQr ? 'Saving…' : 'Save QR to phone'}
-                      </button>
-                      <div className="w-full rounded-xl border border-brand-primary/10 bg-white/80 p-3 sm:p-4 text-left">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 mb-2">
-                          Paying on this phone?
-                        </p>
-                        <ol className="space-y-1.5 text-xs text-brand-dark/60 leading-relaxed list-decimal list-inside">
-                          {walletPayFromGallerySteps(activeWallet, amountDue).map((step) => (
-                            <li key={step}>{step}</li>
-                          ))}
-                        </ol>
-                      </div>
-                      <p className="text-xs text-brand-dark/45 leading-relaxed text-center">
-                        On another device? Tap the QR to enlarge and scan with your camera.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="px-5 py-8 sm:px-8 sm:py-10 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-primary/8 text-brand-primary">
-                      <QrCode className="h-7 w-7" strokeWidth={1.5} />
-                    </div>
-                    <p className="font-serif text-lg font-bold text-brand-dark">
-                      Payment QR unavailable
-                    </p>
-                    <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
-                      {hotel?.hasPaymentQr
-                        ? 'The hotel’s QR isn’t loading right now. Contact the hotel for payment instructions, then upload your proof and reference below to submit.'
-                        : 'This hotel hasn’t published a payment QR yet. Contact them for how to pay the deposit, then upload your proof and reference below to submit.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-brand-primary/12 bg-brand-background/50 p-4 sm:p-5 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">
-                      After you pay
-                    </p>
-                    <p className="mt-0.5 text-sm font-bold text-brand-dark">
-                      Upload proof &amp; reference <span className="text-red-400">*</span>
-                    </p>
-                  </div>
-                  <Upload className="w-4 h-4 text-brand-primary/50 shrink-0 mt-1" />
-                </div>
-
-                <label
-                  htmlFor="booking-payment-proof"
-                  className={`flex flex-col items-center justify-center w-full p-5 transition-all duration-200 border-2 border-dashed rounded-2xl cursor-pointer ${
-                    paymentProofFile
-                      ? 'border-brand-success bg-brand-success/5 text-brand-success'
-                      : 'border-brand-primary/20 bg-white hover:border-brand-primary/45 hover:bg-white text-brand-dark/60'
-                  }`}
-                >
-                  {paymentProofFile ? (
-                    <div className="flex items-center justify-between w-full gap-2 text-sm font-bold">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CheckCircle2 className="w-5 h-5 text-brand-success shrink-0" />
-                        <span className="truncate">{paymentProofFile.name}</span>
-                        <span className="text-xs font-normal text-brand-dark/50 shrink-0">
-                          ({(paymentProofFile.size / 1024).toFixed(0)} KB)
-                        </span>
-                      </div>
-                      <span className="text-xs text-brand-primary underline hover:text-brand-hover shrink-0">Change</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-center py-1">
-                      <div className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-brand-primary/8">
-                        <Upload className="w-5 h-5 text-brand-primary" />
-                      </div>
-                      <p className="text-sm font-bold text-brand-dark">
-                        Drop receipt screenshot here
-                      </p>
-                      <p className="text-[11px] text-brand-dark/45 mt-1 max-w-xs">
-                        GCash, Maya, or bank transfer · JPG, PNG, WEBP, or PDF · max 5 MB
-                      </p>
-                    </div>
-                  )}
-                  <input
-                    id="booking-payment-proof"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-                      if (!allowed.includes(file.type)) {
-                        showToast({ title: 'Payment proof must be a JPG, PNG, WEBP, or PDF', type: 'error' });
-                        e.target.value = '';
-                        return;
-                      }
-                      if (file.size > 5 * 1024 * 1024) {
-                        showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
-                        e.target.value = '';
-                        return;
-                      }
-                      setPaymentProofFile(file);
-                      if (!paymentProofAmountClaimed) {
-                        setPaymentProofAmountClaimed(String(amountDue));
-                      }
-                    }}
-                    className="hidden"
-                  />
-                </label>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <label htmlFor="payment-txn-ref" className="field-label">
-                        Transaction reference <span className="text-red-400">*</span>
-                      </label>
-                      <input
-                        id="payment-txn-ref"
-                        type="text"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={paymentTransactionRef}
-                        onChange={(e) => setPaymentTransactionRef(e.target.value)}
-                        placeholder="e.g. 1234 5678 9012"
-                        className="input-field"
-                        maxLength={64}
-                      />
-                      <p className="mt-1.5 text-[11px] text-brand-dark/45">
-                        Copy from your wallet or bank receipt
-                      </p>
-                    </div>
-                    <div>
-                      <label htmlFor="payment-amount-claimed" className="field-label">
-                        Amount paid <span className="text-red-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-dark/40">
-                          ₱
-                        </span>
-                        <input
-                          id="payment-amount-claimed"
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={paymentProofAmountClaimed || String(amountDue)}
-                          onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
-                          className="input-field pl-7"
-                        />
-                      </div>
-                      <p className="mt-1.5 text-[11px] text-brand-dark/45">
-                        Must match ₱{amountDue.toLocaleString()} deposit
-                      </p>
-                    </div>
-                  </div>
-              </div>
-
-              <div className="flex items-start gap-2.5 px-1">
-                <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
-                <p className="text-xs text-brand-dark/55 leading-relaxed">
-                  The hotel verifies your deposit before confirming. Remaining{' '}
-                  <span className="font-bold text-brand-dark">₱{balanceDue.toLocaleString()}</span> is paid at check-out.
-                </p>
               </div>
             </section>
 
@@ -1242,7 +770,7 @@ export default function BookingPage() {
                 <span className="text-brand-dark">₱{total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">Half deposit (50%)</span>
+                <span className="text-brand-primary">Deposit after confirm (50%)</span>
                 <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold">
@@ -1254,7 +782,7 @@ export default function BookingPage() {
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
               {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
-              Half payment via hotel QR — balance at check-out
+              Deposit due after hotel confirmation — balance at check-out
             </p>
           </aside>
 
@@ -1262,152 +790,6 @@ export default function BookingPage() {
       </div>
     </div>
 
-    {qrSaveSheetOpen && paymentQrUrl && (
-      <div
-        className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-brand-dark/90 p-3 sm:p-4 backdrop-blur-sm overscroll-contain"
-        style={{
-          paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
-          paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
-          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
-        }}
-        onClick={() => setQrSaveSheetOpen(false)}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Save payment QR to your phone"
-      >
-        <button
-          type="button"
-          className="absolute flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full p-2 text-brand-cream hover:bg-white/10 touch-manipulation"
-          style={{
-            top: 'max(0.75rem, env(safe-area-inset-top))',
-            right: 'max(0.75rem, env(safe-area-inset-right))',
-          }}
-          onClick={() => setQrSaveSheetOpen(false)}
-          aria-label="Close save QR instructions"
-        >
-          <X className="h-7 w-7 sm:h-8 sm:w-8" />
-        </button>
-        <div
-          className="w-full max-w-[min(100%,28rem)] max-h-[min(92dvh,40rem)] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p
-            className="mb-2 text-center text-sm font-bold text-brand-dark"
-          >
-            {manualQrSave.title}
-          </p>
-          <ol className="mb-4 space-y-1.5 text-xs text-brand-dark/65 leading-relaxed list-decimal list-inside px-1">
-            {manualQrSave.steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-          <img
-            src={paymentQrUrl}
-            alt={`${walletMethodLabel(activeWallet)} payment QR — press and hold to save`}
-            className="mx-auto w-full max-w-[min(90vw,24rem)] aspect-square object-contain rounded-xl border border-brand-primary/10 bg-white select-none touch-manipulation"
-            referrerPolicy="no-referrer"
-            draggable={false}
-          />
-          <p className="mt-3 text-center text-[11px] text-brand-dark/50 px-2">
-            Press and hold the image above, then choose Save or Add to Photos.
-          </p>
-          <button
-            type="button"
-            onClick={() => { void handleSavePaymentQr(); }}
-            disabled={isSavingQr}
-            className="mt-4 flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold touch-manipulation disabled:opacity-60"
-            style={{
-              borderColor: walletTheme.color,
-              color: walletTheme.color,
-              backgroundColor: `${walletTheme.color}10`,
-            }}
-          >
-            {isSavingQr ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {isSavingQr ? 'Opening share…' : 'Try Share / Save again'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setQrSaveSheetOpen(false)}
-            className="mt-3 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark touch-manipulation"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    )}
-
-    {qrLightboxOpen && paymentQrUrl && (
-      <div
-        className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-brand-dark/90 p-3 sm:p-4 backdrop-blur-sm overscroll-contain"
-        style={{
-          paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
-          paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
-          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
-        }}
-        onClick={() => setQrLightboxOpen(false)}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${walletMethodLabel(activeWallet)} payment QR enlarged`}
-      >
-        <button
-          type="button"
-          className="absolute flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full p-2 text-brand-cream hover:bg-white/10 touch-manipulation"
-          style={{
-            top: 'max(0.75rem, env(safe-area-inset-top))',
-            right: 'max(0.75rem, env(safe-area-inset-right))',
-          }}
-          onClick={() => setQrLightboxOpen(false)}
-          aria-label="Close enlarged QR"
-        >
-          <X className="h-7 w-7 sm:h-8 sm:w-8" />
-        </button>
-        <div
-          className="w-full max-w-[min(100%,28rem)] max-h-[min(92dvh,36rem)] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p
-            className="mb-3 sm:mb-4 text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] leading-relaxed px-1"
-            style={{ color: walletTheme.color }}
-          >
-            <span className="block sm:inline">{walletMethodLabel(activeWallet)}</span>
-            <span className="hidden sm:inline"> · </span>
-            <span className="block sm:inline tabular-nums">₱{amountDue.toLocaleString()}</span>
-          </p>
-          <img
-            src={paymentQrUrl}
-            alt={`${walletMethodLabel(activeWallet)} payment QR enlarged`}
-            className="mx-auto w-full max-w-[min(85vw,22rem)] aspect-square object-contain"
-            referrerPolicy="no-referrer"
-          />
-          <p className="mt-3 sm:mt-4 text-center text-xs text-brand-dark/55 px-2">
-            Scan with {walletMethodLabel(activeWallet)} to pay your deposit
-          </p>
-          <button
-            type="button"
-            onClick={() => { void handleSavePaymentQr(); }}
-            disabled={isSavingQr}
-            className="mt-4 flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold touch-manipulation disabled:opacity-60 sm:mt-3"
-            style={{
-              borderColor: walletTheme.color,
-              color: walletTheme.color,
-              backgroundColor: `${walletTheme.color}10`,
-            }}
-          >
-            {isSavingQr ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {isSavingQr ? 'Saving…' : 'Save QR to phone'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setQrLightboxOpen(false)}
-            className="mt-3 w-full min-h-[48px] rounded-xl border border-brand-primary/15 bg-brand-background text-sm font-bold text-brand-dark sm:hidden touch-manipulation"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    )}
     </>
   );
 }

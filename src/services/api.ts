@@ -224,6 +224,13 @@ function normalizeBookingResponse<T extends BookingRequest>(booking: T & {
           ? 100
           : 50
       ),
+    paymentStatus: booking.paymentStatus
+      ?? (booking as { payment_status?: string }).payment_status,
+    paymentProofUploaded: booking.paymentProofUploaded
+      ?? Boolean((booking as { payment_proof_stored?: boolean }).payment_proof_stored
+        || (booking as { payment_proof_filename?: string }).payment_proof_filename),
+    paymentTransactionRef: booking.paymentTransactionRef
+      ?? (booking as { payment_transaction_ref?: string }).payment_transaction_ref,
     confirmationSentAt: booking.confirmationSentAt ?? (booking as { confirmation_sent_at?: string }).confirmation_sent_at ?? null,
     confirmationSendStatus: booking.confirmationSendStatus ?? (booking as { confirmation_send_status?: 'none' | 'sent' | 'failed' }).confirmation_send_status ?? 'none',
     confirmationSendError: booking.confirmationSendError ?? (booking as { confirmation_send_error?: string }).confirmation_send_error ?? '',
@@ -591,6 +598,27 @@ export async function fetchBookingById(
     params.token = receiptToken;
   }
   const response = await api.get<BookingRequest>(`/bookings/${encodeURIComponent(bookingId)}/receipt`, { params });
+  return normalizeBookingResponse(response.data);
+}
+
+export async function uploadBookingPaymentProof(payload: {
+  bookingId: string;
+  token: string;
+  paymentProofFile: File;
+  paymentTransactionRef: string;
+  paymentProofAmountClaimed?: number;
+}): Promise<BookingRequest> {
+  const form = new FormData();
+  form.append('token', payload.token);
+  form.append('paymentProof', payload.paymentProofFile);
+  form.append('paymentTransactionRef', payload.paymentTransactionRef);
+  if (payload.paymentProofAmountClaimed != null) {
+    form.append('paymentProofAmountClaimed', String(payload.paymentProofAmountClaimed));
+  }
+  const response = await api.post<BookingRequest>(
+    `/bookings/${encodeURIComponent(payload.bookingId)}/payment-proof`,
+    form,
+  );
   return normalizeBookingResponse(response.data);
 }
 

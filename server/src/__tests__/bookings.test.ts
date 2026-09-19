@@ -204,7 +204,6 @@ describe('POST /api/bookings', () => {
     infants: 0,
     roomType: 'standard-room',
     paymentMethod: 'credit-card',
-    paymentTransactionRef: 'GCASH-ABC12345',
   };
 
   /** Minimal 1x1 PNG for Valid ID multipart uploads. */
@@ -216,7 +215,6 @@ describe('POST /api/bookings', () => {
   function postBooking(
     fields: Record<string, string | number> = VALID_PAYLOAD,
     withId = true,
-    withPaymentProof = true,
   ) {
     let req = request(app).post('/api/bookings');
     Object.entries(fields).forEach(([key, value]) => {
@@ -224,9 +222,6 @@ describe('POST /api/bookings', () => {
     });
     if (withId) {
       req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
-    }
-    if (withPaymentProof) {
-      req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
     }
     return req;
   }
@@ -275,18 +270,15 @@ describe('POST /api/bookings', () => {
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
       expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
-      expect(created.payment_status).toBe('partial');
+      expect(created.payment_status).toBe('unpaid');
       expect(created.online_payment_mode).toBe('half');
       expect(created.deposit_percent).toBe(50);
-      expect(created.amountPaid).toBeGreaterThan(0);
-      expect(created.amountPaid).toBeLessThan(created.totalPrice);
-      expect(created.amount_paid).toBe(created.amountPaid);
-      expect(created.deposit_amount).toBe(created.amountPaid);
-      expect(created.balance_due).toBe(created.totalPrice - created.amountPaid);
-      expect(created.amountPaid + created.balance_due).toBe(created.totalPrice);
+      expect(created.amountPaid).toBe(0);
+      expect(created.amount_paid).toBe(0);
+      expect(created.deposit_amount).toBeGreaterThan(0);
+      expect(created.deposit_amount).toBeLessThan(created.totalPrice);
+      expect(created.balance_due).toBe(created.totalPrice);
       expect(created.serviceFee).toBe(0);
-      expect(created.payment_status).not.toBe('paid');
-      expect(created.payment_status).not.toBe('pending');
       expect(created.valid_id_filename).toBe('id.png');
       expect(created.valid_id_stored).toBe(true);
       expect(created.valid_id_base64).toBeUndefined();
@@ -305,73 +297,40 @@ describe('POST /api/bookings', () => {
       const meta = typeof externalDoc.metadata === 'string'
         ? JSON.parse(externalDoc.metadata)
         : externalDoc.metadata;
-      expect(meta.payment_status).toBe('partial');
+      expect(meta.payment_status).toBe('unpaid');
       expect(meta.deposit_percent).toBe(50);
       expect(meta.online_payment_mode).toBe('half');
-      expect(meta.amount_paid).toBe(created.amountPaid);
+      expect(meta.amount_paid).toBe(0);
       expect(meta.valid_id_uploaded).toBe(true);
+      expect(meta.payment_proof_uploaded).toBe(false);
 
       // Billing ledger must wait until hotel approval — early room charges cause self-overlap.
       expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
     }
   });
 
-  it('stores payment proof for the hotel app (booking + side collections)', async () => {
-    const res = await postBooking(VALID_PAYLOAD, true, true);
+  it('ignores create-time payment proof (pay after hotel confirmation)', async () => {
+    let req = request(app).post('/api/bookings');
+    Object.entries(VALID_PAYLOAD).forEach(([key, value]) => {
+      req = req.field(key, String(value));
+    });
+    req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
+    req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
+    req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
+    const res = await req;
     expect([201, 409]).toContain(res.status);
     if (res.status !== 201) return;
 
     const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
-    expect(created.payment_proof_filename).toBe('gcash-proof.png');
-    expect(created.payment_proof_stored).toBe(true);
-    expect(typeof created.payment_proof_base64).toBe('string');
-    expect(created.payment_proof_base64.length).toBeGreaterThan(10);
-    expect(created.payment_transaction_ref).toBe('GCASH-ABC12345');
-    expect(created.payment_proof_verified).toBe(false);
-    expect(typeof created.payment_proof_sha256).toBe('string');
-    expect(created.payment_proof_sha256.length).toBe(64);
+    expect(created.payment_proof_stored).toBe(false);
+    expect(created.payment_status).toBe('unpaid');
+    expect(created.amount_paid).toBe(0);
 
-    const { BookingPaymentProofModel, BookingValidIdModel, ExternalReservationModel } = jest.requireMock('../data/mongoModels') as {
+    const { BookingPaymentProofModel } = jest.requireMock('../data/mongoModels') as {
       BookingPaymentProofModel: { findOneAndUpdate: jest.Mock };
-      BookingValidIdModel: { findOneAndUpdate: jest.Mock };
-      ExternalReservationModel: { create: jest.Mock };
     };
-    expect(BookingPaymentProofModel.findOneAndUpdate).toHaveBeenCalled();
-    const proofSet = BookingPaymentProofModel.findOneAndUpdate.mock.calls[0][1].$set;
-    expect(proofSet.filename).toBe('gcash-proof.png');
-    expect(proofSet.base64).toBeTruthy();
-    expect(proofSet.payment_proof_base64).toBeTruthy();
-    expect(proofSet.payment_transaction_ref).toBe('GCASH-ABC12345');
-    expect(proofSet.payment_proof_verified).toBe(false);
-
-    // Valid ID side-doc also gets proof fields for hotel viewers keyed by booking_id.
-    const validIdCalls = BookingValidIdModel.findOneAndUpdate.mock.calls;
-    expect(validIdCalls.length).toBeGreaterThanOrEqual(2);
-    const proofOnValidId = validIdCalls.find((call) => call[1]?.$set?.payment_proof_base64);
-    expect(proofOnValidId).toBeTruthy();
-
-    const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
-    const meta = typeof externalDoc.metadata === 'string'
-      ? JSON.parse(externalDoc.metadata)
-      : externalDoc.metadata;
-    expect(meta.payment_proof_uploaded).toBe(true);
-    expect(meta.payment_proof_collection).toBe('booking_payment_proofs');
-    expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
-    expect(meta.payment_proof_verified).toBe(false);
-  });
-
-  it('returns 400 when payment proof is missing', async () => {
-    const res = await postBooking(VALID_PAYLOAD, true, false);
-    expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/payment screenshot|transaction reference/i);
-  });
-
-  it('returns 400 when payment proof is missing a transaction reference', async () => {
-    const { paymentTransactionRef: _omit, ...withoutRef } = VALID_PAYLOAD;
-    const res = await postBooking(withoutRef, true, true);
-    expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/transaction reference/i);
+    expect(BookingPaymentProofModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('returns 400 when Valid ID is missing', async () => {

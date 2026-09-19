@@ -1,15 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { CheckCircle2, Home, Download, MapPin, Calendar, Users, CreditCard, Loader2, Clock } from 'lucide-react';
-import { fetchBookingById, fetchHotelById } from '../services/api';
+import {
+  CheckCircle2, Home, Download, MapPin, Calendar, Users, CreditCard,
+  Loader2, Clock, Upload, Smartphone, Info,
+} from 'lucide-react';
+import { fetchBookingById, fetchHotelById, uploadBookingPaymentProof } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
 import type { BookingRequest, Hotel } from '../types';
 import { downloadReceiptPdf } from '../lib/receiptPdf';
-import { hotelPaymentQrSrc } from '../lib/paymentQr';
+import {
+  availableWalletMethods,
+  paymentQrProxyUrl,
+  WALLET_PAYMENT_OPTIONS,
+  walletMethodLabel,
+  walletMethodTheme,
+  type WalletPaymentMethod,
+} from '../lib/paymentQr';
 import { ConfirmationSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { useBookings } from '../contexts/BookingsContext';
+import { useToast } from '../components/ui/ToastProvider';
+
 function statusLabel(status?: string) {
   switch (status) {
     case 'confirmed':
@@ -34,6 +46,7 @@ export default function BookingConfirmationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { bookings } = useBookings();
+  const { showToast } = useToast();
   const sessionBooking = bookings.find((b) => b.id === bookingId) ?? null;
   const [booking, setBooking] = useState<BookingRequest | null>(sessionBooking);
   const [hotel, setHotel] = useState<Hotel | null>(() =>
@@ -45,10 +58,19 @@ export default function BookingConfirmationPage() {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  const receiptToken = searchParams.get('token') ?? '';
+
+  const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
+  const [qrObjectUrl, setQrObjectUrl] = useState<string>();
+  const [qrLoading, setQrLoading] = useState(false);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
+  const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
+
   useEffect(() => {
     if (!bookingId) return;
     const guestEmail = searchParams.get('email') ?? undefined;
-    const receiptToken = searchParams.get('token') ?? undefined;
     if (!receiptToken) {
       setError('This confirmation link is incomplete or has expired. Please use the link from your booking email.');
       setIsLoading(false);
@@ -73,7 +95,83 @@ export default function BookingConfirmationPage() {
         }
         setIsLoading(false);
       });
-  }, [bookingId, searchParams, sessionBooking]);
+  }, [bookingId, searchParams, sessionBooking, receiptToken]);
+
+  const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
+    availableWalletMethods(hotel).includes(opt.id),
+  );
+  const activeWallet = selectedWallet && walletOptions.some((o) => o.id === selectedWallet)
+    ? selectedWallet
+    : (walletOptions[0]?.id ?? 'gcash');
+  const walletTheme = walletMethodTheme(activeWallet);
+
+  useEffect(() => {
+    if (!hotel?.id) {
+      setQrObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return undefined;
+      });
+      return;
+    }
+    const methods = availableWalletMethods(hotel);
+    if (!methods.length) {
+      setQrObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return undefined;
+      });
+      return;
+    }
+
+    let objectUrl: string | undefined;
+    let cancelled = false;
+    const hotelId = hotel.id;
+    const method = activeWallet;
+
+    async function loadPaymentQr() {
+      setQrLoading(true);
+      for (const refresh of [false, true]) {
+        if (cancelled) return;
+        try {
+          const res = await fetch(paymentQrProxyUrl(hotelId, method, refresh));
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const mime = blob.type || res.headers.get('content-type') || '';
+          const looksLikeImage = mime.startsWith('image/')
+            || mime === 'application/octet-stream'
+            || mime === 'binary/octet-stream'
+            || mime === '';
+          if (cancelled || blob.size < 32 || !looksLikeImage) continue;
+          objectUrl = URL.createObjectURL(blob);
+          setQrObjectUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return objectUrl;
+          });
+          setQrLoading(false);
+          return;
+        } catch {
+          // try refresh on next loop
+        }
+      }
+      if (!cancelled) {
+        setQrObjectUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return undefined;
+        });
+        setQrLoading(false);
+      }
+    }
+
+    setQrObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return undefined;
+    });
+    void loadPaymentQr();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [hotel, activeWallet]);
 
   const handleDownload = async () => {
     if (!booking || isDownloading) return;
@@ -82,6 +180,65 @@ export default function BookingConfirmationPage() {
       await downloadReceiptPdf(booking);
     } finally {
       setIsDownloading(false);
+    }
+  };
+
+  const handleUploadProof = async () => {
+    if (!booking || !bookingId || !receiptToken || isUploadingProof) return;
+    if (!paymentProofFile) {
+      showToast({ title: 'Upload your payment screenshot', type: 'error' });
+      return;
+    }
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(paymentProofFile.type)) {
+      showToast({ title: 'Payment proof must be a JPG, PNG, WEBP, or PDF', type: 'error' });
+      return;
+    }
+    if (paymentProofFile.size > 5 * 1024 * 1024) {
+      showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
+      return;
+    }
+    const ref = paymentTransactionRef.replace(/\s+/g, '').trim();
+    if (ref.length < 6) {
+      showToast({
+        title: 'Enter your transaction reference',
+        description: 'Copy the GCash/Maya/bank reference from your receipt (at least 6 characters).',
+        type: 'error',
+      });
+      return;
+    }
+
+    const depositDue = Number(
+      booking.depositAmount
+      ?? Math.floor((booking.totalPrice ?? 0) / 2),
+    );
+    const claimed = Number(paymentProofAmountClaimed || depositDue) || depositDue;
+
+    setIsUploadingProof(true);
+    try {
+      const updated = await uploadBookingPaymentProof({
+        bookingId,
+        token: receiptToken,
+        paymentProofFile,
+        paymentTransactionRef: ref,
+        paymentProofAmountClaimed: claimed,
+      });
+      setBooking(updated);
+      setPaymentProofFile(null);
+      setPaymentTransactionRef('');
+      showToast({
+        title: 'Payment proof submitted',
+        description: 'The hotel will verify your deposit shortly.',
+        type: 'success',
+      });
+    } catch (err) {
+      showToast({
+        title: 'Could not submit payment',
+        description: errorMessageFromUnknown(err, 'Please try again.'),
+        type: 'error',
+      });
+    } finally {
+      setIsUploadingProof(false);
     }
   };
 
@@ -102,8 +259,26 @@ export default function BookingConfirmationPage() {
   }
 
   const isPending = booking.status === 'pending' || booking.status === 'requested';
-  const isConfirmed = booking.status === 'confirmed' || booking.status === 'reserved' || booking.status === 'booked' || booking.status === 'paid';
-  const paymentQrSrc = hotelPaymentQrSrc(hotel);
+  const isConfirmed = ['confirmed', 'reserved', 'booked', 'paid', 'accepted'].includes(booking.status);
+  const amountPaid = Number(booking.amountPaid ?? 0);
+  const depositDue = Number(
+    booking.depositAmount
+    ?? Math.floor((booking.totalPrice ?? 0) / 2),
+  );
+  const paymentDone = Boolean(booking.paymentProofUploaded) || amountPaid > 0
+    || booking.paymentStatus === 'partial'
+    || booking.paymentStatus === 'paid';
+  const showPaySection = isConfirmed && !paymentDone;
+  const balanceAtCheckout = Number(
+    booking.balanceDue
+    ?? Math.max(0, (booking.totalPrice ?? 0) - (paymentDone ? amountPaid || depositDue : 0)),
+  );
+
+  const paymentLabel = paymentDone
+    ? `Deposit submitted${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}${booking.paymentProofVerified ? ' · verified' : ' · awaiting hotel verify'}`
+    : isConfirmed
+      ? 'Deposit due — pay via hotel QR below'
+      : 'No payment yet — wait for hotel confirmation';
 
   return (
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
@@ -125,12 +300,20 @@ export default function BookingConfirmationPage() {
               : <CheckCircle2 className="w-12 h-12 text-brand-success" />}
           </motion.div>
           <h1 className="text-4xl font-display font-semibold text-brand-dark mb-2">
-            {isPending ? 'Reservation Request Received' : 'Reservation Updated'}
+            {isPending
+              ? 'Reservation Request Received'
+              : showPaySection
+                ? 'Pay Your Deposit'
+                : paymentDone
+                  ? 'Deposit Submitted'
+                  : 'Reservation Updated'}
           </h1>
           <p className="text-brand-dark/70 font-medium text-sm mt-1 max-w-md mx-auto leading-relaxed">
             {isPending
-              ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>. The hotel will review it in their management system and email you at this address when they accept or decline.</>
-              : <>Your reservation for <span className="font-bold text-brand-primary">{booking.guestEmail}</span> is now <span className="font-bold">{statusLabel(booking.status)}</span>.</>}
+              ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>. The hotel will review it and email you a secure pay link when they confirm.</>
+              : showPaySection
+                ? <>Your stay is confirmed. Scan the hotel QR, pay the deposit, then upload your receipt below. You can reopen this page anytime with the link from your email.</>
+                : <>Your reservation for <span className="font-bold text-brand-primary">{booking.guestEmail}</span> is now <span className="font-bold">{statusLabel(booking.status)}</span>.</>}
           </p>
         </motion.div>
 
@@ -155,9 +338,7 @@ export default function BookingConfirmationPage() {
               { icon: Calendar, label: 'Check-in', value: booking.checkInDate },
               { icon: Calendar, label: 'Check-out', value: booking.checkOutDate },
               { icon: Users, label: 'Guests', value: `${booking.adults} adult${booking.adults !== 1 ? 's' : ''}${booking.children > 0 ? ` + ${booking.children} child${booking.children !== 1 ? 'ren' : ''}` : ''}` },
-              { icon: CreditCard, label: 'Payment', value: booking.paymentProofUploaded
-                ? `Hotel QR · proof uploaded${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}${booking.paymentProofVerified ? ' · verified' : ' · awaiting hotel verify'}`
-                : 'Hotel QR (50% deposit)' },
+              { icon: CreditCard, label: 'Payment', value: paymentLabel },
             ].map(item => (
               <div key={item.label} className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-xl bg-brand-primary/10 flex items-center justify-center shrink-0">
@@ -203,41 +384,207 @@ export default function BookingConfirmationPage() {
                 {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
                   ? 'Full payment (100%)'
                   : 'Half deposit (50%)'}
+                {paymentDone ? ' paid' : ' due'}
               </span>
               <span className="text-brand-primary">
-                ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
+                ₱{(paymentDone ? (amountPaid || depositDue) : depositDue).toLocaleString()}
               </span>
             </div>
             {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) !== 'full' && (
               <div className="flex justify-between text-sm font-bold">
                 <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                <span>
-                  ₱{(
-                    booking.balanceDue
-                    ?? Math.max(0, (booking.totalPrice ?? 0) - (booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)))
-                  ).toLocaleString()}
-                </span>
+                <span>₱{balanceAtCheckout.toLocaleString()}</span>
               </div>
             )}
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
-              {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
-                ? 'This hotel requires full payment for online bookings. Any online payment capture is separate when offered.'
-                : 'Scan the hotel QR below to pay the 50% deposit. The remaining balance is collected at hotel check-out.'}
+              {isPending
+                ? 'You will receive a secure email link to pay the deposit after the hotel confirms.'
+                : paymentDone
+                  ? 'Deposit proof is with the hotel for verification. Remaining balance is collected at check-out.'
+                  : 'Scan the hotel QR below to pay the deposit, then upload your receipt on this page.'}
             </p>
-            {paymentQrSrc && (
-              <div className="mt-5 pt-5 border-t border-brand-primary/8 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-3">
-                  Pay half now · ₱{(booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2)).toLocaleString()}
-                </p>
-                <img
-                  src={paymentQrSrc}
-                  alt="Hotel payment QR"
-                  className="mx-auto w-52 h-52 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
-                />
-              </div>
-            )}
           </div>
         </motion.div>
+
+        {showPaySection && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.55 }}
+            className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-6 mb-6 space-y-5"
+          >
+            <div>
+              <h2 className="text-xl font-serif font-bold text-brand-dark flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-brand-primary" />
+                Pay deposit · ₱{depositDue.toLocaleString()}
+              </h2>
+              <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
+                Pay with the hotel QR, then upload your screenshot and transaction reference. Keep this page open — your booking stays linked via the email token.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-brand-primary/12 overflow-hidden bg-white">
+              {walletOptions.length > 0 && (
+                <div className="p-3 sm:p-5 border-b border-brand-primary/8 bg-brand-background/40">
+                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide sm:tracking-[0.2em] text-brand-primary mb-3">
+                    Choose wallet
+                  </p>
+                  <div className={`grid gap-2 ${walletOptions.length === 1 ? 'grid-cols-1 max-w-[14rem]' : walletOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                    {walletOptions.map((opt) => {
+                      const active = activeWallet === opt.id;
+                      const theme = walletMethodTheme(opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setSelectedWallet(opt.id)}
+                          className={`min-h-[48px] rounded-xl border-2 px-2 py-3 text-center transition-all touch-manipulation ${
+                            active
+                              ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm`
+                              : `${theme.inactiveBorder} bg-white ${theme.inactiveText}`
+                          }`}
+                        >
+                          <span className="block text-[11px] sm:text-sm font-bold">{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {qrLoading ? (
+                <div className="px-5 py-12 text-center">
+                  <Loader2 className="mx-auto h-8 w-8 animate-spin" style={{ color: walletTheme.color }} />
+                  <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(activeWallet)} QR…</p>
+                </div>
+              ) : qrObjectUrl ? (
+                <div className="px-3 py-5 sm:p-6 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-widest mb-4" style={{ color: walletTheme.color }}>
+                    Scan with {walletMethodLabel(activeWallet)} · ₱{depositDue.toLocaleString()}
+                  </p>
+                  <img
+                    src={qrObjectUrl}
+                    alt={`${walletMethodLabel(activeWallet)} payment QR`}
+                    className="mx-auto w-52 h-52 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ) : (
+                <div className="px-5 py-8 text-center">
+                  <p className="font-serif text-lg font-bold text-brand-dark">Payment QR unavailable</p>
+                  <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
+                    Contact the hotel for deposit instructions, then upload your proof and reference below.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-brand-primary/12 bg-brand-background/50 p-4 sm:p-5 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">After you pay</p>
+                  <p className="mt-0.5 text-sm font-bold text-brand-dark">
+                    Upload proof &amp; reference <span className="text-red-400">*</span>
+                  </p>
+                </div>
+                <Upload className="w-4 h-4 text-brand-primary/50 shrink-0 mt-1" />
+              </div>
+
+              <label
+                htmlFor="confirm-payment-proof"
+                className={`flex flex-col items-center justify-center w-full p-5 transition-all duration-200 border-2 border-dashed rounded-2xl cursor-pointer ${
+                  paymentProofFile
+                    ? 'border-brand-success bg-brand-success/5 text-brand-success'
+                    : 'border-brand-primary/20 bg-white hover:border-brand-primary/45 text-brand-dark/60'
+                }`}
+              >
+                {paymentProofFile ? (
+                  <div className="flex items-center justify-between w-full gap-2 text-sm font-bold">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CheckCircle2 className="w-5 h-5 text-brand-success shrink-0" />
+                      <span className="truncate">{paymentProofFile.name}</span>
+                    </div>
+                    <span className="text-xs text-brand-primary underline shrink-0">Change</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center py-1">
+                    <Upload className="w-5 h-5 text-brand-primary mb-2" />
+                    <p className="text-sm font-bold text-brand-dark">Drop receipt screenshot here</p>
+                    <p className="text-[11px] text-brand-dark/45 mt-1">JPG, PNG, WEBP, or PDF · max 5 MB</p>
+                  </div>
+                )}
+                <input
+                  id="confirm-payment-proof"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setPaymentProofFile(file);
+                    if (!paymentProofAmountClaimed) {
+                      setPaymentProofAmountClaimed(String(depositDue));
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="confirm-txn-ref" className="field-label">
+                    Transaction reference <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    id="confirm-txn-ref"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={paymentTransactionRef}
+                    onChange={(e) => setPaymentTransactionRef(e.target.value)}
+                    placeholder="e.g. 1234 5678 9012"
+                    className="input-field"
+                    maxLength={64}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="confirm-amount-claimed" className="field-label">
+                    Amount paid <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-dark/40">
+                      ₱
+                    </span>
+                    <input
+                      id="confirm-amount-claimed"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={paymentProofAmountClaimed || String(depositDue)}
+                      onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
+                      className="input-field pl-7"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={isUploadingProof || !paymentProofFile || paymentTransactionRef.trim().length < 6}
+                onClick={() => { void handleUploadProof(); }}
+                className="btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2 py-3"
+              >
+                {isUploadingProof
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
+                  : <><CheckCircle2 className="w-4 h-4" /> Submit payment proof</>}
+              </button>
+
+              <div className="flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
+                <p className="text-xs text-brand-dark/55 leading-relaxed">
+                  Bookmark or keep the email link — you can return to this page later without an account.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         <motion.div
           initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.6 }}
