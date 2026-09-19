@@ -6,7 +6,12 @@
  * will refuse to approve with: "Another stay or hold may overlap those dates"
  * (self-conflict with the website request).
  *
- * Ledger rows are created only after the hotel approves the reservation.
+ * After hotel approval:
+ * - Write the room charge only (inventory hold). Keep payment_status unpaid.
+ * - Do NOT record a deposit payment until the guest uploads proof (Option A).
+ *
+ * After guest payment proof:
+ * - Write the partial_payment ledger row and mark amount_paid / payment_status.
  */
 
 import { BillingChargeModel, BookingModel } from '../data/mongoModels';
@@ -24,22 +29,33 @@ export async function ensureWebsiteOnlinePaymentLedger(input: {
   nights: number;
   roomRate: number;
   stayTotal: number;
+  /** Expected deposit (or full) due from the guest. */
   amountDue: number;
   balanceDue: number;
   paymentMethod?: string;
   mode?: OnlinePaymentMode;
   depositPercent?: number;
+  /**
+   * Amount actually collected from the guest.
+   * 0 (default) = approval-only: room charge, stay unpaid until pay-deposit proof.
+   */
+  amountPaid?: number;
 }): Promise<boolean> {
   const bookingId = String(input.bookingId);
   const hotelId = String(input.hotelId);
   const roomId = String(input.roomId);
   const amountDue = Number(input.amountDue);
   const stayTotal = Number(input.stayTotal);
-  const balanceDue = Number(input.balanceDue);
+  const amountPaid = Math.max(0, Number(input.amountPaid ?? 0));
   const nights = Math.max(1, Number(input.nights) || 1);
   const mode: OnlinePaymentMode = input.mode === 'full' || amountDue >= stayTotal ? 'full' : 'half';
   const depositPercent = Number(input.depositPercent ?? (mode === 'full' ? 100 : 50));
-  const paymentStatus = mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial';
+  const balanceDue = amountPaid > 0
+    ? Math.max(0, stayTotal - amountPaid)
+    : Math.max(0, Number(input.balanceDue ?? stayTotal));
+  const paymentStatus = amountPaid <= 0
+    ? 'unpaid'
+    : (mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial');
 
   if (!bookingId || !hotelId || !roomId || !(stayTotal > 0) || !(amountDue > 0)) {
     return false;
@@ -90,14 +106,15 @@ export async function ensureWebsiteOnlinePaymentLedger(input: {
         updated_at: now,
       });
     }
-    if (existingPartial === 0) {
+    // Only record a deposit payment after the guest actually pays (proof upload).
+    if (amountPaid > 0 && existingPartial === 0) {
       docs.push({
         hotel_id: hotelId,
         booking_id: bookingId,
         room_id: roomId,
         type: 'partial_payment',
         label: paymentLabel,
-        amount: formatMoneyAmount(-amountDue),
+        amount: formatMoneyAmount(-amountPaid),
         quantity: 1,
         is_manual: true,
         created_by: 'website',
@@ -110,10 +127,10 @@ export async function ensureWebsiteOnlinePaymentLedger(input: {
           booking_reference: input.bookingReference ?? '',
           online_payment_mode: mode,
           deposit_percent: depositPercent,
-          amount_paid: amountDue,
+          amount_paid: amountPaid,
           balance_due: balanceDue,
           stay_total: stayTotal,
-          written_after_hotel_approval: true,
+          written_after_guest_payment: true,
         }),
         created_at: now,
         updated_at: now,
@@ -129,8 +146,8 @@ export async function ensureWebsiteOnlinePaymentLedger(input: {
     {
       $set: {
         payment_status: paymentStatus,
-        amountPaid: amountDue,
-        amount_paid: amountDue,
+        amountPaid: amountPaid,
+        amount_paid: amountPaid,
         deposit_amount: amountDue,
         balance_due: balanceDue,
         online_payment_mode: mode,
@@ -161,9 +178,11 @@ export async function ensureWebsiteHalfPaymentLedger(input: {
   paymentMethod?: string;
   mode?: OnlinePaymentMode;
   depositPercent?: number;
+  amountPaid?: number;
 }): Promise<boolean> {
   return ensureWebsiteOnlinePaymentLedger({
     ...input,
     amountDue: input.halfPayment,
+    amountPaid: input.amountPaid,
   });
 }

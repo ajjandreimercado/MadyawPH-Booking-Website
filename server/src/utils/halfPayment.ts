@@ -202,7 +202,7 @@ export function resolveOnlinePaymentModeFromBooking(booking: unknown): OnlinePay
   if (direct) return direct;
 
   const total = Number(record.totalPrice ?? record.total_amount ?? 0);
-  const paid = Number(record.amount_paid ?? record.deposit_amount ?? record.amountPaid ?? 0);
+  const paid = Number(record.amount_paid ?? record.amountPaid ?? 0);
   if (total > 0 && paid >= total) return 'full';
   return 'half';
 }

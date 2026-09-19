@@ -118,13 +118,10 @@ async function writeLedgerAfterApproval(booking: {
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
   const mode = resolveOnlinePaymentModeFromBooking(booking);
   const fallback = computeOnlinePaymentDue(stayTotal, mode);
-  const recorded = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
-  const amountDue = recorded > 0
-    ? (mode === 'full'
-      ? Math.min(recorded, stayTotal) || fallback.amountDue
-      : (recorded < stayTotal ? recorded : fallback.amountDue))
-    : fallback.amountDue;
-  const balance = Math.max(0, stayTotal - amountDue);
+  // Expected deposit — do NOT treat deposit_amount as money already collected.
+  const amountDue = Number(booking.deposit_amount ?? fallback.amountDue) || fallback.amountDue;
+  const amountPaid = Number(booking.amount_paid ?? booking.amountPaid ?? 0);
+  const balance = Math.max(0, stayTotal - amountPaid);
 
   try {
     await ensureWebsiteOnlinePaymentLedger({
@@ -137,6 +134,7 @@ async function writeLedgerAfterApproval(booking: {
       stayTotal,
       amountDue,
       balanceDue: balance,
+      amountPaid,
       paymentMethod: String(booking.payment_method ?? booking.paymentMethod ?? ''),
       mode,
       depositPercent: Number(booking.deposit_percent ?? fallback.depositPercent),

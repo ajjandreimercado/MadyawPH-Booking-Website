@@ -83,6 +83,13 @@ export function availableWalletMethods(hotel: Hotel | null | undefined): WalletP
       m === 'gcash' || m === 'maya' || m === 'qrph',
     );
   }
+  // Fall back to whichever QR slots the hotel published.
+  const fromQrs: WalletPaymentMethod[] = [];
+  if (hotel.paymentQrs?.gcash) fromQrs.push('gcash');
+  if (hotel.paymentQrs?.maya) fromQrs.push('maya');
+  if (hotel.paymentQrs?.qrph) fromQrs.push('qrph');
+  if (fromQrs.length) return fromQrs;
+  if (hotel.hasPaymentQr || hotel.paymentQrs?.generic) return ['gcash'];
   return [];
 }
 

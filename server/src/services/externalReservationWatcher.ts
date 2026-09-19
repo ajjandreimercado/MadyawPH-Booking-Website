@@ -5,9 +5,10 @@
  */
 
 import type { ChangeStream } from 'mongodb';
-import { ExternalReservationModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel } from '../data/mongoModels';
 import { ONLINE_BOOKING_EXTERNAL_SOURCE } from '../utils/externalReservation';
 import { applyHotelBookingDecision } from './hotelBookingSync';
+import { finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { isExternalReservationWatcherEnabled } from '../config/env';
 
 let changeStream: ChangeStream | null = null;
@@ -43,6 +44,21 @@ function isWebsiteOnlineBooking(doc: {
   return Boolean(doc.booking_id && doc.external_reference);
 }
 
+function parseMetadataFlags(metadata: unknown): { paymentProofVerified: boolean } {
+  if (!metadata) return { paymentProofVerified: false };
+  let obj: Record<string, unknown> = {};
+  if (typeof metadata === 'string') {
+    try {
+      obj = JSON.parse(metadata) as Record<string, unknown>;
+    } catch {
+      return { paymentProofVerified: false };
+    }
+  } else if (typeof metadata === 'object') {
+    obj = metadata as Record<string, unknown>;
+  }
+  return { paymentProofVerified: Boolean(obj.payment_proof_verified) };
+}
+
 async function handleExternalDoc(doc: {
   status?: string;
   booking_id?: string;
@@ -50,11 +66,28 @@ async function handleExternalDoc(doc: {
   source?: string;
   metadata?: unknown;
 }) {
-  if (!doc?.status) return;
+  if (!doc) return;
   if (!isWebsiteOnlineBooking(doc)) return;
 
+  const bookingId = doc.booking_id ? String(doc.booking_id) : '';
+  const flags = parseMetadataFlags(doc.metadata);
+  if (flags.paymentProofVerified && bookingId) {
+    try {
+      await BookingModel.updateOne(
+        { _id: bookingId, payment_proof_stored: true },
+        { $set: { payment_proof_verified: true, payment_proof_verified_at: new Date() } },
+      );
+      await finalizeDepositAfterHotelVerification(bookingId);
+      console.log(`[HotelSync] Deposit finalized after hotel verified proof for ${bookingId}`);
+    } catch (error) {
+      console.error('[HotelSync] Failed to finalize verified deposit:', error);
+    }
+  }
+
+  if (!doc.status) return;
+
   const result = await applyHotelBookingDecision({
-    bookingId: doc.booking_id ? String(doc.booking_id) : undefined,
+    bookingId: bookingId || undefined,
     bookingReference: doc.external_reference ? String(doc.external_reference) : undefined,
     status: String(doc.status),
     source: 'change-stream',

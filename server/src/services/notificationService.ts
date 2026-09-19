@@ -20,6 +20,9 @@ export interface BookingNotificationTarget {
   deposit_amount?: number;
   amount_paid?: number;
   amountPaid?: number;
+  payment_proof_stored?: boolean;
+  payment_proof_filename?: string;
+  payment_transaction_ref?: string;
   online_payment_mode?: string;
   deposit_percent?: number;
   confirmationSendStatus?: string;
@@ -223,7 +226,16 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
   const mode = resolveOnlinePaymentModeFromBooking(booking);
   const due = computeOnlinePaymentDue(stayTotal, mode);
   const depositDue = Number(booking.deposit_amount ?? due.amountDue);
-  const alreadyPaid = Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0;
+  // Only treat as paid when the guest actually submitted proof (not when the
+  // approval ledger merely reserved the expected deposit amount).
+  const alreadyPaid = Boolean(
+    booking.payment_proof_stored
+    || booking.payment_proof_filename,
+  )
+    || (
+      Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0
+      && Boolean(booking.payment_transaction_ref)
+    );
   const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
 
   const subject = alreadyPaid

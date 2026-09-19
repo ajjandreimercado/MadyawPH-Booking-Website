@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -22,6 +22,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
+import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
@@ -337,6 +338,38 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
   if (!bookingId && !bookingReference) {
     return res.status(400).json({
       message: 'bookingId or bookingReference is required.',
+    });
+  }
+
+  // Hotel verified the guest deposit screenshot in MADYAWPH.
+  const statusLower = status.toLowerCase();
+  if (
+    statusLower === 'payment.verified'
+    || statusLower === 'deposit.verified'
+    || statusLower === 'payment_proof_verified'
+    || statusLower.endsWith('.payment_verified')
+  ) {
+    let id = bookingId;
+    if (!id && bookingReference) {
+      const found = await BookingModel.findOne({ booking_reference: bookingReference }).select('_id').lean();
+      id = found?._id ? String(found._id) : undefined;
+    }
+    if (!id) {
+      return res.status(404).json({ message: 'No matching website booking found.' });
+    }
+    await BookingModel.updateOne(
+      { _id: id },
+      { $set: { payment_proof_verified: true, payment_proof_verified_at: new Date() } },
+    );
+    const finalized = await finalizeDepositAfterHotelVerification(id);
+    return res.json({
+      ok: true,
+      kind: 'payment_verified',
+      bookingId: id,
+      finalized,
+      message: finalized
+        ? 'Deposit recorded after hotel verification.'
+        : 'Verification flagged; deposit ledger may already be synced.',
     });
   }
 
@@ -1192,7 +1225,7 @@ bookingRoutes.post('/:bookingId/payment-proof', bookingCreateLimiter, async (req
     });
   }
 
-  if (booking.payment_proof_stored || Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0) {
+  if (booking.payment_proof_stored || booking.payment_proof_filename) {
     return res.status(409).json({
       message: 'Payment proof was already submitted for this booking.',
     });
@@ -1251,81 +1284,60 @@ bookingRoutes.post('/:bookingId/payment-proof', bookingCreateLimiter, async (req
 
   const now = new Date();
   const paymentProofAmountClaimed = Math.round(rawClaimed * 100) / 100;
-  const balanceDue = Math.max(0, stayTotal - amountDue);
-  const paymentStatus = balanceDue <= 0 ? 'paid' : 'partial';
+  const proofBase64 = paymentProofFile.buffer.toString('base64');
+  const proofFilename = paymentProofFile.originalname.slice(0, 200);
 
+  // Store screenshot on the booking for hotel viewers that read inline fields.
+  // Do NOT mark amount_paid / payment_status as paid yet — hotel must verify first.
   await BookingModel.updateOne(
     { _id: booking._id },
     {
       $set: {
-        payment_proof_filename: paymentProofFile.originalname.slice(0, 200),
+        payment_proof_filename: proofFilename,
         payment_proof_mime: paymentProofFile.mimetype,
         payment_proof_size: paymentProofFile.size,
-        payment_proof_base64: paymentProofFile.buffer.toString('base64'),
+        payment_proof_base64: proofBase64,
         payment_proof_stored: true,
         payment_proof_uploaded_at: now,
         payment_transaction_ref: normalizedRef,
         payment_proof_amount_claimed: paymentProofAmountClaimed,
         payment_proof_sha256: paymentProofSha256,
         payment_proof_verified: false,
-        amountPaid: amountDue,
-        amount_paid: amountDue,
+        payment_proof_verified_at: null,
+        // Expected deposit stays on deposit_amount; collected amount stays 0 until verify.
         deposit_amount: amountDue,
-        balance_due: balanceDue,
-        payment_status: paymentStatus,
+        amountPaid: 0,
+        amount_paid: 0,
+        balance_due: stayTotal,
+        payment_status: 'unpaid',
       },
     },
   );
 
   try {
-    await withRetries(async () => {
-      await BookingPaymentProofModel.findOneAndUpdate(
-        { booking_id: bookingIdResult.value },
-        {
-          $set: {
-            booking_id: bookingIdResult.value,
-            booking_reference: String(booking.booking_reference ?? ''),
-            hotel_id: String(booking.hotel_id ?? ''),
-            filename: paymentProofFile!.originalname.slice(0, 200),
-            mime: paymentProofFile!.mimetype,
-            size: paymentProofFile!.size,
-            base64: paymentProofFile!.buffer.toString('base64'),
-            uploaded_at: now,
-            type: 'payment_proof',
-            kind: 'payment_proof',
-            payment_proof_base64: paymentProofFile!.buffer.toString('base64'),
-            payment_proof_mime: paymentProofFile!.mimetype,
-            payment_proof_filename: paymentProofFile!.originalname.slice(0, 200),
-            payment_transaction_ref: normalizedRef,
-            payment_proof_amount_claimed: paymentProofAmountClaimed,
-            payment_proof_sha256: paymentProofSha256,
-            expected_deposit_amount: amountDue,
-            payment_proof_verified: false,
-          },
-        },
-        { upsert: true, new: true },
-      );
-      await BookingValidIdModel.findOneAndUpdate(
-        { booking_id: bookingIdResult.value },
-        {
-          $set: {
-            payment_proof_filename: paymentProofFile!.originalname.slice(0, 200),
-            payment_proof_mime: paymentProofFile!.mimetype,
-            payment_proof_size: paymentProofFile!.size,
-            payment_proof_base64: paymentProofFile!.buffer.toString('base64'),
-            payment_proof_uploaded_at: now,
-            payment_proof_stored: true,
-            payment_transaction_ref: normalizedRef,
-            payment_proof_amount_claimed: paymentProofAmountClaimed,
-            payment_proof_sha256: paymentProofSha256,
-            payment_proof_verified: false,
-          },
-        },
-        { upsert: false },
-      );
-    }, { attempts: 3, delayMs: 200, label: 'post-confirm payment proof store' });
+    await syncPaymentProofToHotelApp({
+      bookingId: bookingIdResult.value,
+      bookingReference: String(booking.booking_reference ?? ''),
+      hotelId: String(booking.hotel_id ?? ''),
+      roomId: String(booking.room_id ?? ''),
+      filename: proofFilename,
+      mime: paymentProofFile.mimetype,
+      size: paymentProofFile.size,
+      base64: proofBase64,
+      transactionRef: normalizedRef,
+      amountClaimed: paymentProofAmountClaimed,
+      expectedDeposit: amountDue,
+      stayTotal,
+      nights: Number(booking.nights ?? 1),
+      roomRate: Number(booking.roomRate ?? 0),
+      paymentMethod: String(booking.paymentMethod ?? booking.payment_method ?? ''),
+      uploadedAt: now,
+    });
   } catch (proofStoreError) {
-    console.error('[Bookings] Failed to store post-confirm payment proof:', proofStoreError);
+    console.error('[Bookings] Failed to sync payment proof to hotel app collections:', proofStoreError);
+    return res.status(502).json({
+      message: 'Payment screenshot could not be delivered to the hotel app. Please try again.',
+    });
   }
 
   const updated = await BookingModel.findById(bookingIdResult.value).lean();
@@ -1386,11 +1398,9 @@ bookingRoutes.post('/:bookingId/payment-checkout', optionalAuth, async (req, res
   const checkoutTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
   const mode = resolveOnlinePaymentModeFromBooking(booking);
   const due = computeOnlinePaymentDue(checkoutTotal, mode);
-  const recorded = Number(booking.amount_paid ?? booking.deposit_amount ?? booking.amountPaid ?? 0);
-  const checkoutAmount = recorded > 0
-    ? (mode === 'full'
-      ? Math.min(recorded, checkoutTotal) || due.amountDue
-      : (recorded < checkoutTotal ? recorded : due.amountDue))
+  const alreadyCollected = Number(booking.amount_paid ?? booking.amountPaid ?? 0);
+  const checkoutAmount = alreadyCollected > 0
+    ? Math.min(alreadyCollected, checkoutTotal) || due.amountDue
     : due.amountDue;
   const checkoutLabel = mode === 'full'
     ? `Madyaw full stay payment ${booking.booking_reference ?? bookingIdResult.value}`
@@ -1423,8 +1433,22 @@ bookingRoutes.get('/:bookingId/receipt', optionalAuth, async (req, res) => {
   const bookingIdResult = validateId(req.params.bookingId, 'Booking ID');
   if (!bookingIdResult.ok) return res.status(400).json({ message: bookingIdResult.message });
 
-  const booking = await BookingModel.findById(bookingIdResult.value).lean();
+  let booking = await BookingModel.findById(bookingIdResult.value).lean();
   if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+
+  // If hotel staff verified the screenshot in MADYAWPH, finish deposit accounting.
+  if (
+    booking.payment_proof_verified
+    && (booking.payment_proof_stored || booking.payment_proof_filename)
+    && Number(booking.amount_paid ?? booking.amountPaid ?? 0) <= 0
+  ) {
+    try {
+      await finalizeDepositAfterHotelVerification(bookingIdResult.value);
+      booking = await BookingModel.findById(bookingIdResult.value).lean() ?? booking;
+    } catch (error) {
+      console.error('[Bookings] Failed to finalize verified deposit on receipt:', error);
+    }
+  }
 
   // Privileged staff: only their hotel (super_admin: any).
   if (req.auth && isPrivilegedRole(req.auth.role)) {
