@@ -109,7 +109,9 @@ export function buildExternalReservationDoc(input: {
       ? 'unpaid'
       : (mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial'));
   const note = amountPaid <= 0
-    ? 'Website booking — deposit due after hotel confirmation'
+    ? (mode === 'full'
+      ? 'Website booking — full stay payment due after hotel confirmation'
+      : 'Website booking — deposit due after hotel confirmation')
     : (mode === 'full'
       ? 'Website full stay payment — no remaining balance at hotel check-out'
       : 'Website half deposit — remaining balance due at hotel check-out');

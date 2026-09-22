@@ -1,4 +1,4 @@
-import { resolveOnlinePaymentModeFromBooking, WEBSITE_ONLINE_PAYMENT_MODE } from './halfPayment';
+import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
 import { resolveHotelImageUrlFromRecord } from './hotelImageUrl';
 import {
   hasAnyPaymentQr,
@@ -75,7 +75,7 @@ export function serializeHotel(
   const longitude = typeof coordinates?.longitude === 'number' ? coordinates.longitude : Number(coordinates?.longitude);
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
 
-  const onlinePaymentMode = WEBSITE_ONLINE_PAYMENT_MODE;
+  const onlinePaymentMode = resolveHotelOnlinePaymentMode(extras?.systemSettings ?? hotel);
   const paymentQrs = mergePaymentQrs(hotel, extras?.systemSettings);
   const paymentAccounts = mergePaymentAccounts(hotel, extras?.systemSettings);
   const walletMethods = listAvailableWalletMethods(paymentQrs);
@@ -95,7 +95,7 @@ export function serializeHotel(
     latitude: hasCoords ? latitude : undefined,
     longitude: hasCoords ? longitude : undefined,
     onlinePaymentMode,
-    depositPercent: 50,
+    depositPercent: onlinePaymentMode === 'full' ? 100 : 50,
     hasPaymentQr: hasAnyPaymentQr(paymentQrs),
     paymentQrDataUrl: extras?.paymentQrDataUrl,
     paymentMethodsAvailable: walletMethods,

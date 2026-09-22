@@ -1,21 +1,16 @@
 /**
- * Website online bookings always collect a 50% deposit (half payment).
- * Full stay payment online is not used on this guest site — remaining balance
- * is paid at hotel check-out after hotel staff verify the deposit proof.
+ * Online payment policy for website bookings.
  *
- * `resolveHotelOnlinePaymentMode` remains for reading hotel-app settings when
- * needed for diagnostics; booking create ignores it and always uses half.
+ * Website reservations always collect full stay payment after hotel confirmation.
+ * Helpers still accept half/full for ledger compatibility and older booking docs.
  */
 
 export type OnlinePaymentMode = 'half' | 'full';
 
-/** Fixed policy for the guest booking website. */
-export const WEBSITE_ONLINE_PAYMENT_MODE: OnlinePaymentMode = 'half';
-
 export interface OnlinePaymentDue {
   mode: OnlinePaymentMode;
   depositPercent: number;
-  /** Amount expected from the guest online (half deposit on this website). */
+  /** Amount expected from the guest online (full stay for website bookings). */
   amountDue: number;
   balanceDue: number;
   /** Hotel-app payment_status vocab: unpaid | partial | paid */
@@ -30,7 +25,7 @@ export function computeHalfPayment(totalAmount: number): { halfPayment: number; 
 
 export function computeOnlinePaymentDue(
   totalAmount: number,
-  mode: OnlinePaymentMode = 'half',
+  mode: OnlinePaymentMode = 'full',
 ): OnlinePaymentDue {
   const total = Math.max(0, Math.round(Number(totalAmount) || 0));
   if (mode === 'full') {
@@ -163,11 +158,12 @@ const DEPOSIT_PERCENT_PATHS: string[][] = [
 
 /**
  * Resolve half vs full from a hotel document (shared Mongo with the hotel app).
- * Accepts multiple aliases so website stays compatible if the app renames keys.
+ * Website booking create always forces full; this remains for hotel serialize/UI.
+ * Default is `full` when the hotel has no recognizable setting.
  */
 export function resolveHotelOnlinePaymentMode(hotel: unknown): OnlinePaymentMode {
   const record = asRecord(hotel);
-  if (!record) return 'half';
+  if (!record) return 'full';
 
   for (const path of MODE_PATHS) {
     const mode = normalizePaymentMode(readNested(record, path));
@@ -188,12 +184,12 @@ export function resolveHotelOnlinePaymentMode(hotel: unknown): OnlinePaymentMode
     return 'half';
   }
 
-  return 'half';
+  return 'full';
 }
 
 export function resolveOnlinePaymentModeFromBooking(booking: unknown): OnlinePaymentMode {
   const record = asRecord(booking);
-  if (!record) return 'half';
+  if (!record) return 'full';
 
   const direct = normalizePaymentMode(
     record.online_payment_mode
@@ -205,6 +201,6 @@ export function resolveOnlinePaymentModeFromBooking(booking: unknown): OnlinePay
 
   const total = Number(record.totalPrice ?? record.total_amount ?? 0);
   const paid = Number(record.amount_paid ?? record.amountPaid ?? 0);
-  if (total > 0 && paid >= total) return 'full';
-  return 'half';
+  if (total > 0 && paid > 0 && paid < total) return 'half';
+  return 'full';
 }

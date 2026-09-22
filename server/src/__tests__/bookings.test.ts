@@ -271,12 +271,11 @@ describe('POST /api/bookings', () => {
       expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('unpaid');
-      expect(created.online_payment_mode).toBe('half');
-      expect(created.deposit_percent).toBe(50);
+      expect(created.online_payment_mode).toBe('full');
+      expect(created.deposit_percent).toBe(100);
       expect(created.amountPaid).toBe(0);
       expect(created.amount_paid).toBe(0);
-      expect(created.deposit_amount).toBeGreaterThan(0);
-      expect(created.deposit_amount).toBeLessThan(created.totalPrice);
+      expect(created.deposit_amount).toBe(created.totalPrice);
       expect(created.balance_due).toBe(created.totalPrice);
       expect(created.serviceFee).toBe(0);
       expect(created.valid_id_filename).toBe('id.png');
@@ -298,8 +297,8 @@ describe('POST /api/bookings', () => {
         ? JSON.parse(externalDoc.metadata)
         : externalDoc.metadata;
       expect(meta.payment_status).toBe('unpaid');
-      expect(meta.deposit_percent).toBe(50);
-      expect(meta.online_payment_mode).toBe('half');
+      expect(meta.deposit_percent).toBe(100);
+      expect(meta.online_payment_mode).toBe('full');
       expect(meta.amount_paid).toBe(0);
       expect(meta.valid_id_uploaded).toBe(true);
       expect(meta.payment_proof_uploaded).toBe(false);

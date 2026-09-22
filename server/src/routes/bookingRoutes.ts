@@ -19,7 +19,6 @@ import { buildExternalReservationDoc } from '../utils/externalReservation';
 import {
   computeOnlinePaymentDue,
   resolveOnlinePaymentModeFromBooking,
-  WEBSITE_ONLINE_PAYMENT_MODE,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
@@ -555,8 +554,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     return res.status(404).json({ message: 'Room not found.' });
   }
 
-  // Website policy is always 50% deposit. Full online payment is not offered.
-  const paymentMode = WEBSITE_ONLINE_PAYMENT_MODE;
+  // Website reservations always require full stay payment after hotel confirmation.
+  const paymentMode = 'full' as const;
 
   let pricing;
 
@@ -658,10 +657,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
 
   const { amountDue, balanceDue, depositPercent, mode: onlinePaymentMode } =
     computeOnlinePaymentDue(finalTotalPrice, paymentMode);
-  // Deposit is collected after hotel confirmation — create as unpaid.
+  // Deposit / full stay amount is collected after hotel confirmation — create as unpaid.
   const paymentStatus = 'unpaid' as const;
-  if (onlinePaymentMode === 'half' && finalTotalPrice > 0 && amountDue >= finalTotalPrice) {
-    console.error('[Bookings] Half payment must be less than stay total', { finalTotalPrice, amountDue });
+  if (onlinePaymentMode === 'full' && finalTotalPrice > 0 && amountDue !== finalTotalPrice) {
+    console.error('[Bookings] Full payment must equal stay total', { finalTotalPrice, amountDue });
   }
 
   const bookingDoc = {

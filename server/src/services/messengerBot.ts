@@ -99,7 +99,7 @@ async function sendHelp(psid: string, token: string): Promise<void> {
   await sendButtonTemplate(
     psid,
     token,
-    'How Madyaw booking works:\n1. Search and pick a hotel on our website\n2. Submit a reservation request with your details and Valid ID\n3. The hotel reviews and confirms by email\n4. Pay the 50% deposit online (hotel QR + screenshot) after confirmation\n\nThe remaining balance is paid at hotel check-out.',
+    'How Madyaw booking works:\n1. Search and pick a hotel on our website\n2. Submit a reservation request with your details and Valid ID\n3. The hotel reviews and confirms by email\n4. Pay the full stay amount online via the secure link in your confirmation email',
     [
       { type: 'web_url', title: 'Open Madyaw', url: siteUrl('/') },
       { type: 'postback', title: 'Search stays', payload: 'MAY_SEARCH' },

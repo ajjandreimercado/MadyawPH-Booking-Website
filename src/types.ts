@@ -32,7 +32,7 @@ export interface Hotel {
   imageUrl?: string;
   latitude?: number;
   longitude?: number;
-  /** Website bookings always use half (50%) deposit. */
+  /** Website online bookings require full stay payment after hotel confirmation. */
   onlinePaymentMode?: 'half' | 'full';
   depositPercent?: number;
   hasPaymentQr?: boolean;

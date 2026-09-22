@@ -210,19 +210,21 @@ function normalizeBookingResponse<T extends BookingRequest>(booking: T & {
       ?? (booking as { online_payment_mode?: 'half' | 'full' }).online_payment_mode
       ?? (
         Number(booking.totalPrice ?? booking.totalAmount ?? 0) > 0
+        && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0) > 0
         && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0)
-          >= Number(booking.totalPrice ?? booking.totalAmount ?? 0)
-          ? 'full'
-          : 'half'
+          < Number(booking.totalPrice ?? booking.totalAmount ?? 0)
+          ? 'half'
+          : 'full'
       ),
     depositPercent: booking.depositPercent
       ?? (booking as { deposit_percent?: number }).deposit_percent
       ?? (
         Number(booking.totalPrice ?? booking.totalAmount ?? 0) > 0
+        && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0) > 0
         && Number(booking.amountPaid ?? (booking as { amount_paid?: number }).amount_paid ?? 0)
-          >= Number(booking.totalPrice ?? booking.totalAmount ?? 0)
-          ? 100
-          : 50
+          < Number(booking.totalPrice ?? booking.totalAmount ?? 0)
+          ? 50
+          : 100
       ),
     paymentStatus: booking.paymentStatus
       ?? (booking as { payment_status?: string }).payment_status,

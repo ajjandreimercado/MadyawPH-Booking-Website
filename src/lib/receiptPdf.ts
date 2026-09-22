@@ -205,11 +205,14 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   row("Payment Method", (booking.paymentMethod ?? "—").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
   const amountPaid = booking.amountPaid ?? Math.floor((booking.totalPrice ?? 0) / 2);
   const balance = booking.balanceDue ?? Math.max(0, (booking.totalPrice ?? 0) - amountPaid);
-  // Website bookings use 50% deposit only (never full online payment).
+  const isFullPayment = (booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
+    || (balance <= 0 && amountPaid >= (booking.totalPrice ?? 0) && (booking.totalPrice ?? 0) > 0);
   divider();
-  row("Half Deposit (50%)", `PHP ${amountPaid.toLocaleString()}`);
-  divider();
-  row("Balance at Check-out", `PHP ${balance.toLocaleString()}`);
+  row(isFullPayment ? "Full Payment (100%)" : "Partial Payment (50%)", `PHP ${amountPaid.toLocaleString()}`);
+  if (!isFullPayment) {
+    divider();
+    row("Balance at Check-out", `PHP ${balance.toLocaleString()}`);
+  }
   y += 3;
 
   // Total row (Box formatted cleanly without clipping)
@@ -229,7 +232,7 @@ export async function downloadReceiptPdf(booking: BookingRequest): Promise<void>
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
   setTC(BRAND_PRIMARY);
-  t(booking.paymentProofVerified ? "DEPOSIT VERIFIED (50%)" : (booking.paymentProofUploaded ? "DEPOSIT PROOF SUBMITTED" : "HALF DEPOSIT (50%) DUE"), MARGIN + 8, y + 9);
+  t(isFullPayment ? "FULL PAYMENT RECORDED" : "PARTIAL (50%) RECORDED", MARGIN + 8, y + 9);
   doc.setFontSize(12);
   t(`PHP ${amountPaid.toLocaleString()}`, MARGIN + CONTENT_W - 8, y + 9, { align: "right" });
 

@@ -107,7 +107,7 @@ export type OnlinePaymentMode = 'half' | 'full';
 
 export function computeOnlinePaymentDue(
   totalAmount: number,
-  mode: OnlinePaymentMode = 'half',
+  mode: OnlinePaymentMode = 'full',
 ): { mode: OnlinePaymentMode; depositPercent: number; amountDue: number; balanceDue: number } {
   const total = Math.max(0, Math.round(Number(totalAmount) || 0));
   if (mode === 'full') {

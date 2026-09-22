@@ -51,11 +51,11 @@ export function HelpCenterPage() {
       sections={[
         {
           heading: 'How booking works',
-          body: 'Search for a hotel or room, submit a reservation request with your details and the hotel’s required online payment (half or full), then wait for the hotel to accept. Confirmation and room assignment are handled by the hotel — not on this website.',
+          body: 'Search for a hotel or room, submit a reservation request with your details and Valid ID, wait for the hotel to accept, then pay the full stay amount online via the secure link in your confirmation email. Room assignment is handled by the hotel — not on this website.',
         },
         {
           heading: 'Online payment',
-          body: 'Online bookings collect a 50% deposit after the hotel confirms your request. You pay via the hotel QR on a secure email link, then upload your receipt screenshot. The remaining balance is collected when you check out at the hotel.',
+          body: 'Online bookings require full payment of the stay total after the hotel confirms. Pay via the hotel QR on the secure email link, then upload your payment screenshot for hotel verification.',
         },
         {
           heading: 'Valid ID',
@@ -107,7 +107,7 @@ export function SafetyPage() {
         },
         {
           heading: 'Payments',
-          body: 'This website records the hotel’s required online payment (half deposit or full stay). Follow only payment instructions that come from the hotel after they accept your request.',
+          body: 'This website records full stay payment after hotel confirmation. Follow only payment instructions from the secure email link after they accept your request.',
         },
         {
           heading: 'On property',

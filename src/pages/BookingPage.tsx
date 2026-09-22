@@ -129,8 +129,8 @@ export default function BookingPage() {
   const staySubtotal = (pricing?.totalPrice ?? 0) + discountAmt;
   const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt, memberDiscountAmt);
   const total = Math.max(0, staySubtotal - effectiveDiscount);
-  const paymentMode = 'half' as const;
-  const { amountDue, balanceDue, depositPercent } = computeOnlinePaymentDue(total, paymentMode);
+  const paymentMode = 'full' as const;
+  const { amountDue, balanceDue } = computeOnlinePaymentDue(total, paymentMode);
   const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
     ? 'Madyaw member'
     : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
@@ -284,7 +284,7 @@ export default function BookingPage() {
           `Valid ID uploaded: ${validIdFile.name}`,
           nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
           malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
-          `Payment: deposit after hotel confirmation (${depositPercent}%)`,
+          `Payment: full stay after hotel confirmation`,
         ].filter(Boolean).join(' | ') || undefined,
       });
       appendBooking(booking);
@@ -652,40 +652,31 @@ export default function BookingPage() {
             <section className="space-y-4">
               <div>
                 <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary flex items-center gap-2">
-                  <Info className="w-4 h-4" /> Payment after confirmation
+                  <Info className="w-4 h-4" /> Full payment after confirmation
                 </h2>
                 <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
-                  No payment is needed now. After the hotel confirms your request, you will get an email with a secure link to pay the {depositPercent}% deposit on this website.
+                  No payment is needed now. After the hotel confirms your request, you will get an email with a secure link to pay the full stay amount on this website.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 sm:gap-3">
-                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center min-[400px]:text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center sm:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
-                    Deposit due later
+                    Pay after confirm
                   </p>
                   <p className="font-serif font-bold text-lg sm:text-2xl text-brand-primary tabular-nums">
                     ₱{amountDue.toLocaleString()}
                   </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">{depositPercent}% after confirm</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">Full stay (100%)</p>
                 </div>
-                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center min-[400px]:text-left">
+                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
-                    Later
+                    Balance at hotel
                   </p>
                   <p className="font-serif font-bold text-lg sm:text-2xl text-brand-dark tabular-nums">
                     ₱{balanceDue.toLocaleString()}
                   </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">At check-out</p>
-                </div>
-                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center min-[400px]:text-left">
-                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
-                    Total
-                  </p>
-                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-dark tabular-nums">
-                    ₱{total.toLocaleString()}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">Full stay</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">None after full pay</p>
                 </div>
               </div>
             </section>
@@ -770,19 +761,21 @@ export default function BookingPage() {
                 <span className="text-brand-dark">₱{total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">Deposit after confirm (50%)</span>
+                <span className="text-brand-primary">Full payment after confirm</span>
                 <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
-              </div>
+              {balanceDue > 0 && (
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Balance at hotel check-out</span>
+                  <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
+                </div>
+              )}
             </div>
 
             <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
               {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
-              Deposit due after hotel confirmation — balance at check-out
+              Full stay payment due after hotel confirmation
             </p>
           </aside>
 

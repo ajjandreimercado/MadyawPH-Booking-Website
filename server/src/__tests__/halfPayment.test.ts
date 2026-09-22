@@ -4,7 +4,6 @@ import {
   formatMoneyAmount,
   resolveHotelOnlinePaymentMode,
   resolveOnlinePaymentModeFromBooking,
-  WEBSITE_ONLINE_PAYMENT_MODE,
 } from '../utils/halfPayment';
 
 describe('computeHalfPayment', () => {
@@ -42,12 +41,22 @@ describe('computeOnlinePaymentDue', () => {
       paymentStatus: 'partial',
     });
   });
+
+  it('defaults to full payment when mode omitted', () => {
+    expect(computeOnlinePaymentDue(10000)).toEqual({
+      mode: 'full',
+      depositPercent: 100,
+      amountDue: 10000,
+      balanceDue: 0,
+      paymentStatus: 'paid',
+    });
+  });
 });
 
 describe('resolveHotelOnlinePaymentMode', () => {
-  it('defaults to half when hotel has no setting', () => {
-    expect(resolveHotelOnlinePaymentMode(null)).toBe('half');
-    expect(resolveHotelOnlinePaymentMode({})).toBe('half');
+  it('defaults to full when hotel has no setting', () => {
+    expect(resolveHotelOnlinePaymentMode(null)).toBe('full');
+    expect(resolveHotelOnlinePaymentMode({})).toBe('full');
   });
 
   it('reads common half/full aliases', () => {
@@ -62,7 +71,7 @@ describe('resolveHotelOnlinePaymentMode', () => {
 });
 
 describe('resolveOnlinePaymentModeFromBooking', () => {
-  it('uses snapshot field or inferred full payment', () => {
+  it('uses snapshot field or inferred payment mode', () => {
     expect(resolveOnlinePaymentModeFromBooking({ online_payment_mode: 'full' })).toBe('full');
     expect(resolveOnlinePaymentModeFromBooking({
       totalPrice: 10000,
@@ -72,19 +81,10 @@ describe('resolveOnlinePaymentModeFromBooking', () => {
       totalPrice: 10000,
       amount_paid: 5000,
     })).toBe('half');
-  });
-});
-
-describe('WEBSITE_ONLINE_PAYMENT_MODE', () => {
-  it('locks the guest website to half (50%) deposit — never full online payment', () => {
-    expect(WEBSITE_ONLINE_PAYMENT_MODE).toBe('half');
-    expect(computeOnlinePaymentDue(10000, WEBSITE_ONLINE_PAYMENT_MODE)).toEqual({
-      mode: 'half',
-      depositPercent: 50,
-      amountDue: 5000,
-      balanceDue: 5000,
-      paymentStatus: 'partial',
-    });
+    expect(resolveOnlinePaymentModeFromBooking({
+      totalPrice: 10000,
+      amount_paid: 0,
+    })).toBe('full');
   });
 });
 

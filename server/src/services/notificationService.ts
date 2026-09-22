@@ -177,7 +177,7 @@ export async function sendBookingRequestReceivedNotification(
     `Check-in: ${checkIn}`,
     `Check-out: ${checkOut}`,
     '',
-    'The hotel is reviewing your request. You will receive another email when they confirm — then you can pay the deposit online.',
+    'The hotel is reviewing your request. You will receive another email when they confirm — then you can pay the full stay amount online.',
     '',
     'No payment is needed until the hotel confirms your reservation.',
     '',
@@ -236,11 +236,13 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
       Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0
       && Boolean(booking.payment_transaction_ref)
     );
-  const depositLabel = '50% deposit';
+  const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
 
   const subject = alreadyPaid
     ? 'Your reservation is confirmed'
-    : 'Reservation confirmed — please pay your deposit';
+    : mode === 'full'
+      ? 'Reservation confirmed — please pay your stay in full'
+      : 'Reservation confirmed — please pay your deposit';
   const messageBody = alreadyPaid
     ? [
       `Hi ${guestFirstName(booking)},`,
