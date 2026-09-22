@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -18,8 +18,8 @@ import { coerceSummaryOnly, toHotelRoomId } from '../utils/bookingHotelFields';
 import { buildExternalReservationDoc } from '../utils/externalReservation';
 import {
   computeOnlinePaymentDue,
-  resolveHotelOnlinePaymentMode,
   resolveOnlinePaymentModeFromBooking,
+  WEBSITE_ONLINE_PAYMENT_MODE,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
@@ -555,13 +555,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     return res.status(404).json({ message: 'Room not found.' });
   }
 
-  const hotelIdForPolicy = String(property.hotel_id ?? '');
-  const hotelDoc = hotelIdForPolicy
-    ? await HotelModel.findById(hotelIdForPolicy).lean()
-    : null;
-  // Wallet QR payments always collect half first; card methods follow the hotel setting.
-  const walletQrMethod = ['gcash', 'maya', 'qrph', 'bank-transfer'].includes(paymentMethodResult.value);
-  const paymentMode = walletQrMethod ? 'half' : resolveHotelOnlinePaymentMode(hotelDoc);
+  // Website policy is always 50% deposit. Full online payment is not offered.
+  const paymentMode = WEBSITE_ONLINE_PAYMENT_MODE;
 
   let pricing;
 

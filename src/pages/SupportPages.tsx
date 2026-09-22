@@ -55,7 +55,7 @@ export function HelpCenterPage() {
         },
         {
           heading: 'Online payment',
-          body: 'Each partner hotel chooses whether online bookings require a 50% deposit or full payment. The remaining balance (if any) is collected when you check out at the hotel.',
+          body: 'Online bookings collect a 50% deposit after the hotel confirms your request. You pay via the hotel QR on a secure email link, then upload your receipt screenshot. The remaining balance is collected when you check out at the hotel.',
         },
         {
           heading: 'Valid ID',

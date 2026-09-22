@@ -4,6 +4,7 @@ import {
   formatMoneyAmount,
   resolveHotelOnlinePaymentMode,
   resolveOnlinePaymentModeFromBooking,
+  WEBSITE_ONLINE_PAYMENT_MODE,
 } from '../utils/halfPayment';
 
 describe('computeHalfPayment', () => {
@@ -71,6 +72,19 @@ describe('resolveOnlinePaymentModeFromBooking', () => {
       totalPrice: 10000,
       amount_paid: 5000,
     })).toBe('half');
+  });
+});
+
+describe('WEBSITE_ONLINE_PAYMENT_MODE', () => {
+  it('locks the guest website to half (50%) deposit — never full online payment', () => {
+    expect(WEBSITE_ONLINE_PAYMENT_MODE).toBe('half');
+    expect(computeOnlinePaymentDue(10000, WEBSITE_ONLINE_PAYMENT_MODE)).toEqual({
+      mode: 'half',
+      depositPercent: 50,
+      amountDue: 5000,
+      balanceDue: 5000,
+      paymentStatus: 'partial',
+    });
   });
 });
 

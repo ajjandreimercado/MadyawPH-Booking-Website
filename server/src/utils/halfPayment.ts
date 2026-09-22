@@ -1,19 +1,21 @@
 /**
- * Hotel-controlled online payment policy for website bookings.
+ * Website online bookings always collect a 50% deposit (half payment).
+ * Full stay payment online is not used on this guest site — remaining balance
+ * is paid at hotel check-out after hotel staff verify the deposit proof.
  *
- * Property admins set half vs full in the hotel app. This website reads that
- * setting from the shared `hotels` document (several field-name aliases) and
- * applies it when creating bookings, checkout invoices, and ledger rows.
- *
- * Default remains `half` when the hotel has no recognizable setting (backward compatible).
+ * `resolveHotelOnlinePaymentMode` remains for reading hotel-app settings when
+ * needed for diagnostics; booking create ignores it and always uses half.
  */
 
 export type OnlinePaymentMode = 'half' | 'full';
 
+/** Fixed policy for the guest booking website. */
+export const WEBSITE_ONLINE_PAYMENT_MODE: OnlinePaymentMode = 'half';
+
 export interface OnlinePaymentDue {
   mode: OnlinePaymentMode;
   depositPercent: number;
-  /** Amount expected from the guest online (half or full stay). */
+  /** Amount expected from the guest online (half deposit on this website). */
   amountDue: number;
   balanceDue: number;
   /** Hotel-app payment_status vocab: unpaid | partial | paid */

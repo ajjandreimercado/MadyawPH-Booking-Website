@@ -236,7 +236,7 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
       Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0
       && Boolean(booking.payment_transaction_ref)
     );
-  const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
+  const depositLabel = '50% deposit';
 
   const subject = alreadyPaid
     ? 'Your reservation is confirmed'

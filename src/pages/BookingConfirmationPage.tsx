@@ -409,21 +409,16 @@ export default function BookingConfirmationPage() {
             </div>
             <div className="flex justify-between text-sm font-bold pt-1">
               <span className="text-brand-primary">
-                {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) === 'full'
-                  ? 'Full payment (100%)'
-                  : 'Half deposit (50%)'}
-                {paymentDone ? ' paid' : ' due'}
+                Half deposit (50%){paymentDone ? (booking.paymentProofVerified ? ' confirmed' : ' — proof submitted') : ' due'}
               </span>
               <span className="text-brand-primary">
                 ₱{(paymentDone ? (amountPaid || depositDue) : depositDue).toLocaleString()}
               </span>
             </div>
-            {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) !== 'full' && (
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                <span>₱{balanceAtCheckout.toLocaleString()}</span>
-              </div>
-            )}
+            <div className="flex justify-between text-sm font-bold">
+              <span className="text-brand-dark/60">Balance at hotel check-out</span>
+              <span>₱{balanceAtCheckout.toLocaleString()}</span>
+            </div>
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
               {isPending
                 ? 'You will receive a secure email link to pay the deposit after the hotel confirms.'

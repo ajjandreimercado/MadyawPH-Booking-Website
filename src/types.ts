@@ -32,7 +32,7 @@ export interface Hotel {
   imageUrl?: string;
   latitude?: number;
   longitude?: number;
-  /** Hotel-app setting: half (50%) or full stay for online bookings. */
+  /** Website bookings always use half (50%) deposit. */
   onlinePaymentMode?: 'half' | 'full';
   depositPercent?: number;
   hasPaymentQr?: boolean;
