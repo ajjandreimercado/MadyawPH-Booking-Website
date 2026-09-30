@@ -95,7 +95,7 @@ export interface BookingUpdatePayload {
   booking?: BookingDraft & { nights: number; guestCount: number; roomRate: number; serviceFee: number; totalPrice: number };
 }
 
-const PROD_API_URL = 'https://madyaw-api.onrender.com/api';
+const PROD_API_URL = 'https://madyaw-api-pul2.onrender.com/api';
 const DEV_API_URL = '/api'; // Vite proxies /api → localhost:5001 in dev
 
 function resolveApiBaseUrl() {
