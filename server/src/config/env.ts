@@ -113,7 +113,7 @@ export function getMadyawPublicUrl(): string {
 export function getMadyawApiPublicUrl(): string {
   const raw = optionalEnv('MADYAW_API_PUBLIC_URL');
   if (raw) return raw.replace(/\/+$/, '');
-  return 'https://madyaw-api.onrender.com/api';
+  return 'https://madyaw-api-pul2.onrender.com/api';
 }
 
 /**
