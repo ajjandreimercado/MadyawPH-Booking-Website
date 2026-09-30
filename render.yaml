@@ -2,6 +2,7 @@ services:
   # ─── Backend: Express API ────────────────────────────────────────────────────
   - type: web
     name: madyaw-api
+    plan: free
     runtime: node
     rootDir: server
     buildCommand: npm install --include=dev && npm run build
