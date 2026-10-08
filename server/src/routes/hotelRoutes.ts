@@ -151,6 +151,26 @@ hotelRoutes.post('/media-cache', hotelWebhookLimiter, async (req, res) => {
 
 const DEFAULT_NEAR_RADIUS_KM = 50;
 
+// Hotels are edited rarely (in the hotel app), so list/search share one 60s copy instead of
+// a Mongo round trip per request. The in-flight promise is cached so concurrent calls share it.
+const HOTEL_LIST_TTL_MS = 60_000;
+let hotelListCache: { at: number; hotels: ReturnType<typeof loadAllHotels> } | null = null;
+
+function loadAllHotels() {
+  return HotelModel.find().lean().exec();
+}
+
+function findAllHotels() {
+  if (!hotelListCache || Date.now() - hotelListCache.at > HOTEL_LIST_TTL_MS) {
+    const entry = { at: Date.now(), hotels: loadAllHotels() };
+    hotelListCache = entry;
+    entry.hotels.catch(() => {
+      if (hotelListCache === entry) hotelListCache = null; // don't keep serving a failed query
+    });
+  }
+  return hotelListCache.hotels;
+}
+
 function hotelHasCoordinates(hotel: { coordinates?: { latitude?: unknown; longitude?: unknown } }) {
   const lat = parseCoordinate(hotel.coordinates?.latitude);
   const lng = parseCoordinate(hotel.coordinates?.longitude);
@@ -161,9 +181,7 @@ function hotelHasCoordinates(hotel: { coordinates?: { latitude?: unknown; longit
 // Public endpoint — publicReadLimiter guards against data-scraping (OWASP A04)
 
 hotelRoutes.get('/', publicReadLimiter, async (_req, res) => {
-  console.log('[MongoDB Query] Collection: hotels, Query: {}');
-  const hotels = await HotelModel.find().lean();
-  console.log(`[MongoDB Results] Collection: hotels, Retrieved: ${hotels.length} documents`);
+  const hotels = await findAllHotels();
 
   const settingsRows = await Promise.all(
     hotels.map((hotel) => loadHotelSystemSettings(String((hotel as { _id: unknown })._id))),
@@ -208,7 +226,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   let searchAnchor: { latitude: number; longitude: number; label: string } | null = null;
 
   if (nearMode) {
-    const allHotels = await HotelModel.find().lean();
+    const allHotels = await findAllHotels();
     const nearby: Array<{ id: string; meters: number }> = [];
 
     for (const hotel of allHotels) {
@@ -246,7 +264,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   } else if (typeof destination === 'string' && destination.trim()) {
     const destStr = destination.trim();
     const geocodeParams = await geocodeLocation(destStr);
-    const allHotels = await HotelModel.find().lean();
+    const allHotels = await findAllHotels();
     const fuse = new Fuse(allHotels, {
       keys: ['name', 'location', 'city', 'neighborhood', 'landmarks'],
       threshold: 0.3,
