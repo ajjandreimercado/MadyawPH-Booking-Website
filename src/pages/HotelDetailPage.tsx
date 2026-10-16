@@ -1,6 +1,6 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { NO_PHOTO_SRC } from '../lib/hotelImage';
+import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
@@ -50,7 +50,7 @@ function ImageGallery({
             className="md:col-span-2 md:row-span-2 relative cursor-pointer group overflow-hidden h-56 sm:h-72 md:h-auto"
             onClick={() => setLightbox(true)}
           >
-            <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }} />
+            <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={showNoPhoto} />
             <div className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/10 transition-colors" />
             <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-brand-dark/80 backdrop-blur-sm text-white font-bold px-3.5 py-2 rounded-xl shadow-lg">
               <Star className="w-5 h-5 fill-brand-star text-brand-star" />
@@ -72,7 +72,7 @@ function ImageGallery({
           {/* Thumbnails — desktop/tablet only to avoid crushed mobile grid */}
           {images.slice(1, 5).map((img, i) => (
             <div key={i} className="relative cursor-pointer group overflow-hidden hidden md:block" onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
-              <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }} />
+              <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={showNoPhoto} />
               {i === 3 && images.length > 5 && (
                 <div className="absolute inset-0 bg-brand-dark/50 flex items-center justify-center">
                   <span className="text-brand-cream font-bold text-lg">+{images.length - 5}</span>
@@ -420,7 +420,7 @@ export default function HotelDetailPage() {
                     <div key={cat.id} className="border border-brand-primary/10 rounded-xl overflow-hidden">
                       <div className="flex flex-col md:flex-row">
                         <div className="md:w-48 h-40 md:h-auto shrink-0">
-                          <img src={cat.imageUrl || NO_PHOTO_SRC} alt={cat.name} className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }} />
+                          <img src={cat.imageUrl || NO_PHOTO_SRC} alt={cat.name} className="w-full h-full object-cover" onError={showNoPhoto} />
                         </div>
                         <div className="flex-1 p-5 flex flex-col md:flex-row justify-between gap-4">
                           <div className="flex-1">

@@ -6,7 +6,7 @@ import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
 import { peekCache, cacheKey } from '../lib/queryCache';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, fetchHotels, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
-import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC } from '../lib/hotelImage';
+import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import {
   pruneRecentlyViewed,
   readRecentlyViewed,
@@ -67,7 +67,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
           decoding="async"
           fetchPriority={priority ? 'high' : 'auto'}
           className="absolute inset-0 w-full h-full object-cover object-center"
-          onError={(e) => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }}
+          onError={showNoPhoto}
         />
         <div className="absolute top-3 right-3 bg-brand-cream/90 px-2 py-1 rounded-lg shadow-sm">
           <p className="text-xs font-bold text-brand-dark tabular-nums">
@@ -270,7 +270,7 @@ export default function HomePage() {
                   className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-colors"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
-                    <img src={item.imageUrl || NO_PHOTO_SRC} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }} />
+                    <img src={item.imageUrl || NO_PHOTO_SRC} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={showNoPhoto} />
                   </div>
                   <p className="font-serif font-bold text-lg text-brand-dark line-clamp-1">{item.name}</p>
                   <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mt-1.5 min-w-0">

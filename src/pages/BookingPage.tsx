@@ -9,7 +9,7 @@ import { validatePromoCode, validateMembershipId } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import { NO_PHOTO_SRC } from '../lib/hotelImage';
+import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
@@ -711,7 +711,7 @@ export default function BookingPage() {
               src={(property as any).imageUrl || property.image || NO_PHOTO_SRC}
               alt={roomLabel}
               className="w-full h-36 object-cover rounded-xl"
-              onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }}
+              onError={showNoPhoto}
             />
 
             <div className="space-y-1">

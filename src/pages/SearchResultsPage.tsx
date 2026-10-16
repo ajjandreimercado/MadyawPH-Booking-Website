@@ -7,7 +7,7 @@ import {
   Grid3X3, List, X, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
-import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC } from '../lib/hotelImage';
+import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import StarRating from '../components/ui/StarRating';
 import { HotelCardSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
@@ -82,7 +82,7 @@ function HotelCard({
           loading="lazy"
           decoding="async"
           className="w-full h-full object-cover"
-          onError={(e) => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }}
+          onError={showNoPhoto}
         />
         {displayImages.length > 1 && (
           <>

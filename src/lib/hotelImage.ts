@@ -20,6 +20,13 @@ export function formatHotelLocation(location?: string, city?: string): string {
 /** Shown when a hotel or room has no photo, or its photo fails to load. */
 export const NO_PHOTO_SRC = '/no-photo.svg';
 
+/** img onError: swap in the placeholder once (no retry loop if the placeholder itself fails). */
+export function showNoPhoto(event: { currentTarget: HTMLImageElement }) {
+  const img = event.currentTarget;
+  img.onerror = null;
+  if (!img.src.endsWith(NO_PHOTO_SRC)) img.src = NO_PHOTO_SRC;
+}
+
 /** Prefer a smaller variant for list/card thumbnails. */
 export function hotelCardImageSrc(url?: string): string | undefined {
   if (!url) return undefined;
