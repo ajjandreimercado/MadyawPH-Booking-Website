@@ -6,7 +6,7 @@ import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
 import { peekCache, cacheKey } from '../lib/queryCache';
 import { searchHotels, fetchDestinations, fetchFeaturedPromo, fetchHotels, type Destination, type FeaturedPromo, type SearchResultHotel } from '../services/api';
-import { formatHotelLocation, hotelCardImageSrc } from '../lib/hotelImage';
+import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC } from '../lib/hotelImage';
 import {
   pruneRecentlyViewed,
   readRecentlyViewed,
@@ -51,7 +51,7 @@ function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => 
 function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHotel; priority?: boolean }) {
   const navigate = useNavigate();
   const rawSrc = hotel.imageUrl || hotel.images?.[0];
-  const imgSrc = hotelCardImageSrc(rawSrc) ?? rawSrc;
+  const imgSrc = hotelCardImageSrc(rawSrc) ?? rawSrc ?? NO_PHOTO_SRC;
   const locationLabel = formatHotelLocation(hotel.location, hotel.city);
 
   return (
@@ -60,21 +60,15 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
       onClick={() => navigate(`/hotels/${hotel.id}`)}
     >
       <div className="relative aspect-[4/3] bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 overflow-hidden">
-        {imgSrc ? (
-          <img
-            src={imgSrc}
-            alt={hotel.name}
-            loading={priority ? 'eager' : 'lazy'}
-            decoding="async"
-            fetchPriority={priority ? 'high' : 'auto'}
-            className="absolute inset-0 w-full h-full object-cover object-center"
-            onError={(e) => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <MapPin className="w-12 h-12 text-brand-primary/30" />
-          </div>
-        )}
+        <img
+          src={imgSrc}
+          alt={hotel.name}
+          loading={priority ? 'eager' : 'lazy'}
+          decoding="async"
+          fetchPriority={priority ? 'high' : 'auto'}
+          className="absolute inset-0 w-full h-full object-cover object-center"
+          onError={(e) => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }}
+        />
         <div className="absolute top-3 right-3 bg-brand-cream/90 px-2 py-1 rounded-lg shadow-sm">
           <p className="text-xs font-bold text-brand-dark tabular-nums">
             <span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>
@@ -276,13 +270,7 @@ export default function HomePage() {
                   className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-colors"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
-                    {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }} />
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-brand-primary/20 to-brand-secondary/20 flex items-center justify-center">
-                        <MapPin className="w-8 h-8 text-brand-primary/40" />
-                      </div>
-                    )}
+                    <img src={item.imageUrl || NO_PHOTO_SRC} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }} />
                   </div>
                   <p className="font-serif font-bold text-lg text-brand-dark line-clamp-1">{item.name}</p>
                   <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mt-1.5 min-w-0">

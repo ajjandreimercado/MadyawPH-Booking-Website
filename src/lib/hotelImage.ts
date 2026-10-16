@@ -17,6 +17,9 @@ export function formatHotelLocation(location?: string, city?: string): string {
   return `${trimmed.slice(0, 49)}…`;
 }
 
+/** Shown when a hotel or room has no photo, or its photo fails to load. */
+export const NO_PHOTO_SRC = '/no-photo.svg';
+
 /** Prefer a smaller variant for list/card thumbnails. */
 export function hotelCardImageSrc(url?: string): string | undefined {
   if (!url) return undefined;
