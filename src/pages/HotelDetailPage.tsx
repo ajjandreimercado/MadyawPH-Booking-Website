@@ -209,7 +209,7 @@ export default function HotelDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
   const [bookCheckIn, setBookCheckIn] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [bookCheckOut, setBookCheckOut] = useState(format(addDays(new Date(), 3), 'yyyy-MM-dd'));
+  const [bookCheckOut, setBookCheckOut] = useState(format(addDays(new Date(), 2), 'yyyy-MM-dd'));
   const [bookGuests, setBookGuests] = useState(2);
 
   // Collect all images across room categories
