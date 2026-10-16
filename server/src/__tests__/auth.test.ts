@@ -188,8 +188,13 @@ describe('POST /api/auth/logout', () => {
 });
 
 describe('GET /api/auth/me', () => {
-  it('returns 401 without an auth cookie', async () => {
+  it('returns 204 (no one signed in) without an auth cookie', async () => {
     const res = await request(app).get('/api/auth/me');
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 401 for an invalid auth cookie', async () => {
+    const res = await request(app).get('/api/auth/me').set('Cookie', 'madyaw_token=not-a-real-token');
     expect(res.status).toBe(401);
   });
 });

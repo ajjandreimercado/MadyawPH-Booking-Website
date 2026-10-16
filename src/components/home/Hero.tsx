@@ -176,7 +176,7 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
             </span>
           </h1>
           <p className="text-sm sm:text-lg md:text-xl text-brand-cream font-sans font-medium max-w-2xl mx-auto px-1 leading-relaxed [text-shadow:0_1px_12px_rgba(0,0,0,0.45)]">
-            Hand-picked resorts, villas, and hotels across the Philippines and beyond.
+            Hand-picked hotels you can book directly — request your stay online and pay once the hotel confirms.
           </p>
         </div>
 
@@ -280,8 +280,8 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
 
         {/* Trust indicators — in-flow below search, never under the card */}
         <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-x-6 gap-y-2 text-brand-cream/80 text-xs font-bold px-2 text-center">
-          <span>✓ Free cancellation available</span>
-          <span>✓ Best price guarantee</span>
+          <span>✓ No payment until the hotel confirms</span>
+          <span>✓ Book directly with the hotel</span>
           <span>✓ No booking fees</span>
         </div>
 

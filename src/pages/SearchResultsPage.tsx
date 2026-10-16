@@ -62,6 +62,12 @@ function HotelCard({
   onSelect: (hotel: SearchResultHotel) => void;
 }) {
   const [imgIndex, setImgIndex] = useState(0);
+  const [searchParams] = useSearchParams();
+  // Carry the searched dates to the hotel page so its availability matches.
+  const stayQuery = new URLSearchParams(
+    [['checkIn', searchParams.get('checkIn')], ['checkOut', searchParams.get('checkOut')]]
+      .filter((pair): pair is [string, string] => Boolean(pair[1])),
+  ).toString();
   const images = [
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
     ...(hotel.images || [])
@@ -162,7 +168,7 @@ function HotelCard({
           </div>
           <button
             type="button"
-            onClick={() => navigate(`/hotels/${hotel.id}`)}
+            onClick={() => navigate(`/hotels/${hotel.id}${stayQuery ? `?${stayQuery}` : ''}`)}
             disabled={hotel.availableRooms === 0}
             className="btn-primary text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -403,6 +409,8 @@ export default function SearchResultsPage() {
       rating: Number(searchParams.get('rating')) || undefined,
       freeCancellation: searchParams.get('freeCancellation') === 'true' || undefined,
       breakfastIncluded: searchParams.get('breakfastIncluded') === 'true' || undefined,
+      checkIn: checkIn || undefined,
+      checkOut: checkOut || undefined,
       sort: nearMe ? 'distance' : ((searchParams.get('sort') as SearchParams['sort']) ?? 'recommended'),
       page,
       limit: 12,

@@ -289,9 +289,10 @@ export async function logoutUser() {
   }
 }
 
+/** The signed-in user, or null when no one is signed in (API answers 204). */
 export async function getCurrentUser() {
   const response = await api.get<ApiAuthSession['user']>('/auth/me');
-  return response.data;
+  return response.status === 204 ? null : response.data;
 }
 
 export async function createBookingRequest(payload: BookingCreatePayload) {
@@ -423,11 +424,15 @@ export async function fetchHotelById(hotelId: string, options?: { force?: boolea
   );
 }
 
-export async function fetchHotelDetailById(hotelId: string): Promise<HotelDetailResponse> {
+/** With a stay, room availability is for those dates; without, today's room status. */
+export async function fetchHotelDetailById(
+  hotelId: string,
+  stay?: { checkIn: string; checkOut: string },
+): Promise<HotelDetailResponse> {
   return cachedQuery(
-    cacheKey(['hotel-detail', hotelId]),
+    cacheKey(['hotel-detail', hotelId, stay ?? null]),
     async () => {
-      const response = await api.get<HotelDetailResponse>(`/hotels/${encodeURIComponent(hotelId)}/detail`);
+      const response = await api.get<HotelDetailResponse>(`/hotels/${encodeURIComponent(hotelId)}/detail`, { params: stay });
       return {
         hotel: normalizeHotel(response.data.hotel),
         categories: response.data.categories.map((category) => ({
@@ -514,6 +519,9 @@ export interface SearchParams {
   rating?: number;
   freeCancellation?: boolean;
   breakfastIncluded?: boolean;
+  /** yyyy-MM-dd; with both, "rooms left" is for these dates. */
+  checkIn?: string;
+  checkOut?: string;
   sort?: 'recommended' | 'price' | 'rating' | 'popular' | 'distance';
   page?: number;
   limit?: number;
@@ -689,7 +697,7 @@ export async function fetchFeaturedPromo(): Promise<FeaturedPromo | null> {
     async () => {
       try {
         const response = await api.get<FeaturedPromo>('/promo-codes/featured');
-        return response.data;
+        return response.status === 204 ? null : response.data;
       } catch (error) {
         if (isAxiosError(error) && error.response?.status === 404) {
           return null;

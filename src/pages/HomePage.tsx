@@ -26,7 +26,7 @@ function getDestinationImage(name: string) {
 
 interface RecentlyViewedItem extends RecentlyViewedHotel {}
 
-function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
+export function DestinationCard({ dest, onClick }: { dest: Destination; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -288,9 +288,9 @@ export default function HomePage() {
         {/* Trust Indicators */}
         <section className="fluid-card-grid">
           {[
-            { icon: <ShieldCheck className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your data is protected with bank-grade encryption.' },
-            { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Multiple Payment Options', desc: 'GCash, Maya, credit/debit cards, and bank transfer.' },
-            { icon: <MessageSquareQuote className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'All reviews are from verified, completed stays.' },
+            { icon: <ShieldCheck className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your details travel over an encrypted (HTTPS) connection and go only to the hotel you book.' },
+            { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Pay with E-Wallets', desc: 'Pay by scanning the hotel’s GCash or Maya QR once your stay is confirmed.' },
+            { icon: <MessageSquareQuote className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'Only guests who completed a stay can leave a review — one per stay.' },
           ].map(item => (
             <div key={item.title} className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-8 flex flex-col items-start hover:shadow-luxury-hover transition-shadow">
               <div className="mb-5 p-3 rounded-2xl bg-brand-primary/8 text-brand-primary">

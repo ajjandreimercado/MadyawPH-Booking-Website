@@ -1,5 +1,5 @@
 import { useEffect, useState, useTransition } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
@@ -195,8 +195,15 @@ export default function HotelDetailPage() {
   const { showToast } = useToast();
   const [, startTransition] = useTransition();
 
+  const [searchParams] = useSearchParams();
+  const urlCheckIn = searchParams.get('checkIn');
+  const urlCheckOut = searchParams.get('checkOut');
+  const urlStayValid = Boolean(urlCheckIn && urlCheckOut && /^\d{4}-\d{2}-\d{2}$/.test(urlCheckIn) && urlCheckOut > urlCheckIn);
+  const [bookCheckIn, setBookCheckIn] = useState(urlStayValid ? urlCheckIn! : format(addDays(new Date(), 1), 'yyyy-MM-dd'));
+  const [bookCheckOut, setBookCheckOut] = useState(urlStayValid ? urlCheckOut! : format(addDays(new Date(), 2), 'yyyy-MM-dd'));
+  const stay = { checkIn: bookCheckIn, checkOut: bookCheckOut };
   const cachedDetail = hotelId
-    ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId]))
+    ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId, stay]))
     : undefined;
   const cachedReviews = hotelId
     ? peekCache<{ data: Review[]; total: number; totalPages: number }>(cacheKey(['reviews', { hotelId }]))
@@ -208,8 +215,6 @@ export default function HotelDetailPage() {
   const [isLoading, setIsLoading] = useState(!cachedDetail);
   const [error, setError] = useState<string | null>(null);
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
-  const [bookCheckIn, setBookCheckIn] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [bookCheckOut, setBookCheckOut] = useState(format(addDays(new Date(), 2), 'yyyy-MM-dd'));
   const [bookGuests, setBookGuests] = useState(2);
 
   // Collect all images across room categories
@@ -224,13 +229,14 @@ export default function HotelDetailPage() {
     if (!hotelId) return;
 
     const load = async () => {
-      if (!peekCache(cacheKey(['hotel-detail', hotelId]))) {
+      // Only the first load shows the full-page spinner; date changes refresh in place.
+      if (!peekCache(cacheKey(['hotel-detail', hotelId, stay])) && !hotel) {
         setIsLoading(true);
       }
       setError(null);
       try {
         const [hotelDetail, reviewData] = await Promise.all([
-          fetchHotelDetailById(hotelId),
+          fetchHotelDetailById(hotelId, stay),
           fetchReviews({ hotelId }).catch(() => ({ data: [], total: 0, totalPages: 0 })),
         ]);
         if (!isActive) return;
@@ -253,7 +259,7 @@ export default function HotelDetailPage() {
 
     void load();
     return () => { isActive = false; };
-  }, [hotelId]);
+  }, [hotelId, bookCheckIn, bookCheckOut]);
 
   const openDirections = async () => {
     if (!hotel) return;

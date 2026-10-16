@@ -21,6 +21,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
+import { findBookedRoomIds } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
@@ -47,7 +48,6 @@ const bookingRoutes = Router();
 type UserRole = 'guest' | 'partner' | 'admin' | 'staff' | 'super_admin';
 type BookingStatus = 'requested' | 'accepted' | 'declined' | 'paid' | 'confirmed' | 'pending' | 'cancelled';
 
-const ACTIVE_BOOKING_STATUSES = ['requested', 'accepted', 'paid', 'confirmed', 'pending', 'reserved', 'booked'] as const;
 
 // Allowlists — validated server-side, never taken verbatim from client input (OWASP A03)
 const ROOM_TYPE_VALUES = ['standard-room', 'deluxe-suite', 'family-suite', 'villa-retreat'] as const;
@@ -115,38 +115,14 @@ async function hasBookingOverlap(
   excludeBookingId?: string,
   session?: mongoose.ClientSession | null,
 ) {
-  console.log(`[MongoDB Query] Collection: bookings, Query: ${JSON.stringify({ propertyId, status: { $in: ACTIVE_BOOKING_STATUSES } })}`);
-  const query = BookingModel.find({
-    propertyId,
-    status: { $in: ACTIVE_BOOKING_STATUSES },
-  });
-  if (session) query.session(session);
-  const bookings = await query.lean();
-  console.log(`[MongoDB Results] Collection: bookings, Retrieved: ${bookings.length} documents`);
-
   const requestedStart = new Date(checkInDate);
   const requestedEnd = new Date(checkOutDate);
-
   if (Number.isNaN(requestedStart.getTime()) || Number.isNaN(requestedEnd.getTime())) {
     throw new Error('Invalid check-in or check-out date.');
   }
-
-  return bookings.some((booking) => {
-    if (excludeBookingId && String(booking._id) === excludeBookingId) {
-      return false;
-    }
-
-    const startRaw = booking.checkInDate ?? booking.check_in_date;
-    const endRaw = booking.checkOutDate ?? booking.check_out_date;
-    if (!startRaw || !endRaw) return false;
-
-    const existingStart = new Date(startRaw as string | Date);
-    const existingEnd = new Date(endRaw as string | Date);
-    if (Number.isNaN(existingStart.getTime()) || Number.isNaN(existingEnd.getTime())) {
-      return false;
-    }
-    return requestedStart < existingEnd && requestedEnd > existingStart;
-  });
+  // Checks website and hotel-app bookings (room_id), incl. checked-in guests.
+  const booked = await findBookedRoomIds([propertyId], requestedStart, requestedEnd, { excludeBookingId, session });
+  return booked.size > 0;
 }
 
 function isTransactionUnsupported(error: unknown) {

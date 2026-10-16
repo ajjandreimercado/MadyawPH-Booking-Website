@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import RootLayout from './components/layout/RootLayout';
 import HomePage from './pages/HomePage';
@@ -15,8 +15,6 @@ const HotelDetailPage = lazy(() => import('./pages/HotelDetailPage'));
 const BookingPage = lazy(() => import('./pages/BookingPage'));
 const BookingConfirmationPage = lazy(() => import('./pages/BookingConfirmationPage'));
 const DestinationsPage = lazy(() => import('./pages/DestinationsPage'));
-const ExperiencesPage = lazy(() => import('./pages/ExperiencesPage'));
-const ClubPage = lazy(() => import('./pages/ClubPage'));
 const BecomeMemberPage = lazy(() => import('./pages/BecomeMemberPage'));
 const HelpCenterPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.HelpCenterPage })));
 const CancellationPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.CancellationPage })));
@@ -60,8 +58,9 @@ export default function App() {
 
         <Route path="/search" element={<Suspense fallback={<PageLoader />}><SearchResultsPage /></Suspense>} />
         <Route path="/destinations" element={<Suspense fallback={<PageLoader />}><DestinationsPage /></Suspense>} />
-        <Route path="/experiences" element={<Suspense fallback={<PageLoader />}><ExperiencesPage /></Suspense>} />
-        <Route path="/club" element={<Suspense fallback={<PageLoader />}><ClubPage /></Suspense>} />
+        {/* Old placeholder pages: send any saved links somewhere useful. */}
+        <Route path="/experiences" element={<Navigate to="/search" replace />} />
+        <Route path="/club" element={<Navigate to="/become-a-member" replace />} />
         <Route path="/become-a-member" element={<Suspense fallback={<PageLoader />}><BecomeMemberPage /></Suspense>} />
         <Route path="/help" element={<Suspense fallback={<PageLoader />}><HelpCenterPage /></Suspense>} />
         <Route path="/cancellation" element={<Suspense fallback={<PageLoader />}><CancellationPage /></Suspense>} />

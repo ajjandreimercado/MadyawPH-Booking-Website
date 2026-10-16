@@ -43,7 +43,7 @@ export default function RootLayout() {
                 <span className="text-2xl font-display italic font-semibold tracking-tight text-brand-cream">Madyaw</span>
               </Link>
               <p className="text-sm leading-relaxed text-brand-cream/70">
-                Curating the finest coastal escapes and luxury sanctuaries across the Philippines. Your journey to exceptional hospitality begins here.
+                Book rooms directly with partner hotels in the Philippines. Request your stay online, and pay once the hotel confirms.
               </p>
             </div>
 
