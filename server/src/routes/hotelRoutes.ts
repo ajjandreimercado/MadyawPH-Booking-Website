@@ -718,6 +718,9 @@ hotelRoutes.get('/filters', publicReadLimiter, async (_req, res) => {
 // ─── GET /media ───────────────────────────────────────────────────────────────
 // Proxy hotel-app uploaded room/category images (tries multiple storage origins).
 
+const MEDIA_MISS_TTL_MS = 10 * 60_000;
+const mediaMisses = new Map<string, number>();
+
 hotelRoutes.get('/media', publicReadLimiter, async (req, res) => {
   const raw = typeof req.query.f === 'string' ? req.query.f.trim() : '';
   const storagePath = sanitizeStoragePath(raw);
@@ -739,11 +742,22 @@ hotelRoutes.get('/media', publicReadLimiter, async (req, res) => {
     return res.send(cached.body);
   }
 
-  const image = await fetchHotelPaymentQrImage(storagePath);
-  if (!image) {
+  // A missing file costs 2-3 s of failed fetches to the hotel app, so remember misses briefly.
+  const missedAt = mediaMisses.get(cacheKey);
+  if (missedAt && Date.now() - missedAt < MEDIA_MISS_TTL_MS) {
+    res.setHeader('Cache-Control', 'public, max-age=600');
     return res.status(404).json({ message: 'Image not found.' });
   }
 
+  const image = await fetchHotelPaymentQrImage(storagePath);
+  if (!image) {
+    if (mediaMisses.size > 1000) mediaMisses.clear(); // bound memory against junk paths
+    mediaMisses.set(cacheKey, Date.now());
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    return res.status(404).json({ message: 'Image not found.' });
+  }
+
+  mediaMisses.delete(cacheKey);
   setCachedMedia(cacheKey, image);
   res.setHeader('Content-Type', image.contentType);
   res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
@@ -770,23 +784,19 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
 
   console.log(`[MongoDB Query] Collection: roomcategories, Query: { hotel_id: ${hotelId} }`);
   console.log(`[MongoDB Query] Collection: rooms, Query: { hotel_id: ${hotelId} }`);
-  const [scopedCategories, scopedRooms] = await Promise.all([
+  const [scopedCategories, scopedRooms, systemSettings] = await Promise.all([
     RoomCategoryModel.find({ hotel_id: hotelId }).lean(),
     PropertyModel.find({ hotel_id: hotelId }).lean(),
+    loadHotelSystemSettings(hotelId),
   ]);
   console.log(`[MongoDB Results] Collection: roomcategories, Retrieved: ${scopedCategories.length} documents`);
   console.log(`[MongoDB Results] Collection: rooms, Retrieved: ${scopedRooms.length} documents`);
 
-  const systemSettings = await loadHotelSystemSettings(hotelId);
+  // The page only needs the paymentQrs proxy URLs; the inline base64 QR (~140 KB) went unused.
+  // Warm the QR cache in the background so the payment step stays fast.
   schedulePaymentQrWarm(hotelId, hotel, systemSettings);
-  const paymentQrDataUrl = await resolveDisplayablePaymentQr(
-    hotel,
-    systemSettings,
-    hotelId,
-  );
   const serializedHotel = serializeHotel(hotel as never, {
     systemSettings,
-    paymentQrDataUrl,
     fallbackImageUrl: scopedCategories.map((category) => resolveHotelImageUrlFromRecord(category)).find(Boolean),
   });
   const serializedCategories = scopedCategories.map((category) => serializeRoomCategory(category as never));
