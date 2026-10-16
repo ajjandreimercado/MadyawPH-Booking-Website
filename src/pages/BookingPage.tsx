@@ -15,7 +15,13 @@ import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } fr
 import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
-import { format, addDays } from 'date-fns';
+import { format, addDays, parseISO, isValid } from 'date-fns';
+
+/** yyyy-MM-dd → "Oct 18, 2026" (month-day-year); leaves unparseable input as-is. */
+function formatStayDate(value: string) {
+  const date = parseISO(value);
+  return isValid(date) ? format(date, 'MMM d, yyyy') : value;
+}
 
 // ── Nationality List ──────────────────────────────────────────────────────────
 const NATIONALITIES = [
@@ -66,7 +72,7 @@ export default function BookingPage() {
   const { showToast } = useToast();
 
   const urlCheckIn = searchParams.get('checkIn') ?? format(addDays(new Date(), 1), 'yyyy-MM-dd');
-  const urlCheckOut = searchParams.get('checkOut') ?? format(addDays(new Date(), 3), 'yyyy-MM-dd');
+  const urlCheckOut = searchParams.get('checkOut') ?? format(addDays(new Date(), 2), 'yyyy-MM-dd');
   const urlGuests = Number(searchParams.get('guests') ?? 2);
 
   const [property, setProperty] = useState<Property | null>(() =>
@@ -327,10 +333,10 @@ export default function BookingPage() {
           <p className="text-brand-dark/60 font-bold text-sm px-2 break-words">{roomLabel}</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 items-start">
+        <div className="max-w-3xl mx-auto">
 
           {/* ── Main Form ─────────────────────────────────────────────────── */}
-          <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-7 order-2 lg:order-none">
+          <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-7">
 
             {/* Section: Personal Info */}
             <section>
@@ -688,6 +694,81 @@ export default function BookingPage() {
               Your stay is submitted as a reservation request. The hotel will review it in their management system and contact you at the email you provide.
             </div>
 
+            {/* Booking Summary — review everything right before submitting */}
+            <section className="bg-brand-background/60 rounded-2xl border border-brand-primary/10 p-4 sm:p-6 space-y-4">
+              <h2 className="font-serif font-bold text-lg text-brand-dark">Booking Summary</h2>
+
+              <img
+                src={(property as any).imageUrl || property.image || NO_PHOTO_SRC}
+                alt={roomLabel}
+                className="w-full h-36 object-cover rounded-xl"
+                onError={showNoPhoto}
+              />
+
+              <div className="space-y-1">
+                <p className="font-serif font-bold text-brand-dark">
+                  {roomLabel}
+                </p>
+                {(property.hotelLocation || property.location) && (
+                  <p className="text-brand-dark/60 font-bold text-xs">
+                    {property.hotelLocation || property.location}
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-brand-primary/8 pt-3 space-y-2">
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Check-in</span>
+                  <span className="text-brand-dark">{formatStayDate(checkIn)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Check-out</span>
+                  <span className="text-brand-dark">{formatStayDate(checkOut)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Duration</span>
+                  <span className="text-brand-dark">{nights} night{nights !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Guests</span>
+                  <span className="text-brand-dark">{adults + children} guest{adults + children !== 1 ? 's' : ''}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-brand-primary/8 pt-3 space-y-2">
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-brand-dark/60">Room rate ({nights} night{nights !== 1 ? 's' : ''})</span>
+                  <span className="text-brand-dark">₱{roomRate.toLocaleString()}</span>
+                </div>
+                {effectiveDiscount > 0 && (
+                  <div className="flex justify-between text-sm font-bold text-brand-success">
+                    <span>{activeDiscountLabel || 'Discount'}</span>
+                    <span>−₱{effectiveDiscount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-serif font-bold text-lg border-t border-brand-primary/8 pt-3">
+                  <span className="text-brand-dark">Stay total</span>
+                  <span className="text-brand-dark">₱{total.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold pt-1">
+                  <span className="text-brand-primary">Full payment after confirm</span>
+                  <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
+                </div>
+                {balanceDue > 0 && (
+                  <div className="flex justify-between text-sm font-bold">
+                    <span className="text-brand-dark/60">Balance at hotel check-out</span>
+                    <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+              <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
+                <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
+                {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
+                Full stay payment due after hotel confirmation
+              </p>
+            </section>
+
             {/* Submit */}
             <button
               id="booking-submit"
@@ -703,80 +784,6 @@ export default function BookingPage() {
             </button>
           </div>
 
-          {/* ── Booking Summary Sidebar ────────────────────────────────────── */}
-          <aside className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-4 h-fit lg:sticky lg:top-24 order-1 lg:order-none">
-            <h3 className="font-serif font-bold text-lg text-brand-dark">Booking Summary</h3>
-
-            <img
-              src={(property as any).imageUrl || property.image || NO_PHOTO_SRC}
-              alt={roomLabel}
-              className="w-full h-36 object-cover rounded-xl"
-              onError={showNoPhoto}
-            />
-
-            <div className="space-y-1">
-              <p className="font-serif font-bold text-brand-dark">
-                {roomLabel}
-              </p>
-              {(property.hotelLocation || property.location) && (
-                <p className="text-brand-dark/60 font-bold text-xs">
-                  {property.hotelLocation || property.location}
-                </p>
-              )}
-            </div>
-
-            <div className="border-t border-brand-primary/8 pt-3 space-y-2">
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Check-in</span>
-                <span className="text-brand-dark">{checkIn}</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Check-out</span>
-                <span className="text-brand-dark">{checkOut}</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Duration</span>
-                <span className="text-brand-dark">{nights} night{nights !== 1 ? 's' : ''}</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Guests</span>
-                <span className="text-brand-dark">{adults + children} guest{adults + children !== 1 ? 's' : ''}</span>
-              </div>
-            </div>
-
-            <div className="border-t border-brand-primary/8 pt-3 space-y-2">
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-brand-dark/60">Room rate ({nights} nights)</span>
-                <span className="text-brand-dark">₱{roomRate.toLocaleString()}</span>
-              </div>
-              {effectiveDiscount > 0 && (
-                <div className="flex justify-between text-sm font-bold text-brand-success">
-                  <span>{activeDiscountLabel || 'Discount'}</span>
-                  <span>−₱{effectiveDiscount.toLocaleString()}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-serif font-bold text-lg border-t border-brand-primary/8 pt-3">
-                <span className="text-brand-dark">Stay total</span>
-                <span className="text-brand-dark">₱{total.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold pt-1">
-                <span className="text-brand-primary">Full payment after confirm</span>
-                <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
-              </div>
-              {balanceDue > 0 && (
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                  <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
-                </div>
-              )}
-            </div>
-
-            <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
-              <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
-              {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
-              Full stay payment due after hotel confirmation
-            </p>
-          </aside>
 
         </div>
       </div>
