@@ -8,6 +8,7 @@ import {
   queueGuestNotification,
   sendBookingConfirmationNotification,
   sendBookingDeclinedNotification,
+  sendBookingCancelledNotification,
 } from './notificationService';
 import { ensureWebsiteOnlinePaymentLedger } from '../utils/websiteBillingLedger';
 import {
@@ -147,7 +148,7 @@ async function writeLedgerAfterApproval(booking: {
 /**
  * Apply a hotel Online Bookings decision to the matching website booking.
  * Approval → status confirmed + confirmation email to guestEmail + billing ledger.
- * Rejection → status cancelled (no email).
+ * Rejection → declined (pending request, decline email) or cancelled (already confirmed, cancellation email).
  */
 export async function applyHotelBookingDecision(input: HotelDecisionInput): Promise<HotelDecisionResult> {
   const kind = normalizeHotelDecisionStatus(input.status);
@@ -252,7 +253,12 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       summary_only: coerceSummaryOnly(booking.summary_only),
   });
 
-  queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));
+  // Already-confirmed stays get a cancellation email; pending requests get the decline email.
+  if (nextStatus === 'cancelled') {
+    queueGuestNotification('cancellation', () => sendBookingCancelledNotification(booking));
+  } else {
+    queueGuestNotification('decline', () => sendBookingDeclinedNotification(booking));
+  }
 
   return {
     ok: true,
@@ -262,6 +268,6 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
     previousStatus,
     newStatus: nextStatus,
     emailSent: true,
-    message: `Booking marked ${nextStatus}; decline email queued for ${booking.guestEmail}.`,
+    message: `Booking marked ${nextStatus}; ${nextStatus === 'cancelled' ? 'cancellation' : 'decline'} email queued for ${booking.guestEmail}.`,
   };
 }

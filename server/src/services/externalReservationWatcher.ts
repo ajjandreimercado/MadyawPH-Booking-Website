@@ -8,10 +8,12 @@ import type { ChangeStream } from 'mongodb';
 import { BookingModel, ExternalReservationModel } from '../data/mongoModels';
 import { ONLINE_BOOKING_EXTERNAL_SOURCE } from '../utils/externalReservation';
 import { applyHotelBookingDecision } from './hotelBookingSync';
+import { sendBookingCancelledNotification } from './notificationService';
 import { finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { isExternalReservationWatcherEnabled } from '../config/env';
 
 let changeStream: ChangeStream | null = null;
+let bookingChangeStream: ChangeStream | null = null;
 let starting = false;
 
 function parseMetadataChannel(metadata: unknown): string {
@@ -98,11 +100,56 @@ async function handleExternalDoc(doc: {
   );
 }
 
+const CANCELLED_STATUSES = ['cancelled', 'canceled'];
+
+/**
+ * The hotel app may cancel a confirmed stay on the `bookings` record itself rather than
+ * through external_reservations. Email the guest when that happens to a website booking
+ * the hotel had confirmed. Guests can only cancel unconfirmed requests, so those never match.
+ */
+async function handleBookingCancelled(bookingId: unknown) {
+  const booking = await BookingModel.findById(bookingId).select('-valid_id_base64 -payment_proof_base64').lean();
+  if (!booking || !CANCELLED_STATUSES.includes(String(booking.status ?? '').toLowerCase())) return;
+  const wasConfirmed = Boolean(booking.confirmationSentAt) || (booking.confirmationSendStatus ?? 'none') !== 'none';
+  if (!wasConfirmed || !booking.guestEmail) return;
+  await sendBookingCancelledNotification(booking as never);
+}
+
+function startBookingCancellationWatcher() {
+  if (bookingChangeStream) return;
+  try {
+    bookingChangeStream = BookingModel.watch([
+      {
+        $match: {
+          operationType: 'update',
+          'updateDescription.updatedFields.status': { $in: CANCELLED_STATUSES },
+        },
+      },
+    ]);
+    bookingChangeStream.on('change', (change) => {
+      const id = (change as { documentKey?: { _id?: unknown } }).documentKey?._id;
+      if (id == null) return;
+      void handleBookingCancelled(id).catch((error) => {
+        console.error('[HotelSync] Failed to handle booking cancellation:', error);
+      });
+    });
+    bookingChangeStream.on('error', (error) => {
+      console.error('[HotelSync] Booking change stream error (will not crash process):', error);
+      bookingChangeStream = null;
+    });
+    console.log('[HotelSync] Watching bookings for hotel-side cancellations…');
+  } catch (error) {
+    bookingChangeStream = null;
+    console.error('[HotelSync] Could not watch bookings for cancellations:', error instanceof Error ? error.message : error);
+  }
+}
+
 export async function startExternalReservationWatcher(): Promise<void> {
   if (!isExternalReservationWatcherEnabled()) {
     console.log('[HotelSync] external_reservations change stream watcher is disabled.');
     return;
   }
+  startBookingCancellationWatcher();
   if (changeStream || starting) return;
   starting = true;
 
@@ -146,6 +193,10 @@ export async function startExternalReservationWatcher(): Promise<void> {
 }
 
 export async function stopExternalReservationWatcher(): Promise<void> {
+  if (bookingChangeStream) {
+    await bookingChangeStream.close().catch(() => undefined);
+    bookingChangeStream = null;
+  }
   if (!changeStream) return;
   try {
     await changeStream.close();

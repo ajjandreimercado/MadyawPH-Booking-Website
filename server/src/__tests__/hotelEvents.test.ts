@@ -64,6 +64,7 @@ jest.mock('../data/mongoModels', () => ({
 jest.mock('../services/notificationService', () => ({
   sendBookingConfirmationNotification: jest.fn().mockResolvedValue(true),
   sendBookingDeclinedNotification: jest.fn().mockResolvedValue(true),
+  sendBookingCancelledNotification: jest.fn().mockResolvedValue(true),
   sendBookingRequestReceivedNotification: jest.fn().mockResolvedValue(true),
   queueGuestNotification: jest.fn((_label: string, task: () => Promise<unknown>) => {
     void task();
@@ -75,6 +76,7 @@ import { BookingModel } from '../data/mongoModels';
 import {
   sendBookingConfirmationNotification,
   sendBookingDeclinedNotification,
+  sendBookingCancelledNotification,
 } from '../services/notificationService';
 import { applyHotelBookingDecision } from '../services/hotelBookingSync';
 import { normalizeHotelDecisionStatus } from '../utils/externalReservation';
@@ -82,6 +84,7 @@ import { normalizeHotelDecisionStatus } from '../utils/externalReservation';
 const MockBookingModel = BookingModel as jest.Mocked<typeof BookingModel>;
 const mockSend = sendBookingConfirmationNotification as jest.MockedFunction<typeof sendBookingConfirmationNotification>;
 const mockDeclineSend = sendBookingDeclinedNotification as jest.MockedFunction<typeof sendBookingDeclinedNotification>;
+const mockCancelSend = sendBookingCancelledNotification as jest.MockedFunction<typeof sendBookingCancelledNotification>;
 
 function mockFindBooking(booking: typeof mockBookingDoc) {
   const chain = { select: jest.fn().mockResolvedValue(booking) };
@@ -145,6 +148,22 @@ describe('applyHotelBookingDecision', () => {
     expect(booking.status).toBe('declined');
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockDeclineSend).toHaveBeenCalledWith(booking);
+    expect(mockCancelSend).not.toHaveBeenCalled();
+  });
+
+  it('cancels an already-confirmed booking and sends the cancellation email', async () => {
+    const booking = { ...mockBookingDoc, status: 'reserved' };
+    mockFindBooking(booking);
+
+    const result = await applyHotelBookingDecision({
+      bookingId: 'booking-001',
+      status: 'cancelled',
+    });
+
+    expect(result.kind).toBe('rejected');
+    expect(booking.status).toBe('cancelled');
+    expect(mockCancelSend).toHaveBeenCalledWith(booking);
+    expect(mockDeclineSend).not.toHaveBeenCalled();
   });
 });
 
