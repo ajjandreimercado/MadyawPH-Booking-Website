@@ -1,4 +1,5 @@
-import { BookingModel } from '../data/mongoModels';
+import mongoose from 'mongoose';
+import { BookingModel, HotelModel } from '../data/mongoModels';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
 import { signReceiptToken } from '../utils/receiptToken';
 import { computeOnlinePaymentDue, resolveOnlinePaymentModeFromBooking } from '../utils/halfPayment';
@@ -15,11 +16,13 @@ export interface BookingNotificationTarget {
   guest_phone?: string;
   checkInDate?: string;
   checkOutDate?: string;
+  nights?: number;
   totalPrice?: number;
   total_amount?: number;
   deposit_amount?: number;
   amount_paid?: number;
   amountPaid?: number;
+  payment_proof_amount_claimed?: number;
   payment_proof_stored?: boolean;
   payment_proof_filename?: string;
   payment_transaction_ref?: string;
@@ -65,6 +68,55 @@ function guestFirstName(booking: BookingNotificationTarget): string {
   return name.split(/\s+/)[0] || 'Guest';
 }
 
+/** yyyy-MM-dd → "Oct 18, 2026" (month-day-year); other input is returned unchanged. */
+export function formatStayDate(value: string | undefined, fallback: string): string {
+  const raw = String(value ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return value || fallback;
+  return new Date(`${raw}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+/** "1 night" / "3 nights" — website bookings are always by the night. */
+export function formatStayLength(booking: BookingNotificationTarget): string {
+  let nights = Number(booking.nights ?? 0);
+  if (!(nights > 0) && booking.checkInDate && booking.checkOutDate) {
+    nights = Math.round(
+      (Date.parse(String(booking.checkOutDate).slice(0, 10)) - Date.parse(String(booking.checkInDate).slice(0, 10)))
+      / 86_400_000,
+    );
+  }
+  if (!(nights > 0)) return '';
+  return `${nights} night${nights === 1 ? '' : 's'}`;
+}
+
+function peso(amount: number): string {
+  return `₱${Math.max(0, Math.round(amount)).toLocaleString('en-US')}`;
+}
+
+/** Emails go out in the hotel's name; Madyaw only appears when the hotel can't be found. */
+async function resolveHotelName(booking: BookingNotificationTarget): Promise<string> {
+  const hotelId = booking.hotel_id ? String(booking.hotel_id) : '';
+  if (hotelId && mongoose.isValidObjectId(hotelId)) {
+    try {
+      const hotel = await HotelModel.findById(hotelId).select('name').lean();
+      const name = String((hotel as { name?: unknown } | null)?.name ?? '').trim();
+      if (name) return name;
+    } catch (error) {
+      console.warn('[Notification] Hotel name lookup failed:', error instanceof Error ? error.message : error);
+    }
+  }
+  return 'Madyaw Bookings';
+}
+
+/** Keep the verified sending address from EMAIL_FROM, but show the hotel's name. */
+export function senderFor(hotelName: string): string {
+  const configured = getEmailFrom();
+  const address = configured.match(/<([^>]+)>/)?.[1] ?? configured;
+  const displayName = hotelName.replace(/["<>\r\n]/g, '').trim() || 'Madyaw Bookings';
+  return `${displayName} <${address}>`;
+}
+
 /** Link guests can use to start a new booking after a decline. */
 export function buildRebookUrl(booking: BookingNotificationTarget): string {
   const origin = frontendOrigin();
@@ -93,11 +145,11 @@ export function queueGuestNotification(label: string, task: () => Promise<unknow
   });
 }
 
-async function deliverEmail(to: string, subject: string, text: string): Promise<EmailSendResult> {
+async function deliverEmail(to: string, subject: string, text: string, from: string): Promise<EmailSendResult> {
   const apiKey = getResendApiKey();
   if (!apiKey) {
     console.log(`\n======================================================`);
-    console.log(`[NOTIFICATION CONSOLE FALLBACK] To: ${to}`);
+    console.log(`[NOTIFICATION CONSOLE FALLBACK] From: ${from} To: ${to}`);
     console.log(`Subject: ${subject}`);
     console.log(`Message:\n${text}`);
     console.log(`======================================================\n`);
@@ -111,7 +163,7 @@ async function deliverEmail(to: string, subject: string, text: string): Promise<
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: getEmailFrom(),
+      from,
       to: [to],
       subject,
       text,
@@ -162,30 +214,34 @@ export async function sendBookingRequestReceivedNotification(
   const email = String(booking.guestEmail ?? '').trim();
   if (!email) return false;
 
-  const propertyName = booking.propertyName || 'our hotel';
+  const hotelName = await resolveHotelName(booking);
+  const room = booking.propertyName ? ` (${booking.propertyName})` : '';
   const ref = booking.booking_reference || String(booking._id || '');
-  const checkIn = booking.checkInDate || 'your selected check-in date';
-  const checkOut = booking.checkOutDate || 'your selected check-out date';
+  const checkIn = formatStayDate(booking.checkInDate, 'your selected check-in date');
+  const checkOut = formatStayDate(booking.checkOutDate, 'your selected check-out date');
+  const stayLength = formatStayLength(booking);
+  const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
 
-  const subject = 'We received your reservation request';
+  const subject = `We received your reservation request — ${hotelName}`;
   const messageBody = [
     `Hi ${guestFirstName(booking)},`,
     '',
-    `Thank you for booking with Madyaw. We have received your reservation request for ${propertyName}.`,
+    `Thank you for booking with ${hotelName}. We have received your reservation request${room}.`,
     '',
     `Reference: ${ref}`,
     `Check-in: ${checkIn}`,
     `Check-out: ${checkOut}`,
+    ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
+    `Stay total: ${peso(stayTotal)}`,
+    `Amount paid: ${peso(0)} (no payment is needed until we confirm your reservation)`,
     '',
-    'The hotel is reviewing your request. You will receive another email when they confirm — then you can pay the full stay amount online.',
+    'We are reviewing your request. You will receive another email when it is confirmed — then you can pay the full stay amount online.',
     '',
-    'No payment is needed until the hotel confirms your reservation.',
-    '',
-    '— Madyaw Bookings',
+    `— ${hotelName}`,
   ].join('\n');
 
   try {
-    const result = await deliverEmail(email, subject, messageBody);
+    const result = await deliverEmail(email, subject, messageBody, senderFor(hotelName));
     if (!result.delivered) {
       await persistSendState(booking, {
         requestSendStatus: 'failed',
@@ -216,9 +272,11 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     return true;
   }
 
-  const propertyName = booking.propertyName || 'Our Hotel';
-  const checkInDate = booking.checkInDate || 'your check-in date';
-  const checkOutDate = booking.checkOutDate || 'your check-out date';
+  const hotelName = await resolveHotelName(booking);
+  const room = booking.propertyName ? ` (${booking.propertyName})` : '';
+  const checkInDate = formatStayDate(booking.checkInDate, 'your check-in date');
+  const checkOutDate = formatStayDate(booking.checkOutDate, 'your check-out date');
+  const stayLength = formatStayLength(booking);
   const ref = booking.booking_reference || String(booking._id || '');
   const guestContact = booking.guestEmail || booking.guest_phone || '';
   const payUrl = buildPayDepositUrl(booking);
@@ -237,6 +295,18 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
       && Boolean(booking.payment_transaction_ref)
     );
   const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
+  // Hotel-verified amount first, then what the guest declared with their proof.
+  const amountPaid = alreadyPaid
+    ? Number(booking.amount_paid ?? booking.amountPaid ?? 0) || Number(booking.payment_proof_amount_claimed ?? 0) || depositDue
+    : 0;
+  const stayLines = [
+    `Reference: ${ref}`,
+    `Check-in: ${checkInDate}`,
+    `Check-out: ${checkOutDate}`,
+    ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
+    `Stay total: ${peso(stayTotal)}`,
+    `Amount paid: ${peso(amountPaid)}`,
+  ];
 
   const subject = alreadyPaid
     ? 'Your reservation is confirmed'
@@ -247,31 +317,27 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     ? [
       `Hi ${guestFirstName(booking)},`,
       '',
-      `Great news — your reservation at ${propertyName} has been confirmed.`,
+      `Great news — your reservation at ${hotelName}${room} has been confirmed.`,
       '',
-      `Reference: ${ref}`,
-      `Check-in: ${checkInDate}`,
-      `Check-out: ${checkOutDate}`,
+      ...stayLines,
       '',
-      'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact the hotel directly.',
+      'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact us directly.',
       '',
-      '— Madyaw Bookings',
+      `— ${hotelName}`,
     ].join('\n')
     : [
       `Hi ${guestFirstName(booking)},`,
       '',
-      `Great news — your reservation at ${propertyName} has been confirmed.`,
+      `Great news — your reservation at ${hotelName}${room} has been confirmed.`,
       '',
-      `Reference: ${ref}`,
-      `Check-in: ${checkInDate}`,
-      `Check-out: ${checkOutDate}`,
+      ...stayLines,
       '',
-      `Please pay your ${depositLabel} of ₱${depositDue.toLocaleString()} to secure your stay:`,
+      `Please pay your ${depositLabel} of ${peso(depositDue)} to secure your stay:`,
       payUrl,
       '',
-      'This secure link opens the Madyaw website where you can scan the hotel QR and upload your payment proof. It works even if you closed the browser earlier.',
+      'This secure link opens our booking page where you can scan our payment QR and upload your payment proof. It works even if you closed the browser earlier.',
       '',
-      '— Madyaw Bookings',
+      `— ${hotelName}`,
     ].join('\n');
 
   try {
@@ -283,7 +349,7 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
       throw new Error('Guest email is required to send confirmation.');
     }
 
-    const result = await deliverEmail(booking.guestEmail, subject, messageBody);
+    const result = await deliverEmail(booking.guestEmail, subject, messageBody, senderFor(hotelName));
     const sentTimestamp = new Date();
 
     if (!result.delivered) {
@@ -326,7 +392,7 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
   const email = String(booking.guestEmail ?? '').trim();
   if (!email) return false;
 
-  const propertyName = booking.propertyName || 'the hotel';
+  const hotelName = await resolveHotelName(booking);
   const ref = booking.booking_reference || String(booking._id || '');
   const rebookUrl = buildRebookUrl(booking);
 
@@ -334,7 +400,7 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
   const messageBody = [
     `Hi ${guestFirstName(booking)},`,
     '',
-    `Thank you for your interest in ${propertyName}. Unfortunately, your reservation request could not be confirmed for the dates you selected.`,
+    `Thank you for your interest in ${hotelName}. Unfortunately, your reservation request could not be confirmed for the dates you selected.`,
     '',
     `Reference: ${ref}`,
     '',
@@ -343,11 +409,11 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
     '',
     'We hope to welcome you on another stay.',
     '',
-    '— Madyaw Bookings',
+    `— ${hotelName}`,
   ].join('\n');
 
   try {
-    const result = await deliverEmail(email, subject, messageBody);
+    const result = await deliverEmail(email, subject, messageBody, senderFor(hotelName));
     if (!result.delivered) {
       await persistSendState(booking, { declineSendStatus: 'failed' });
       console.warn(`[Notification] Decline email not delivered: ${result.error}`);
