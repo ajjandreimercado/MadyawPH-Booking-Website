@@ -9,6 +9,7 @@ import { validatePromoCode, validateMembershipId } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
+import { NO_PHOTO_SRC } from '../lib/hotelImage';
 import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
 import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
@@ -706,14 +707,12 @@ export default function BookingPage() {
           <aside className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-4 h-fit lg:sticky lg:top-24 order-1 lg:order-none">
             <h3 className="font-serif font-bold text-lg text-brand-dark">Booking Summary</h3>
 
-            {((property as any).imageUrl ?? property.image) && (
-              <img
-                src={(property as any).imageUrl ?? property.image}
-                alt={roomLabel}
-                className="w-full h-36 object-cover rounded-xl"
-                onError={e => { (e.target as HTMLImageElement).src = '/hero/slide-1.png'; }}
-              />
-            )}
+            <img
+              src={(property as any).imageUrl || property.image || NO_PHOTO_SRC}
+              alt={roomLabel}
+              className="w-full h-36 object-cover rounded-xl"
+              onError={e => { (e.target as HTMLImageElement).src = NO_PHOTO_SRC; }}
+            />
 
             <div className="space-y-1">
               <p className="font-serif font-bold text-brand-dark">
