@@ -68,7 +68,7 @@ export function serializeProperty(property: AnyDocument) {
 
 export function serializeHotel(
   hotel: AnyDocument,
-  extras?: { systemSettings?: unknown; paymentQrDataUrl?: string },
+  extras?: { systemSettings?: unknown; paymentQrDataUrl?: string; fallbackImageUrl?: string },
 ) {
   const coordinates = hotel.coordinates as { latitude?: unknown; longitude?: unknown } | undefined;
   const latitude = typeof coordinates?.latitude === 'number' ? coordinates.latitude : Number(coordinates?.latitude);
@@ -91,7 +91,8 @@ export function serializeHotel(
     location: hotel.location,
     city: hotel.city ? String(hotel.city) : undefined,
     contactNumber: hotel.contact_number,
-    imageUrl: resolveHotelImageUrlFromRecord(hotel),
+    // Hotel app has no hotel photo field yet, so callers pass the first room photo.
+    imageUrl: resolveHotelImageUrlFromRecord(hotel) ?? extras?.fallbackImageUrl,
     latitude: hasCoords ? latitude : undefined,
     longitude: hasCoords ? longitude : undefined,
     onlinePaymentMode,

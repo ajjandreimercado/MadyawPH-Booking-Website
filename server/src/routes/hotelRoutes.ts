@@ -177,19 +177,35 @@ function hotelHasCoordinates(hotel: { coordinates?: { latitude?: unknown; longit
   return lat != null && lng != null ? { latitude: lat, longitude: lng } : null;
 }
 
+/** First room-category photo per hotel, shown as the hotel's photo (the hotel app stores none). */
+async function firstCategoryImageByHotel(hotelIds: string[]): Promise<Map<string, string>> {
+  const categories = await RoomCategoryModel.find({ hotel_id: { $in: hotelIds } }).lean();
+  const images = new Map<string, string>();
+  for (const category of categories) {
+    const hid = String(category.hotel_id ?? '');
+    if (images.has(hid)) continue;
+    const url = resolveHotelImageUrlFromRecord(category);
+    if (url) images.set(hid, url);
+  }
+  return images;
+}
+
 // ─── GET / ────────────────────────────────────────────────────────────────────
 // Public endpoint — publicReadLimiter guards against data-scraping (OWASP A04)
 
 hotelRoutes.get('/', publicReadLimiter, async (_req, res) => {
   const hotels = await findAllHotels();
+  const hotelIds = hotels.map((hotel) => String((hotel as { _id: unknown })._id));
 
-  const settingsRows = await Promise.all(
-    hotels.map((hotel) => loadHotelSystemSettings(String((hotel as { _id: unknown })._id))),
-  );
+  const [settingsRows, coverImages] = await Promise.all([
+    Promise.all(hotelIds.map((id) => loadHotelSystemSettings(id))),
+    firstCategoryImageByHotel(hotelIds),
+  ]);
 
   return res.json(
     hotels.map((hotel, index) => serializeHotel(hotel as never, {
       systemSettings: settingsRows[index] ?? undefined,
+      fallbackImageUrl: coverImages.get(hotelIds[index]),
     })),
   );
 });
@@ -454,9 +470,10 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   }
 
   const hotelIds = Array.from(hotelStatsMap.keys());
-  const [hotels, allReviews] = await Promise.all([
+  const [hotels, allReviews, coverImages] = await Promise.all([
     HotelModel.find({ _id: { $in: hotelIds } }).lean(),
     ReviewModel.find({ hotel_id: { $in: hotelIds } }).lean(),
+    firstCategoryImageByHotel(hotelIds),
   ]);
 
   const ratingMap = new Map<string, { sum: number; count: number }>();
@@ -490,7 +507,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     }
 
     return {
-      ...serializeHotel(hotel as never),
+      ...serializeHotel(hotel as never, { fallbackImageUrl: coverImages.get(hid) }),
       minPrice: stats.minPrice === Infinity ? 0 : stats.minPrice,
       availableRooms: stats.availableRooms,
       totalRooms: stats.totalRooms,
@@ -770,6 +787,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   const serializedHotel = serializeHotel(hotel as never, {
     systemSettings,
     paymentQrDataUrl,
+    fallbackImageUrl: scopedCategories.map((category) => resolveHotelImageUrlFromRecord(category)).find(Boolean),
   });
   const serializedCategories = scopedCategories.map((category) => serializeRoomCategory(category as never));
   const serializedRooms = scopedRooms.map((room) => serializeProperty(room as never));

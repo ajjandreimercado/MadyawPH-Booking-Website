@@ -45,10 +45,15 @@ export function readRecentlyViewed(): RecentlyViewedHotel[] {
   return readRaw();
 }
 
-/** Keep only hotels that still exist on the live API (drops old Gloreto / Datest IDs). */
-export function pruneRecentlyViewed(validHotelIds: Iterable<string>): RecentlyViewedHotel[] {
-  const allow = new Set([...validHotelIds].map(String));
-  const next = readRaw().filter((item) => allow.has(item.id));
+/**
+ * Keep only hotels that still exist on the live API (drops old Gloreto / Datest IDs)
+ * and refresh each saved photo from the live list.
+ */
+export function pruneRecentlyViewed(liveHotels: Array<{ id: string; imageUrl?: string }>): RecentlyViewedHotel[] {
+  const live = new Map(liveHotels.map((hotel) => [String(hotel.id), hotel]));
+  const next = readRaw()
+    .filter((item) => live.has(item.id))
+    .map((item) => ({ ...item, imageUrl: live.get(item.id)?.imageUrl || item.imageUrl }));
   writeRaw(next);
   return next;
 }

@@ -165,7 +165,7 @@ export default function HomePage() {
     void fetchHotels()
       .then((list) => {
         if (cancelled) return;
-        setRecentlyViewed(pruneRecentlyViewed(list.map((h) => h.id)));
+        setRecentlyViewed(pruneRecentlyViewed(list));
       })
       .catch(() => {
         // Keep cached history if the hotels list request fails.
