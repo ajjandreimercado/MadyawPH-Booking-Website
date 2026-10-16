@@ -381,6 +381,66 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
 }
 
 /**
+ * Email the guest when the hotel cancels a reservation it had already confirmed.
+ * Safe to call from several sync paths: the first caller claims the send atomically.
+ */
+export async function sendBookingCancelledNotification(booking: BookingNotificationTarget): Promise<boolean> {
+  const email = String(booking.guestEmail ?? '').trim();
+  if (!email || booking._id == null) return false;
+
+  const claim = await BookingModel.updateOne(
+    { _id: booking._id, cancelSendStatus: { $nin: ['sending', 'sent'] } },
+    { $set: { cancelSendStatus: 'sending' } },
+  );
+  if (claim.modifiedCount !== 1) return true; // already sent or being sent
+
+  const hotelName = await resolveHotelName(booking);
+  const room = booking.propertyName ? ` (${booking.propertyName})` : '';
+  const ref = booking.booking_reference || String(booking._id || '');
+  const stayLength = formatStayLength(booking);
+  const amountPaid = Number(booking.amount_paid ?? booking.amountPaid ?? 0);
+
+  const subject = `Your reservation at ${hotelName} has been cancelled`;
+  const messageBody = [
+    `Hi ${guestFirstName(booking)},`,
+    '',
+    `We're sorry — your reservation at ${hotelName}${room} has been cancelled.`,
+    '',
+    `Reference: ${ref}`,
+    `Check-in: ${formatStayDate(booking.checkInDate, 'your check-in date')}`,
+    `Check-out: ${formatStayDate(booking.checkOutDate, 'your check-out date')}`,
+    ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
+    `Stay total: ${peso(Number(booking.totalPrice ?? booking.total_amount ?? 0))}`,
+    `Amount paid: ${peso(amountPaid)}`,
+    '',
+    ...(amountPaid > 0 || booking.payment_proof_stored || booking.payment_proof_filename
+      ? ['If you already made a payment, please reply to this email or contact us directly about it.', '']
+      : []),
+    'You can choose new dates and book again here:',
+    buildRebookUrl(booking),
+    '',
+    `— ${hotelName}`,
+  ].join('\n');
+
+  try {
+    const result = await deliverEmail(email, subject, messageBody, senderFor(hotelName));
+    if (!result.delivered) {
+      await persistSendState(booking, { cancelSendStatus: 'failed' });
+      console.warn(`[Notification] Cancellation email not delivered: ${result.error}`);
+      return false;
+    }
+    await persistSendState(booking, { cancelSendStatus: 'sent', cancelSentAt: new Date() });
+    console.log(`[Notification] Cancellation email sent to ${email}`);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown delivery failure';
+    console.error(`[Notification] Cancellation email failed: ${message}`);
+    await persistSendState(booking, { cancelSendStatus: 'failed' });
+    return false;
+  }
+}
+
+/**
  * Email the guest when the hotel declines / cannot accommodate the request.
  * Includes a link to book again at the same hotel.
  */

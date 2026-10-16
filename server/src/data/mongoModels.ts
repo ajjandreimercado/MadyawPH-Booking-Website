@@ -203,6 +203,9 @@ const bookingSchema = new Schema(
     requestSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
     declineSentAt: { type: Date, default: null },
     declineSendStatus: { type: String, enum: ['none', 'sent', 'failed'], default: 'none' },
+    // 'sending' is an atomic claim so two sync paths can't email the same cancellation twice.
+    cancelSentAt: { type: Date, default: null },
+    cancelSendStatus: { type: String, enum: ['none', 'sending', 'sent', 'failed'], default: 'none' },
   },
   schemaOptions,
 );
