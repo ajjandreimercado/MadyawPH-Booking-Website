@@ -78,16 +78,16 @@ export function CancellationPage() {
       intro="Cancellation rules depend on each hotel’s policy. Madyaw submits your request; the hotel manages accept, decline, and cancellation in their app."
       sections={[
         {
-          heading: 'Before the hotel accepts',
-          body: 'If your request is still pending, contact the hotel as soon as possible using the details on their listing so they can cancel or ignore the request.',
+          heading: 'Before the hotel confirms',
+          body: 'Nothing has been paid yet. If you no longer need the room, contact the hotel using the details on their listing so they can decline the request. Requests the hotel has not reviewed within 48 hours stop holding the room.',
         },
         {
-          heading: 'After acceptance',
-          body: 'Once the hotel accepts, their cancellation and refund rules apply (including any free-cancellation window shown on the listing). Reach out to the hotel for changes.',
+          heading: 'After the hotel confirms',
+          body: 'You pay the full stay amount online by scanning the hotel’s GCash or Maya QR and uploading your payment proof. From then on, the hotel’s own cancellation and refund rules apply — contact the hotel directly for changes or refunds.',
         },
         {
-          heading: 'Deposits',
-          body: 'Any deposit or balance handling after acceptance is managed by the hotel at check-in / check-out.',
+          heading: 'If the hotel cancels',
+          body: 'You will get an email from the hotel. If you already paid, reply to that email or call the hotel about your payment.',
         },
       ]}
     />

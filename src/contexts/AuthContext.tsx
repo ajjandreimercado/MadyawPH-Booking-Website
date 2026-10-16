@@ -98,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyToken = async () => {
     try {
       const currentUser = await getCurrentUser();
-      setUser(normalizeUser(currentUser));
-      return true;
+      setUser(currentUser ? normalizeUser(currentUser) : null);
+      return Boolean(currentUser);
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
         setUser(null);

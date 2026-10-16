@@ -374,7 +374,13 @@ authRoutes.post('/logout', requireAuth, (_req, res) => {
 });
 
 // ─── GET /me ───────────────────────────────────────────────────────────────────
-authRoutes.get('/me', requireAuth, async (req, res) => {
+// No session at all is the normal guest case, so answer 204 instead of a 401 console error.
+// A present-but-invalid token still gets 401 from requireAuth.
+authRoutes.get('/me', (req, res, next) => {
+  const hasToken = Boolean(req.cookies?.madyaw_token) || req.header('authorization')?.startsWith('Bearer ');
+  if (!hasToken) return res.status(204).end();
+  return next();
+}, requireAuth, async (req, res) => {
   if (!req.auth) {
     return res.status(401).json({ message: 'Unauthorized.' });
   }

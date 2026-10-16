@@ -31,6 +31,7 @@ import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
+import { findBookedRoomIds, isRoomBookable, parseStayQuery } from '../utils/roomAvailability';
 import {
   buildAmenityRoomClause,
   collectAmenityValues,
@@ -434,6 +435,12 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
 
   const rooms = await PropertyModel.find(roomFilter).lean();
 
+  // With ?checkIn&checkOut, "rooms left" is for those dates; without, today's room status.
+  const stay = parseStayQuery(req.query.checkIn, req.query.checkOut);
+  const bookedIds = stay
+    ? await findBookedRoomIds(rooms.map((room) => String(room._id)), stay.start, stay.end)
+    : new Set<string>();
+
   const hotelStatsMap = new Map<string, {
     minPrice: number; availableRooms: number; totalRooms: number;
     images: string[]; types: Set<string>;
@@ -446,7 +453,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
       minPrice: Infinity, availableRooms: 0, totalRooms: 0, images: [], types: new Set(),
     };
     existing.totalRooms += 1;
-    if (room.status === 'available') existing.availableRooms += 1;
+    if (stay ? isRoomBookable(room, bookedIds, stay.start) : room.status === 'available') existing.availableRooms += 1;
     const price = Number(room.price_per_night ?? 0);
     if (price > 0 && price < existing.minPrice) existing.minPrice = price;
     if (room.image_url && existing.images.length < 3) {
@@ -802,6 +809,15 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   const serializedCategories = scopedCategories.map((category) => serializeRoomCategory(category as never));
   const serializedRooms = scopedRooms.map((room) => serializeProperty(room as never));
 
+  // With ?checkIn&checkOut, availability is for those dates; without, today's room status.
+  const stay = parseStayQuery(req.query.checkIn, req.query.checkOut);
+  const bookedIds = stay
+    ? await findBookedRoomIds(serializedRooms.map((room) => room.id), stay.start, stay.end)
+    : new Set<string>();
+  const roomIsFree = (room: (typeof serializedRooms)[number]) => (stay
+    ? isRoomBookable({ _id: room.id, status: room.roomStatus }, bookedIds, stay.start)
+    : room.roomStatus === 'available');
+
   const categoryStats = new Map<string, { totalRooms: number; availableRooms: number }>();
   const firstRoomByCategory = new Map<string, string>();
   const firstAvailableRoomByCategory = new Map<string, string>();
@@ -820,7 +836,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
       firstRoomByCategory.set(room.categoryId, room.id);
     }
 
-    if (room.roomStatus === 'available') {
+    if (roomIsFree(room)) {
       current.availableRooms += 1;
       if (!firstAvailableRoomByCategory.has(room.categoryId)) {
         firstAvailableRoomByCategory.set(room.categoryId, room.id);
@@ -840,7 +856,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
       firstAvailableRoomId: firstAvailableRoomByCategory.get(category.id) ?? null,
       fallbackRoomId: firstRoomByCategory.get(category.id) ?? null,
     };
-  });
+  }).filter((category) => category.totalRooms > 0); // room types with no rooms can't be booked
 
   const totals = categoriesWithAvailability.reduce(
     (accumulator, category) => {

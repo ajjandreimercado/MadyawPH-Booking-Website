@@ -375,7 +375,7 @@ export default function BookingPage() {
                     <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
                       {isGoogleVerifiedEmail
                         ? 'Using your Google-verified email — confirmation will be sent here when the hotel approves your stay.'
-                        : 'Confirmation is sent to this email when the hotel approves your reservation for check-in. Sign in with Google to use a verified address.'}
+                        : 'Confirmation is sent to this email when the hotel approves your reservation for check-in. Please double-check it.'}
                     </p>
                   </div>
                   <div>

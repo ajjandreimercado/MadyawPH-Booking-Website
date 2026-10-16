@@ -8,7 +8,6 @@ import {
 import { fetchBookingById, fetchHotelById, uploadBookingPaymentProof } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
 import type { BookingRequest, Hotel } from '../types';
-import { downloadReceiptPdf } from '../lib/receiptPdf';
 import {
   availableWalletMethods,
   paymentQrProxyUrl,
@@ -178,6 +177,8 @@ export default function BookingConfirmationPage() {
     if (!booking || isDownloading) return;
     setIsDownloading(true);
     try {
+      // The PDF library is ~400 KB, so it only loads when a guest asks for a receipt.
+      const { downloadReceiptPdf } = await import('../lib/receiptPdf');
       await downloadReceiptPdf(booking);
     } finally {
       setIsDownloading(false);

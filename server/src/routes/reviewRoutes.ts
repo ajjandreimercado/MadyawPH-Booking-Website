@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { ReviewModel, PropertyModel } from '../data/mongoModels';
+import { ReviewModel, PropertyModel, BookingModel } from '../data/mongoModels';
+import { bookingStayRange } from '../utils/roomAvailability';
 import { requireAuth } from '../middleware/auth';
 import { serializeReview } from '../utils/serialize';
 // OWASP A03/A04: centralised limiters (no inline definition) + input validators
@@ -7,6 +8,18 @@ import { publicReadLimiter, reviewSubmitLimiter } from '../middleware/rateLimite
 import { validateId, validateInteger, validateString } from '../utils/validators';
 
 const reviewRoutes = Router();
+
+/** Booking statuses that mean the guest actually stayed (website + hotel-app vocabulary). */
+const REVIEWABLE_STATUSES = [
+  'confirmed', 'reserved', 'booked', 'paid', 'checked_in', 'checked-in', 'checked_out', 'checked-out', 'completed',
+];
+
+/** "Alice Santos" → "Alice S." — shown publicly, so never the full name. */
+function publicGuestName(fullName: unknown): string {
+  const parts = String(fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'Guest';
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.` : parts[0];
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,16 +103,15 @@ reviewRoutes.get('/', publicReadLimiter, async (req, res) => {
  * reviewSubmitLimiter (from rateLimiters.ts): prevents review spam/abuse (OWASP A04)
  */
 reviewRoutes.post('/', requireAuth, reviewSubmitLimiter, async (req, res) => {
-  const { propertyId, authorName, rating, title, comment } = req.body as {
+  const { propertyId, rating, title, comment } = req.body as {
     propertyId?: string;
-    authorName?: string;
     rating?: unknown;
     title?: string;
     comment?: string;
   };
 
-  // Required field presence check
-  if (!propertyId || !authorName || rating === undefined || !title || !comment) {
+  // Required field presence check (the author name comes from the verified booking)
+  if (!propertyId || rating === undefined || !title || !comment) {
     return res.status(400).json({ message: 'Missing required review fields.' });
   }
 
@@ -129,10 +141,33 @@ reviewRoutes.post('/', requireAuth, reviewSubmitLimiter, async (req, res) => {
     return res.status(400).json({ message: commentResult.message });
   }
 
-  // authorName: string 1–80 chars
-  const authorResult = validateString(authorName, 'Author name', 1, 80);
-  if (!authorResult.ok) {
-    return res.status(400).json({ message: authorResult.message });
+  // Only guests whose stay at this room has ended may review — once per stay.
+  const email = String(req.auth?.email ?? '').trim();
+  const escapedEmail = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const stays = email
+    ? ((await BookingModel.find({
+      $or: [{ propertyId: propertyIdResult.value }, { room_id: propertyIdResult.value }],
+      guestEmail: new RegExp(`^${escapedEmail}$`, 'i'),
+      status: { $in: REVIEWABLE_STATUSES },
+    }).select({ guestName: 1, checkInDate: 1, checkOutDate: 1, check_in_date: 1, check_out_date: 1 }).lean()) as Array<Record<string, unknown>>)
+    : [];
+  const finishedStays = stays
+    .map((stay) => ({ stay, range: bookingStayRange(stay) }))
+    .filter((entry) => entry.range && entry.range.end.getTime() <= Date.now())
+    .sort((a, b) => b.range!.end.getTime() - a.range!.end.getTime());
+  let reviewedStay: Record<string, unknown> | undefined;
+  for (const { stay } of finishedStays) {
+    if ((await ReviewModel.countDocuments({ booking_id: String(stay._id) })) === 0) {
+      reviewedStay = stay;
+      break;
+    }
+  }
+  if (!reviewedStay) {
+    return res.status(403).json({
+      message: finishedStays.length > 0
+        ? 'You have already reviewed your stay here.'
+        : 'Only guests who have completed a stay at this property can leave a review.',
+    });
   }
 
   const property = await PropertyModel.findById(propertyIdResult.value)
@@ -143,7 +178,8 @@ reviewRoutes.post('/', requireAuth, reviewSubmitLimiter, async (req, res) => {
   const review = await ReviewModel.create({
     propertyId: propertyIdResult.value,
     ...(hotelIdForReview ? { hotel_id: hotelIdForReview } : {}),
-    authorName: authorResult.value,
+    booking_id: String(reviewedStay._id),
+    authorName: publicGuestName(reviewedStay.guestName),
     rating: ratingResult.value,
     title: titleResult.value,
     comment: commentResult.value,

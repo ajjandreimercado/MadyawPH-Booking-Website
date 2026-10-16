@@ -1,50 +1,61 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Madyaw booking website
 
-# Run and deploy your AI Studio app
+Guest-facing booking site for Madyaw partner hotels (www.madyaw.com). Guests search hotels, pick a room
+type and dates, and send a **reservation request**. The hotel reviews it in the separate hotel management
+app; after it confirms, the guest pays the full stay online by scanning the hotel's GCash/Maya QR and
+uploading proof. Guests do not sign in.
 
-This contains everything you need to run your app locally.
+The website and the hotel app share one MongoDB database (`hotel_hms`). This repo holds only the website.
 
-View your app in AI Studio: https://ai.studio/apps/f2ff8e4c-0223-4400-85df-57407205a447
+```
+src/      React 19 + Vite + Tailwind frontend (static site)
+server/   Express + Mongoose API (TypeScript), tests in server/src/__tests__
+public/   static files, including _headers (security headers for the static host)
+render.yaml  Render blueprint: madyaw-api (web service) + madyaw-frontend (static site)
+```
 
-## Run Locally
+## How a booking flows
 
-**Prerequisites:**  Node.js
+1. `POST /api/bookings` saves the booking (`status: pending`) and an `external_reservations` row
+   (`pending_approval`) so it shows in the hotel app's Online Bookings queue. The guest gets a
+   "request received" email.
+2. The hotel approves, declines or cancels in the hotel app. The API picks this up from a MongoDB change
+   stream (`external_reservations` and `bookings`) or from the `POST /api/bookings/hotel-events` webhook,
+   updates the booking and emails the guest in the hotel's name.
+3. After approval the guest pays and uploads proof (`POST /api/bookings/:id/payment-proof`); the hotel
+   verifies it in the hotel app.
 
+Room availability is date-based (`server/src/utils/roomAvailability.ts`): it counts website and hotel-app
+bookings, including checked-in guests. Requests the hotel has not reviewed stop holding a room after
+48 hours.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Run locally
 
-## Local API
+Requires Node.js 20+.
 
-The website now expects a local backend at `http://localhost:5000/api`.
+```bash
+npm install
+npm --prefix server install
+cp server/.env.example server/.env   # then fill in JWT_SECRET, MONGODB_URI, CLIENT_ORIGIN
+npm run dev                          # API on :5001, site on :3000 (Vite proxies /api)
+```
 
-1. Copy [server/.env.example](server/.env.example) to `server/.env` and set `JWT_SECRET`, `JWT_EXPIRES_IN`, `CLIENT_ORIGIN`, and `GOOGLE_CLIENT_ID`.
-2. Install the backend dependencies with `npm install` inside the [server](server) folder.
-3. Start the API from the `server` folder with `npm run dev`, or run `npm run build` followed by `npm start`.
+Tests and type checks:
 
-## Google OAuth Sign-In
+```bash
+npm --prefix server test
+npm run lint                 # frontend type check
+```
 
-The app supports Google Identity Services sign-in through the existing auth modal.
+## Configuration
 
-1. In Google Cloud Console, create or select a project.
-2. Configure the OAuth consent screen and add your test users.
-3. Create an OAuth 2.0 Client ID of type **Web application**.
-4. Add these authorized JavaScript origins:
-   - `http://localhost:3000`
-   - your production frontend domain
-5. Add these authorized redirect URIs:
-   - `http://localhost:3000/auth/callback`
-   - `http://127.0.0.1:3000/auth/callback` if you ever open the app on 127.0.0.1
-   - your production callback URL
-6. Set these env vars:
-   - `server/.env`: `GOOGLE_CLIENT_ID=...`
-   - root `.env.local`: `VITE_GOOGLE_CLIENT_ID=...`
-   - root `.env.local`: `VITE_GOOGLE_REDIRECT_URI=http://localhost:3000/auth/callback`
-7. Restart the frontend and backend, then open the auth modal and use the Google button.
+- `server/.env` (see `server/.env.example`): `JWT_SECRET`, `MONGODB_URI`, `CLIENT_ORIGIN`, and optional
+  `RESEND_API_KEY` / `EMAIL_FROM` (email), `HOTEL_APP_PUBLIC_URL` (where hotel photos and QR files live),
+  `MADYAW_API_PUBLIC_URL`, `HOTEL_WEBHOOK_SECRET`, Messenger tokens.
+- Frontend (`.env.example`): only public `VITE_*` values, e.g. `VITE_API_URL`. Anything `VITE_*` ends up
+  in the browser bundle, so never put secrets there.
 
-The frontend renders the button with `accounts.google.com/gsi/client`, and the backend verifies the returned credential against Google before creating or reusing the local session cookie.
+## Deploy
+
+Pushing to `main` redeploys both Render services. The API's `/api/health` is pinged every 5 minutes by
+UptimeRobot so the free instance does not sleep.

@@ -67,8 +67,9 @@ promoCodeRoutes.get('/featured', async (_req, res) => {
     $or: [{ expires_at: { $exists: false } }, { expires_at: { $gt: new Date() } }]
   }).sort({ discount_value: -1 }).lean();
 
+  // No promo is a normal state, not an error (a 404 showed as a console error on every visit).
   if (!promo) {
-    return res.status(404).json({ message: 'No featured promo found.' });
+    return res.status(204).end();
   }
 
   return res.json({

@@ -44,8 +44,16 @@ jest.mock('../data/mongoModels', () => ({
   RoomCategoryModel: { find: jest.fn(), findById: jest.fn() },
 }));
 
-import { ReviewModel } from '../data/mongoModels';
+import { ReviewModel, BookingModel } from '../data/mongoModels';
 const MockReviewModel = ReviewModel as jest.Mocked<typeof ReviewModel>;
+
+/** Stub the guest's bookings for the reviewed room. */
+function mockStays(stays: Array<Record<string, unknown>>) {
+  (BookingModel.find as jest.Mock).mockReturnValue({
+    select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(stays) }),
+  });
+}
+const PAST_STAY = { _id: 'booking-1', guestName: 'Alice Santos', checkInDate: '2026-01-01', checkOutDate: '2026-01-03' };
 
 /** Helper: build a valid signed auth cookie for tests. */
 function makeAuthCookie(): string {
@@ -99,16 +107,47 @@ describe('POST /api/reviews', () => {
     expect(res.status).toBe(401);
   });
 
-  it('creates a review with valid payload and authentication', async () => {
+  it('creates a review for a completed stay, named from the booking', async () => {
+    mockStays([PAST_STAY]);
+    (MockReviewModel.countDocuments as jest.Mock).mockResolvedValue(0);
     MockReviewModel.create.mockResolvedValue({ _id: 'rev-001', ...VALID_PAYLOAD } as never);
+
+    const res = await request(app)
+      .post('/api/reviews')
+      .set('Cookie', makeAuthCookie())
+      .send({ ...VALID_PAYLOAD, authorName: 'Somebody Else' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toHaveProperty('id');
+    expect(MockReviewModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ authorName: 'Alice S.', booking_id: 'booking-1' }),
+    );
+  });
+
+  it('returns 403 without a completed stay at the property', async () => {
+    mockStays([{ ...PAST_STAY, checkInDate: '2099-01-01', checkOutDate: '2099-01-03' }]);
+    MockReviewModel.create.mockClear();
 
     const res = await request(app)
       .post('/api/reviews')
       .set('Cookie', makeAuthCookie())
       .send(VALID_PAYLOAD);
 
-    expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty('id');
+    expect(res.status).toBe(403);
+    expect(MockReviewModel.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when the stay was already reviewed', async () => {
+    mockStays([PAST_STAY]);
+    (MockReviewModel.countDocuments as jest.Mock).mockResolvedValue(1);
+
+    const res = await request(app)
+      .post('/api/reviews')
+      .set('Cookie', makeAuthCookie())
+      .send(VALID_PAYLOAD);
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/already reviewed/i);
   });
 
   it('returns 400 when rating is out of range', async () => {

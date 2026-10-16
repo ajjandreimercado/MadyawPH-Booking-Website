@@ -233,6 +233,8 @@ describe('POST /api/bookings', () => {
     } as never);
     (MockPropertyModel as any).updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
     (MockBookingModel.find as jest.Mock).mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      session: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue([]),
     });
     (MockBookingModel.findOne as jest.Mock).mockReturnValue({
