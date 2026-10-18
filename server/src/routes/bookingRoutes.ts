@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter, publicReadLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -1007,9 +1007,26 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     return res.status(proofCheck.status).json({ message: proofCheck.message });
   }
 
+  const hotelIdForBooking = String(property.hotel_id ?? '');
+  let hotelNameForEmail = String(
+    (property as { hotel_name?: unknown }).hotel_name
+    ?? (property as { hotelName?: unknown }).hotelName
+    ?? '',
+  ).trim();
+  if (!hotelNameForEmail && hotelIdForBooking) {
+    try {
+      const hotelDoc = await HotelModel.findById(hotelIdForBooking).select('name').lean();
+      hotelNameForEmail = String((hotelDoc as { name?: unknown } | null)?.name ?? '').trim();
+    } catch {
+      // Email code still tries HotelModel later.
+    }
+  }
+
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
-    hotel_id: String(property.hotel_id ?? ''),
+    hotel_id: hotelIdForBooking,
+    // Used so guest emails say "Welcome to {hotel}" even if HotelModel lookup fails.
+    ...(hotelNameForEmail ? { hotel_name: hotelNameForEmail } : {}),
     room_id: toHotelRoomId(property._id),
     propertyId: propertyIdResult.value,
     // Room-type bookings are named after the type; the guest never sees the room number.
@@ -1267,8 +1284,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     );
   }
 
-  // Guest lifecycle email #1: request received (off the request path — Resend can be slow).
-  queueGuestNotification('request-received', () => sendBookingRequestReceivedNotification(booking));
+  // Guest email after checkout: welcome from the hotel (not a request / payment-link mail).
+  queueGuestNotification('welcome', () => sendBookingRequestReceivedNotification(booking));
 
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({
