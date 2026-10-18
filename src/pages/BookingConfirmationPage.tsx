@@ -124,7 +124,7 @@ export default function BookingConfirmationPage() {
     setQrLoading(true);
     setQrBroken(false);
 
-    // 1) Method-specific / generic proxy from hotel payload.
+    // Always prefer the selected wallet's own QR — never reuse one embedded image for every tab.
     const fromHotel = hotelPaymentQrSrc(hotel, activeWallet);
     if (fromHotel && qrAttempt === 0) {
       setQrSrc(fromHotel);
@@ -132,15 +132,17 @@ export default function BookingConfirmationPage() {
       return;
     }
 
-    // 2) Live proxy — API falls back across wallets and generic QR paths.
     if (hotel.hasPaymentQr || availableWalletMethods(hotel).length > 0 || fromHotel) {
       setQrSrc(paymentQrProxyUrl(hotel.id, activeWallet, qrAttempt > 0));
       setQrLoading(false);
       return;
     }
 
-    // 3) Inline QR already resolved by GET /hotels/:id (works even if proxy paths stall).
-    if (hotel.paymentQrDataUrl?.startsWith('data:image/')) {
+    // Single-QR hotels only: inline bytes from GET /hotels/:id.
+    if (
+      availableWalletMethods(hotel).length <= 1
+      && hotel.paymentQrDataUrl?.startsWith('data:image/')
+    ) {
       setQrSrc(hotel.paymentQrDataUrl);
       setQrLoading(false);
       return;

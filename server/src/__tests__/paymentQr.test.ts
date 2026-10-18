@@ -17,10 +17,24 @@ describe('resolveHotelPaymentQrs', () => {
       payment_qr_url: 'payment-qr/old.jpg',
       payment_method_qrs: JSON.stringify({
         paymaya: { qr_url: 'payment-qr/new-maya.jpg', account_number: '09' },
+        qrph: { qr_url: 'payment-qr/qrph.jpg' },
       }),
     })).toEqual({
       generic: 'payment-qr/old.jpg',
       maya: 'payment-qr/new-maya.jpg',
+      qrph: 'payment-qr/qrph.jpg',
+    });
+  });
+
+  it('reads dedicated QR Ph paths separately from Maya', () => {
+    expect(resolveHotelPaymentQrs({
+      payment_settings: {
+        maya_qr: 'payment-qr/maya.jpg',
+        qrph_qr: 'payment-qr/qrph.jpg',
+      },
+    })).toEqual({
+      maya: 'payment-qr/maya.jpg',
+      qrph: 'payment-qr/qrph.jpg',
     });
   });
 
@@ -78,18 +92,31 @@ describe('listAvailableWalletMethods', () => {
 });
 
 describe('qrUrlForPaymentMethod', () => {
-  it('falls back to the generic hotel QR', () => {
+  it('falls back to the generic hotel QR when no dedicated wallets exist', () => {
     const qrs = { generic: 'https://cdn.example.com/pay.png' };
     expect(qrUrlForPaymentMethod(qrs, 'gcash')).toBe('https://cdn.example.com/pay.png');
     expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('https://cdn.example.com/pay.png');
+    expect(qrUrlForPaymentMethod(qrs, 'qrph')).toBe('https://cdn.example.com/pay.png');
   });
 
-  it('prefers a dedicated wallet QR over generic', () => {
+  it('prefers a dedicated wallet QR and never lends another wallet the generic', () => {
     const qrs = {
       gcash: 'payment-qr/gcash.jpg',
+      maya: 'payment-qr/maya.jpg',
+      qrph: 'payment-qr/qrph.jpg',
       generic: 'payment-qr/shared.jpg',
     };
     expect(qrUrlForPaymentMethod(qrs, 'gcash')).toBe('payment-qr/gcash.jpg');
-    expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('payment-qr/shared.jpg');
+    expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('payment-qr/maya.jpg');
+    expect(qrUrlForPaymentMethod(qrs, 'qrph')).toBe('payment-qr/qrph.jpg');
+  });
+
+  it('does not show Maya QR for QR Ph when only Maya was uploaded', () => {
+    const qrs = {
+      maya: 'payment-qr/maya.jpg',
+      generic: 'payment-qr/old.jpg',
+    };
+    expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('payment-qr/maya.jpg');
+    expect(qrUrlForPaymentMethod(qrs, 'qrph')).toBeUndefined();
   });
 });

@@ -4,6 +4,7 @@ import { fetchHotelById } from '../../services/api';
 import type { Hotel } from '../../types';
 import {
   availableWalletMethods,
+  hotelPaymentQrSrc,
   paymentQrProxyUrl,
   savePaymentQrImage,
   walletMethodLabel,
@@ -15,7 +16,7 @@ import { peso } from '../../lib/stayParams';
 const PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /**
- * Finish-booking payment: the hotel's own GCash/Maya QR, then the guest's receipt
+ * Finish-booking payment: the hotel's own GCash/Maya/QR Ph QR, then the guest's receipt
  * screenshot and reference number. The screenshot goes to the hotel app with the booking,
  * and hotel staff verify it there.
  */
@@ -56,10 +57,13 @@ export default function PayByQr({
   }, [hotelId]);
 
   const methods = availableWalletMethods(hotel);
-  // Prefer the API's resolved image, then the live proxy (with cache refresh on retry).
-  const qrSrc = hotel?.paymentQrDataUrl?.startsWith('data:image/') && qrAttempt === 0
-    ? hotel.paymentQrDataUrl
-    : (method ? paymentQrProxyUrl(hotelId, method, qrAttempt > 0) : '');
+  // Always load the selected wallet's own QR — never reuse a single embedded image across tabs
+  // (that made QR Ph show the PayMaya image).
+  const qrSrc = method
+    ? (qrAttempt === 0
+      ? (hotelPaymentQrSrc(hotel, method) ?? paymentQrProxyUrl(hotelId, method))
+      : paymentQrProxyUrl(hotelId, method, true))
+    : '';
 
   const saveQr = async () => {
     if (!method) return;

@@ -102,9 +102,15 @@ export function hotelPaymentQrSrc(
   method: WalletPaymentMethod = 'gcash',
 ): string | undefined {
   if (!hotel) return undefined;
-  const proxy = hotel.paymentQrs?.[method];
-  if (proxy) return resolveMediaUrl(proxy);
-  return resolveMediaUrl(hotel.paymentQrs?.generic);
+  // Method-specific proxy only — do not fall back to generic when another wallet's
+  // QR might be baked into paymentQrDataUrl / generic (QR Ph ≠ PayMaya).
+  const dedicated = hotel.paymentQrs?.[method];
+  if (dedicated) return resolveMediaUrl(dedicated);
+  const methods = availableWalletMethods(hotel);
+  if (methods.length <= 1) {
+    return resolveMediaUrl(hotel.paymentQrs?.generic);
+  }
+  return undefined;
 }
 
 export function walletMethodLabel(method: WalletPaymentMethod): string {
