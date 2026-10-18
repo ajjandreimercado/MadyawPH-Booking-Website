@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { BookingModel, HotelModel } from '../data/mongoModels';
+import { BookingModel, HotelModel, PropertyModel } from '../data/mongoModels';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
 import { signReceiptToken } from '../utils/receiptToken';
 
@@ -37,6 +37,11 @@ export interface BookingNotificationTarget {
   declineSendStatus?: string;
   declineSentAt?: Date | string | null;
   save?: () => Promise<unknown>;
+}
+
+export interface RoomStayDetails {
+  roomLabel: string;
+  accessPassword: string;
 }
 
 /** Secure pay-deposit link for the guest (receipt token, 7-day expiry). */
@@ -112,6 +117,115 @@ async function resolveHotelName(booking: BookingNotificationTarget): Promise<str
   }
   const roomLabel = String(booking.propertyName ?? '').trim();
   return roomLabel || 'your hotel';
+}
+
+/** Guest-facing room label + door code from the assigned rooms document. */
+export function formatRoomStayLabel(room: {
+  category_name?: unknown;
+  display_name?: unknown;
+  room_number?: unknown;
+} | null | undefined, fallback = ''): string {
+  const category = String(room?.category_name ?? '').trim();
+  const roomNo = String(room?.room_number ?? '').trim();
+  const display = String(room?.display_name ?? '').trim();
+  if (category && roomNo && category.toLowerCase() !== roomNo.toLowerCase()) {
+    return `${category} · ${roomNo}`;
+  }
+  if (display) return display;
+  if (category) return category;
+  if (roomNo) return `Room ${roomNo}`;
+  return fallback;
+}
+
+export async function resolveRoomStayDetails(
+  booking: BookingNotificationTarget,
+): Promise<RoomStayDetails> {
+  const fallbackLabel = String(booking.propertyName ?? '').trim();
+  const roomId = String(booking.room_id ?? booking.propertyId ?? '').trim();
+  if (!roomId) {
+    return { roomLabel: fallbackLabel, accessPassword: '' };
+  }
+
+  try {
+    const room = await PropertyModel.findById(roomId)
+      .select('category_name display_name room_number current_access_code access_code door_code room_password')
+      .lean();
+    if (!room) {
+      return { roomLabel: fallbackLabel, accessPassword: '' };
+    }
+    const typed = room as {
+      category_name?: unknown;
+      display_name?: unknown;
+      room_number?: unknown;
+      current_access_code?: unknown;
+      access_code?: unknown;
+      door_code?: unknown;
+      room_password?: unknown;
+    };
+    const accessPassword = String(
+      typed.current_access_code
+      ?? typed.access_code
+      ?? typed.door_code
+      ?? typed.room_password
+      ?? '',
+    ).trim();
+    return {
+      roomLabel: formatRoomStayLabel(typed, fallbackLabel),
+      accessPassword,
+    };
+  } catch (error) {
+    console.warn('[Notification] Room lookup failed:', error instanceof Error ? error.message : error);
+    return { roomLabel: fallbackLabel, accessPassword: '' };
+  }
+}
+
+/** Shared guest email body: welcome + room + access password (hotel-app style). */
+export function buildHotelWelcomeBody(input: {
+  guestFirstName: string;
+  hotelName: string;
+  roomLabel: string;
+  accessPassword: string;
+  bookingReference: string;
+  checkIn: string;
+  checkOut: string;
+  stayLength?: string;
+  stayTotal?: number;
+  amountPaid?: number | null;
+  paidClaim?: number | null;
+  paymentProofStored?: boolean;
+  closingLine?: string;
+}): string {
+  const room = input.roomLabel.trim();
+  const password = input.accessPassword.trim();
+  const lines: Array<string | null> = [
+    `Hi ${input.guestFirstName},`,
+    '',
+    `Welcome to ${input.hotelName}!`,
+    '',
+    room ? 'YOUR ROOM' : null,
+    room || null,
+    room ? '' : null,
+    password ? 'ROOM ACCESS PASSWORD' : null,
+    password || null,
+    password ? '' : null,
+    `Reference: ${input.bookingReference}`,
+    `Check-in: ${input.checkIn}`,
+    `Check-out: ${input.checkOut}`,
+    input.stayLength ? `Length of stay: ${input.stayLength}` : null,
+    input.stayTotal != null && input.stayTotal > 0 ? `Stay total: ${peso(input.stayTotal)}` : null,
+    input.amountPaid != null && input.amountPaid > 0 ? `Amount paid: ${peso(input.amountPaid)}` : null,
+    input.paymentProofStored && input.paidClaim != null
+      ? `Payment screenshot received: ${peso(input.paidClaim)} (we will verify it shortly)`
+      : null,
+    '',
+    input.closingLine
+      ?? (password
+        ? 'Please use your room access password when you arrive. If you need help, reply to this email or contact the hotel directly.'
+        : 'Please check in at the hotel on your arrival date. Your room access password will be provided if it is not listed above.'),
+    '',
+    `— ${input.hotelName}`,
+  ];
+  return lines.filter((line): line is string => line !== null).join('\n');
 }
 
 /** Keep the verified sending address from EMAIL_FROM, but show the hotel's name. */
@@ -221,7 +335,7 @@ export async function sendBookingRequestReceivedNotification(
   if (!email) return false;
 
   const hotelName = await resolveHotelName(booking);
-  const room = booking.propertyName ? ` (${booking.propertyName})` : '';
+  const stay = await resolveRoomStayDetails(booking);
   const ref = booking.booking_reference || String(booking._id || '');
   const checkIn = formatStayDate(booking.checkInDate, 'your selected check-in date');
   const checkOut = formatStayDate(booking.checkOutDate, 'your selected check-out date');
@@ -229,25 +343,20 @@ export async function sendBookingRequestReceivedNotification(
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
   const paidClaim = Number(booking.payment_proof_amount_claimed ?? stayTotal);
 
-  const subject = `Welcome to ${hotelName} — booking complete`;
-  const messageBody = [
-    `Hi ${guestFirstName(booking)},`,
-    '',
-    `Welcome to ${hotelName}! Your booking is complete${room}.`,
-    '',
-    `Reference: ${ref}`,
-    `Check-in: ${checkIn}`,
-    `Check-out: ${checkOut}`,
-    ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
-    `Stay total: ${peso(stayTotal)}`,
-    booking.payment_proof_stored
-      ? `Payment screenshot received: ${peso(paidClaim)} (we will verify it shortly)`
-      : null,
-    '',
-    'Your room is reserved. Please check in at the hotel on your arrival date.',
-    '',
-    `— ${hotelName}`,
-  ].filter((line): line is string => line !== null).join('\n');
+  const subject = `Welcome to ${hotelName} — your room details`;
+  const messageBody = buildHotelWelcomeBody({
+    guestFirstName: guestFirstName(booking),
+    hotelName,
+    roomLabel: stay.roomLabel,
+    accessPassword: stay.accessPassword,
+    bookingReference: ref,
+    checkIn,
+    checkOut,
+    stayLength: stayLength || undefined,
+    stayTotal,
+    paidClaim,
+    paymentProofStored: Boolean(booking.payment_proof_stored),
+  });
 
   try {
     const result = await deliverEmail(email, subject, messageBody, senderFor(hotelName));
@@ -283,7 +392,7 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
   }
 
   const hotelName = await resolveHotelName(booking);
-  const room = booking.propertyName ? ` (${booking.propertyName})` : '';
+  const stay = await resolveRoomStayDetails(booking);
   const checkInDate = formatStayDate(booking.checkInDate, 'your check-in date');
   const checkOutDate = formatStayDate(booking.checkOutDate, 'your check-out date');
   const stayLength = formatStayLength(booking);
@@ -294,27 +403,22 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     || Number(booking.payment_proof_amount_claimed ?? 0)
     || (booking.payment_proof_stored || booking.payment_proof_filename ? stayTotal : 0);
 
-  const stayLines = [
-    `Reference: ${ref}`,
-    `Check-in: ${checkInDate}`,
-    `Check-out: ${checkOutDate}`,
-    ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
-    `Stay total: ${peso(stayTotal)}`,
-    `Amount paid: ${peso(amountPaid)}`,
-  ];
-
   const subject = `Welcome to ${hotelName} — your reservation is confirmed`;
-  const messageBody = [
-    `Hi ${guestFirstName(booking)},`,
-    '',
-    `Welcome to ${hotelName}! Your reservation${room} is confirmed.`,
-    '',
-    ...stayLines,
-    '',
-    'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact us directly.',
-    '',
-    `— ${hotelName}`,
-  ].join('\n');
+  const messageBody = buildHotelWelcomeBody({
+    guestFirstName: guestFirstName(booking),
+    hotelName,
+    roomLabel: stay.roomLabel,
+    accessPassword: stay.accessPassword,
+    bookingReference: ref,
+    checkIn: checkInDate,
+    checkOut: checkOutDate,
+    stayLength: stayLength || undefined,
+    stayTotal,
+    amountPaid,
+    closingLine: stay.accessPassword
+      ? 'We look forward to welcoming you. Use your room access password when you arrive.'
+      : 'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact us directly.',
+  });
 
   try {
     if (String(booking.guestEmail).toLowerCase() === 'fail@notification.test' || String(booking.guest_phone) === 'FAIL') {
