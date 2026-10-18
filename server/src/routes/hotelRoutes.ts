@@ -531,6 +531,11 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     results = results.filter((h) => h.avgRating >= parsedRating);
   }
 
+  // Client rule: hotels with nothing free for the searched dates don't appear until a room frees up.
+  if (stay) {
+    results = results.filter((h) => h.availableRooms > 0);
+  }
+
   const distanceSort = shouldSortByDistance(String(sort), nearMode, searchAnchor != null);
   if (distanceSort) {
     results.sort((a, b) => {
