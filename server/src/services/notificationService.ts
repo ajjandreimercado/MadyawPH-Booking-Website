@@ -229,13 +229,11 @@ export async function sendBookingRequestReceivedNotification(
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
   const paidClaim = Number(booking.payment_proof_amount_claimed ?? stayTotal);
 
-  const subject = `Welcome to ${hotelName}`;
+  const subject = `Welcome to ${hotelName} — booking complete`;
   const messageBody = [
     `Hi ${guestFirstName(booking)},`,
     '',
-    `Welcome to ${hotelName}!`,
-    '',
-    `Thank you for completing your booking${room}. We look forward to hosting you.`,
+    `Welcome to ${hotelName}! Your booking is complete${room}.`,
     '',
     `Reference: ${ref}`,
     `Check-in: ${checkIn}`,
@@ -243,10 +241,10 @@ export async function sendBookingRequestReceivedNotification(
     ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
     `Stay total: ${peso(stayTotal)}`,
     booking.payment_proof_stored
-      ? `Payment received: ${peso(paidClaim)} (we will verify your screenshot shortly)`
+      ? `Payment screenshot received: ${peso(paidClaim)} (we will verify it shortly)`
       : null,
     '',
-    'You will receive another email from us once your stay is confirmed.',
+    'Your room is reserved. Please check in at the hotel on your arrival date.',
     '',
     `— ${hotelName}`,
   ].filter((line): line is string => line !== null).join('\n');

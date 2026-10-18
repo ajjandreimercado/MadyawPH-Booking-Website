@@ -374,11 +374,11 @@ describe('POST /api/bookings', () => {
       expect(typeof created.room_id).toBe('string');
       expect(created.booking_type).toBe('online');
       expect(created.booking_source).toBe('website-customer');
-      expect(created.check_in_date).toBeUndefined();
-      expect(created.check_out_date).toBeUndefined();
+      expect(created.check_in_date).toBeInstanceOf(Date);
+      expect(created.check_out_date).toBeInstanceOf(Date);
       expect(created.created_at).toBeInstanceOf(Date);
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
-      expect(created.status).toBe('pending');
+      expect(created.status).toBe('reserved');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('unpaid');
       expect(created.online_payment_mode).toBe('full');
@@ -400,7 +400,7 @@ describe('POST /api/bookings', () => {
       expect(ExternalReservationModel.create).toHaveBeenCalled();
       expect(BookingValidIdModel.findOneAndUpdate).toHaveBeenCalled();
       const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
-      expect(externalDoc.status).toBe('pending_approval');
+      expect(externalDoc.status).toBe('reserved');
       expect(externalDoc.source).toBe('app-customer');
       expect(externalDoc.external_reference).toBeTruthy();
       const meta = typeof externalDoc.metadata === 'string'
@@ -411,10 +411,11 @@ describe('POST /api/bookings', () => {
       expect(meta.online_payment_mode).toBe('full');
       expect(meta.amount_paid).toBe(0);
       expect(meta.valid_id_uploaded).toBe(true);
-      expect(meta.payment_proof_uploaded).toBe(false);
+      expect(meta.payment_proof_uploaded).toBe(true);
+      expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?sig=[0-9a-f]{64}$/);
 
-      // Billing ledger must wait until hotel approval — early room charges cause self-overlap.
-      expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
+      // Room is reserved at checkout — ledger is written so the hotel can check the guest in.
+      expect(BillingChargeModel.insertMany).toHaveBeenCalled();
     }
   });
 
@@ -436,11 +437,18 @@ describe('POST /api/bookings', () => {
     const meta = JSON.parse(mocks.ExternalReservationModel.create.mock.calls[0][0].metadata);
     expect(meta.check_in_time).toBe('15:00');
     expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?sig=[0-9a-f]{64}$/);
+    expect(meta.payment_proof_uploaded).toBe(true);
+    expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?sig=[0-9a-f]{64}$/);
+    expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
 
     const proofUpdate = (MockBookingModel.updateOne as jest.Mock).mock.calls
       .map((call) => call[1]?.$set)
       .find((set) => set?.payment_proof_stored);
-    expect(proofUpdate).toMatchObject({ payment_transaction_ref: 'GCASH-ABC12345', payment_proof_verified: false });
+    expect(proofUpdate).toMatchObject({
+      payment_transaction_ref: 'GCASH-ABC12345',
+      payment_proof_verified: false,
+      payment_proof_url: expect.stringMatching(/payment-proof\?sig=/),
+    });
   });
 
   it('returns 400 without the payment screenshot', async () => {
