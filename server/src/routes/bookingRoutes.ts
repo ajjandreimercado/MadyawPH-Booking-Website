@@ -744,7 +744,13 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
 // No session token required — this is a guest booking website with no login.
 // Accepts multipart/form-data with required Valid ID file.
 
-bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
+// requireAuth: bookings are owned by the signed-in account (guestEmail locked to session).
+bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
+  const requester = await getRequestUser(req);
+  if (!requester) {
+    return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
+  }
+
   let validIdFile: UploadedBookingFile | undefined;
   let paymentProofFile: UploadedBookingFile | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
@@ -842,12 +848,12 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
 
   // ── Guest field validation ────────────────────────────────────────────────
 
-  const rawGuestName = body.guestName;
+  const rawGuestName = body.guestName || requester.name;
   const guestNameResult = validateString(rawGuestName, 'Guest name', 1, 80);
   if (!guestNameResult.ok) return res.status(400).json({ message: guestNameResult.message });
 
-  const rawGuestEmail = body.guestEmail;
-  const guestEmailResult = validateEmail(rawGuestEmail);
+  // Ownership: always use the signed-in account email (ignore client spoofing).
+  const guestEmailResult = validateEmail(requester.email);
   if (!guestEmailResult.ok) return res.status(400).json({ message: guestEmailResult.message });
 
   // Guest phone: required, format-validated (OWASP A03)
@@ -1525,7 +1531,7 @@ bookingRoutes.delete('/:bookingId', requireAuth, async (req, res) => {
 // ─── POST /:bookingId/payment-proof ───────────────────────────────────────────
 // Guest uploads deposit proof AFTER hotel confirmation (magic receipt token).
 
-bookingRoutes.post('/:bookingId/payment-proof', bookingCreateLimiter, async (req, res) => {
+bookingRoutes.post('/:bookingId/payment-proof', optionalAuth, bookingCreateLimiter, async (req, res) => {
   const bookingIdResult = validateId(req.params.bookingId, 'Booking ID');
   if (!bookingIdResult.ok) return res.status(400).json({ message: bookingIdResult.message });
 
@@ -1558,18 +1564,24 @@ bookingRoutes.post('/:bookingId/payment-proof', bookingCreateLimiter, async (req
     ? req.body.token.trim()
     : (typeof req.query?.token === 'string' ? String(req.query.token).trim() : '');
 
-  let tokenOk = false;
+  let allowed = false;
   if (rawToken) {
     try {
       const payload = verifyReceiptToken(rawToken);
-      tokenOk = payload.bookingId === bookingIdResult.value && payload.email === bookingEmail;
+      allowed = payload.bookingId === bookingIdResult.value && payload.email === bookingEmail;
     } catch {
-      tokenOk = false;
+      allowed = false;
     }
   }
-  if (!tokenOk) {
+  if (!allowed && req.auth) {
+    const requester = await getRequestUser(req);
+    if (requester && requester.email === bookingEmail) {
+      allowed = true;
+    }
+  }
+  if (!allowed) {
     return res.status(403).json({
-      message: 'Open the Pay deposit link from your confirmation email to upload payment proof.',
+      message: 'Sign in to your account or open the confirmation link from your email to upload payment proof.',
     });
   }
 

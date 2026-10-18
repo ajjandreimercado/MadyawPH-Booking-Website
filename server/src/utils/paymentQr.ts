@@ -224,6 +224,23 @@ export function collectPaymentQrCandidates(hotel: unknown, systemSettings?: unkn
   return [...new Set(ordered)];
 }
 
+async function tryPaymentQrCandidates(
+  candidates: string[],
+  hotelId: string,
+  options?: { skipCache?: boolean },
+): Promise<{ body: Buffer; contentType: string; path: string } | null> {
+  for (const raw of candidates) {
+    if (!raw) continue;
+    if (raw.startsWith('data:image/')) {
+      const parsed = parseDataUrl(raw);
+      if (parsed) return { ...parsed, path: raw };
+    }
+    const image = await fetchHotelPaymentQrImage(raw, hotelId, options);
+    if (image) return { ...image, path: raw };
+  }
+  return null;
+}
+
 export async function fetchFirstPaymentQrImage(
   hotel: unknown,
   systemSettings: unknown,
@@ -238,36 +255,22 @@ export async function fetchFirstPaymentQrImage(
   }
 
   const qrs = mergePaymentQrs(hotel, systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)));
+  const allCandidates = collectPaymentQrCandidates(hotel, systemSettings);
 
+  // Prefer the requested wallet QR, then fall back to any other uploaded hotel QR.
+  // (A stale/broken method-specific path must not hide a working generic QR.)
   if (options?.preferredMethod) {
     const preferred = qrUrlForPaymentMethod(qrs, options.preferredMethod);
-    if (!preferred) return null;
-    const rawCandidates = [preferred];
-    for (const raw of rawCandidates) {
-      if (raw.startsWith('data:image/')) {
-        const parsed = parseDataUrl(raw);
-        if (parsed) return { ...parsed, path: raw };
-      }
-      const image = await fetchHotelPaymentQrImage(raw, hotelId, { ...options, skipCache: options.skipCache });
-      if (image) return { ...image, path: raw };
-    }
-    return null;
+    const ordered = preferred
+      ? [preferred, ...allCandidates.filter((path) => path !== preferred)]
+      : allCandidates;
+    const preferredHit = await tryPaymentQrCandidates(ordered, hotelId, {
+      skipCache: options.skipCache,
+    });
+    if (preferredHit) return preferredHit;
   }
 
-  const candidates = collectPaymentQrCandidates(
-    hotel,
-    mergePaymentQrs(systemSettings, parsePaymentMethodQrs(asRecord(systemSettings))),
-  );
-
-  for (const raw of candidates) {
-    if (raw.startsWith('data:image/')) {
-      const parsed = parseDataUrl(raw);
-      if (parsed) return { ...parsed, path: raw };
-    }
-    const image = await fetchHotelPaymentQrImage(raw, hotelId, options);
-    if (image) return { ...image, path: raw };
-  }
-  return null;
+  return tryPaymentQrCandidates(allCandidates, hotelId, options);
 }
 
 function firstUrl(hotel: Record<string, unknown>, paths: string[][]): string | undefined {

@@ -10,6 +10,7 @@ import { errorMessageFromUnknown } from '../lib/apiError';
 import type { BookingRequest, Hotel } from '../types';
 import {
   availableWalletMethods,
+  hotelPaymentQrSrc,
   paymentQrProxyUrl,
   WALLET_PAYMENT_OPTIONS,
   walletMethodLabel,
@@ -19,6 +20,7 @@ import {
 import { ConfirmationSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { useBookings } from '../contexts/BookingsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { formatStayDate } from '../lib/stayParams';
 
@@ -46,6 +48,7 @@ export default function BookingConfirmationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { bookings } = useBookings();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const sessionBooking = bookings.find((b) => b.id === bookingId) ?? null;
   const [booking, setBooking] = useState<BookingRequest | null>(sessionBooking);
@@ -62,8 +65,10 @@ export default function BookingConfirmationPage() {
   const forcePayParam = searchParams.get('pay') === '1';
 
   const [selectedWallet, setSelectedWallet] = useState<WalletPaymentMethod | null>(null);
-  const [qrObjectUrl, setQrObjectUrl] = useState<string>();
+  const [qrSrc, setQrSrc] = useState<string>();
   const [qrLoading, setQrLoading] = useState(false);
+  const [qrBroken, setQrBroken] = useState(false);
+  const [qrAttempt, setQrAttempt] = useState(0);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
   const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
@@ -71,19 +76,21 @@ export default function BookingConfirmationPage() {
 
   useEffect(() => {
     if (!bookingId) return;
-    const guestEmail = searchParams.get('email') ?? undefined;
-    if (!receiptToken) {
-      setError('This confirmation link is incomplete or has expired. Please use the link from your booking email.');
+    const guestEmail = searchParams.get('email') ?? user?.email ?? undefined;
+    // Signed-in owners can open receipts from My trips without an email token.
+    if (!receiptToken && !user && !sessionBooking) {
+      setError('This confirmation link is incomplete or has expired. Please use the link from your booking email, or sign in to My trips.');
       setIsLoading(false);
       return;
     }
     if (!sessionBooking) setIsLoading(true);
-    fetchBookingById(bookingId, guestEmail, receiptToken)
+    fetchBookingById(bookingId, guestEmail, receiptToken || undefined)
       .then(async (b) => {
         setBooking(b);
         if (b.hotelId) {
           try {
-            setHotel(await fetchHotelById(b.hotelId));
+            // Force refresh so we get paymentQrDataUrl from GET /hotels/:id.
+            setHotel(await fetchHotelById(b.hotelId, { force: true }));
           } catch {
             setHotel(null);
           }
@@ -96,7 +103,7 @@ export default function BookingConfirmationPage() {
         }
         setIsLoading(false);
       });
-  }, [bookingId, searchParams, sessionBooking, receiptToken]);
+  }, [bookingId, searchParams, sessionBooking, receiptToken, user]);
 
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
     availableWalletMethods(hotel).includes(opt.id),
@@ -108,71 +115,61 @@ export default function BookingConfirmationPage() {
 
   useEffect(() => {
     if (!hotel?.id) {
-      setQrObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return undefined;
-      });
+      setQrSrc(undefined);
+      setQrLoading(false);
+      setQrBroken(false);
+      return;
+    }
+
+    setQrLoading(true);
+    setQrBroken(false);
+
+    // 1) Method-specific / generic proxy from hotel payload.
+    const fromHotel = hotelPaymentQrSrc(hotel, activeWallet);
+    if (fromHotel && qrAttempt === 0) {
+      setQrSrc(fromHotel);
+      setQrLoading(false);
+      return;
+    }
+
+    // 2) Live proxy — API falls back across wallets and generic QR paths.
+    if (hotel.hasPaymentQr || availableWalletMethods(hotel).length > 0 || fromHotel) {
+      setQrSrc(paymentQrProxyUrl(hotel.id, activeWallet, qrAttempt > 0));
+      setQrLoading(false);
+      return;
+    }
+
+    // 3) Inline QR already resolved by GET /hotels/:id (works even if proxy paths stall).
+    if (hotel.paymentQrDataUrl?.startsWith('data:image/')) {
+      setQrSrc(hotel.paymentQrDataUrl);
+      setQrLoading(false);
+      return;
+    }
+
+    setQrSrc(undefined);
+    setQrLoading(false);
+  }, [hotel, activeWallet, qrAttempt]);
+
+  const handleQrImageError = () => {
+    if (!hotel?.id) {
+      setQrBroken(true);
+      return;
+    }
+    // First failure: refresh cache. Second: try other wallets. Then give up.
+    if (qrAttempt === 0) {
+      setQrAttempt(1);
+      setQrSrc(paymentQrProxyUrl(hotel.id, activeWallet, true));
       return;
     }
     const methods = availableWalletMethods(hotel);
-    if (!methods.length) {
-      setQrObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return undefined;
-      });
+    const next = methods.find((m) => m !== activeWallet);
+    if (next && selectedWallet !== next) {
+      setSelectedWallet(next);
+      setQrAttempt(0);
       return;
     }
-
-    let objectUrl: string | undefined;
-    let cancelled = false;
-    const hotelId = hotel.id;
-    const method = activeWallet;
-
-    async function loadPaymentQr() {
-      setQrLoading(true);
-      for (const refresh of [false, true]) {
-        if (cancelled) return;
-        try {
-          const res = await fetch(paymentQrProxyUrl(hotelId, method, refresh));
-          if (!res.ok) continue;
-          const blob = await res.blob();
-          const mime = blob.type || res.headers.get('content-type') || '';
-          const looksLikeImage = mime.startsWith('image/')
-            || mime === 'application/octet-stream'
-            || mime === 'binary/octet-stream'
-            || mime === '';
-          if (cancelled || blob.size < 32 || !looksLikeImage) continue;
-          objectUrl = URL.createObjectURL(blob);
-          setQrObjectUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return objectUrl;
-          });
-          setQrLoading(false);
-          return;
-        } catch {
-          // try refresh on next loop
-        }
-      }
-      if (!cancelled) {
-        setQrObjectUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return undefined;
-        });
-        setQrLoading(false);
-      }
-    }
-
-    setQrObjectUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return undefined;
-    });
-    void loadPaymentQr();
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [hotel, activeWallet]);
+    setQrBroken(true);
+  };
 
   const handleDownload = async () => {
     if (!booking || isDownloading) return;
@@ -187,7 +184,8 @@ export default function BookingConfirmationPage() {
   };
 
   const handleUploadProof = async () => {
-    if (!booking || !bookingId || !receiptToken || isUploadingProof) return;
+    if (!booking || !bookingId || isUploadingProof) return;
+    if (!receiptToken && !user) return;
     if (!paymentProofFile) {
       showToast({ title: 'Upload your payment screenshot', type: 'error' });
       return;
@@ -222,7 +220,7 @@ export default function BookingConfirmationPage() {
     try {
       const updated = await uploadBookingPaymentProof({
         bookingId,
-        token: receiptToken,
+        token: receiptToken || undefined,
         paymentProofFile,
         paymentTransactionRef: ref,
         paymentProofAmountClaimed: claimed,
@@ -476,10 +474,14 @@ export default function BookingConfirmationPage() {
                       const active = activeWallet === opt.id;
                       const theme = walletMethodTheme(opt.id);
                       return (
-                        <button
+                          <button
                           key={opt.id}
                           type="button"
-                          onClick={() => setSelectedWallet(opt.id)}
+                          onClick={() => {
+                            setSelectedWallet(opt.id);
+                            setQrAttempt(0);
+                            setQrBroken(false);
+                          }}
                           className={`min-h-[48px] rounded-xl border-2 px-2 py-3 text-center transition-all touch-manipulation ${
                             active
                               ? `${theme.activeBorder} ${theme.activeBg} ${theme.activeText} shadow-sm`
@@ -499,24 +501,42 @@ export default function BookingConfirmationPage() {
                   <Loader2 className="mx-auto h-8 w-8 animate-spin" style={{ color: walletTheme.color }} />
                   <p className="mt-3 text-sm text-brand-dark/55">Loading {walletMethodLabel(activeWallet)} QR…</p>
                 </div>
-              ) : qrObjectUrl ? (
+              ) : qrSrc && !qrBroken ? (
                 <div className="px-3 py-5 sm:p-6 text-center">
                   <p className="text-[10px] font-bold uppercase tracking-widest mb-4" style={{ color: walletTheme.color }}>
                     Scan with {walletMethodLabel(activeWallet)} · ₱{depositDue.toLocaleString()}
                   </p>
                   <img
-                    src={qrObjectUrl}
+                    key={`${qrSrc}-${qrAttempt}-${activeWallet}`}
+                    src={qrSrc}
                     alt={`${walletMethodLabel(activeWallet)} payment QR`}
                     className="mx-auto w-52 h-52 object-contain rounded-xl bg-white p-2 border border-brand-primary/10"
                     referrerPolicy="no-referrer"
+                    onLoad={() => setQrLoading(false)}
+                    onError={handleQrImageError}
                   />
                 </div>
               ) : (
                 <div className="px-5 py-8 text-center">
                   <p className="font-serif text-lg font-bold text-brand-dark">Payment QR unavailable</p>
                   <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
-                    Contact the hotel for deposit instructions, then upload your proof and reference below.
+                    {hotel?.contactNumber
+                      ? `Call the hotel at ${hotel.contactNumber} for payment instructions, then upload your proof and reference below.`
+                      : 'Contact the hotel for payment instructions, then upload your proof and reference below.'}
                   </p>
+                  {hotel?.id && (
+                    <button
+                      type="button"
+                      className="mt-4 text-sm font-bold text-brand-primary underline"
+                      onClick={() => {
+                        setQrBroken(false);
+                        setQrAttempt(0);
+                        setQrSrc(paymentQrProxyUrl(hotel.id, activeWallet, true));
+                      }}
+                    >
+                      Try loading QR again
+                    </button>
+                  )}
                 </div>
               )}
             </div>

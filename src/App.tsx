@@ -8,12 +8,15 @@ import { Loader2 } from 'lucide-react';
 import RootLayout from './components/layout/RootLayout';
 import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
+import RequireAuth from './components/auth/RequireAuth';
 
 // Lazy-load heavier pages for performance
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const HotelDetailPage = lazy(() => import('./pages/HotelDetailPage'));
 const BookingPage = lazy(() => import('./pages/BookingPage'));
 const BookingConfirmationPage = lazy(() => import('./pages/BookingConfirmationPage'));
+const MyTripsPage = lazy(() => import('./pages/MyTripsPage'));
+const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 const DestinationsPage = lazy(() => import('./pages/DestinationsPage'));
 const BecomeMemberPage = lazy(() => import('./pages/BecomeMemberPage'));
 const HelpCenterPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.HelpCenterPage })));
@@ -70,9 +73,33 @@ export default function App() {
         <Route path="/terms" element={<Suspense fallback={<PageLoader />}><TermsOfServicePage /></Suspense>} />
 
         <Route path="/hotels/:hotelId" element={<Suspense fallback={<PageLoader />}><HotelDetailPage /></Suspense>} />
-        <Route path="/booking/:categoryId" element={<Suspense fallback={<PageLoader />}><BookingPage step="details" /></Suspense>} />
-        <Route path="/booking/:categoryId/finish" element={<Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>} />
+        <Route
+          path="/booking/:categoryId"
+          element={(
+            <RequireAuth>
+              <Suspense fallback={<PageLoader />}><BookingPage step="details" /></Suspense>
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/booking/:categoryId/finish"
+          element={(
+            <RequireAuth>
+              <Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>
+            </RequireAuth>
+          )}
+        />
         <Route path="/booking/confirm/:bookingId" element={<Suspense fallback={<PageLoader />}><BookingConfirmationPage /></Suspense>} />
+        <Route
+          path="/trips"
+          element={(
+            <RequireAuth>
+              <Suspense fallback={<PageLoader />}><MyTripsPage /></Suspense>
+            </RequireAuth>
+          )}
+        />
+        <Route path="/my-bookings" element={<Navigate to="/trips" replace />} />
+        <Route path="/auth/callback" element={<Suspense fallback={<PageLoader />}><AuthCallback /></Suspense>} />
 
         <Route path="*" element={<NotFoundPage />} />
       </Route>

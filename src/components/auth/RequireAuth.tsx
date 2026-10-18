@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth, type UserRole } from '../../contexts/AuthContext';
+import { rememberAuthReturn } from '../../lib/authReturn';
 import { useEffect, useState, type ReactNode } from 'react';
 
 interface RequireAuthProps {
@@ -16,6 +17,7 @@ export default function RequireAuth({ children, roles }: RequireAuthProps) {
   const { user, verifyToken } = useAuth();
   const location = useLocation();
   const [checking, setChecking] = useState(!user);
+  const returnTo = `${location.pathname}${location.search}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,11 +48,18 @@ export default function RequireAuth({ children, roles }: RequireAuthProps) {
   }
 
   if (!user) {
-    return <Navigate to="/" replace state={{ openAuthModal: true, from: location.pathname }} />;
+    rememberAuthReturn(returnTo);
+    return (
+      <Navigate
+        to="/"
+        replace
+        state={{ openAuthModal: true, from: returnTo }}
+      />
+    );
   }
 
   if (roles && roles.length > 0 && !roles.includes(user.role)) {
-    return <Navigate to="/dashboard/bookings" replace />;
+    return <Navigate to="/trips" replace />;
   }
 
   return <>{children}</>;

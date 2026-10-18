@@ -1,4 +1,9 @@
-import { qrUrlForPaymentMethod, resolveHotelPaymentQrs, collectPaymentQrCandidates, listAvailableWalletMethods } from '../utils/paymentQr';
+import {
+  qrUrlForPaymentMethod,
+  resolveHotelPaymentQrs,
+  collectPaymentQrCandidates,
+  listAvailableWalletMethods,
+} from '../utils/paymentQr';
 
 describe('resolveHotelPaymentQrs', () => {
   it('reads a single uploaded QR as generic', () => {
@@ -77,5 +82,14 @@ describe('qrUrlForPaymentMethod', () => {
     const qrs = { generic: 'https://cdn.example.com/pay.png' };
     expect(qrUrlForPaymentMethod(qrs, 'gcash')).toBe('https://cdn.example.com/pay.png');
     expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('https://cdn.example.com/pay.png');
+  });
+
+  it('prefers a dedicated wallet QR over generic', () => {
+    const qrs = {
+      gcash: 'payment-qr/gcash.jpg',
+      generic: 'payment-qr/shared.jpg',
+    };
+    expect(qrUrlForPaymentMethod(qrs, 'gcash')).toBe('payment-qr/gcash.jpg');
+    expect(qrUrlForPaymentMethod(qrs, 'maya')).toBe('payment-qr/shared.jpg');
   });
 });

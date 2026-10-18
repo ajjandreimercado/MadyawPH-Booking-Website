@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { ToastProvider } from './components/ui/ToastProvider.tsx';
 import { AuthProvider } from './contexts/AuthContext';
+import { AuthModalProvider } from './contexts/AuthModalContext';
 import { BookingsProvider } from './contexts/BookingsContext';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import './index.css';
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <BookingsProvider>
             <ToastProvider>
-              <App />
+              <AuthModalProvider>
+                <App />
+              </AuthModalProvider>
             </ToastProvider>
           </BookingsProvider>
         </AuthProvider>
