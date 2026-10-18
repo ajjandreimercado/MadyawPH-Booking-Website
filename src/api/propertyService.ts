@@ -41,7 +41,7 @@ export async function fetchHotelById(hotelId: string, options?: { force?: boolea
 
 export async function fetchHotelDetailById(
   hotelId: string,
-  stay?: { checkIn: string; checkOut: string },
+  stay?: { checkIn: string; checkOut: string; adults?: number; children?: number },
 ): Promise<HotelDetailResponse> {
   return fetchHotelDetailByIdApi(hotelId, stay);
 }
