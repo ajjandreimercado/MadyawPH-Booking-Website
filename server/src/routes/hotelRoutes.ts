@@ -32,6 +32,7 @@ import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
 import { findBookedRoomIds, isRoomBookable, parseStayQuery } from '../utils/roomAvailability';
+import { calculateBookingPricing } from '../utils/pricing';
 import {
   buildAmenityRoomClause,
   collectAmenityValues,
@@ -850,8 +851,23 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
     const stats = categoryStats.get(category.id) ?? { totalRooms: 0, availableRooms: 0 };
     const roomsInCategory = serializedRooms.filter((room) => room.categoryId === category.id);
     const sample = roomsInCategory[0];
+    // Price the exact room checkout will book, with the same server formula as POST /bookings.
+    const bookRoomId = firstAvailableRoomByCategory.get(category.id) ?? firstRoomByCategory.get(category.id);
+    const bookRoom = roomsInCategory.find((room) => room.id === bookRoomId);
+    const stayPrice = stay && bookRoom
+      ? calculateBookingPricing({
+        propertyPrice: bookRoom.price,
+        checkInDate: String(req.query.checkIn),
+        checkOutDate: String(req.query.checkOut),
+        adults: Math.min(20, Math.max(1, Number.parseInt(String(req.query.adults ?? '2'), 10) || 2)),
+        children: Math.min(20, Math.max(0, Number.parseInt(String(req.query.children ?? '0'), 10) || 0)),
+        infants: 0,
+        roomType: (bookRoom.type || 'standard-room') as never,
+      })
+      : null;
     return {
       ...category,
+      stayPrice: stayPrice ? { nights: stayPrice.nights, nightlyRate: stayPrice.roomRate, total: stayPrice.totalPrice } : null,
       // Room-type facts from the rooms themselves; badges only when every room has them.
       bedConfiguration: sample?.bedConfiguration,
       maxGuests: sample?.maxGuests,

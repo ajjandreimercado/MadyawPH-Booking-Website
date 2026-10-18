@@ -47,6 +47,13 @@ export interface HotelDetailCategory extends RoomCategory {
   unavailableRooms: number;
   firstAvailableRoomId: string | null;
   fallbackRoomId: string | null;
+  /** Server-priced stay for the requested dates/guests (same formula as booking creation). */
+  stayPrice?: { nights: number; nightlyRate: number; total: number } | null;
+  bedConfiguration?: string;
+  maxGuests?: number;
+  amenities?: string[];
+  freeCancellation?: boolean;
+  breakfastIncluded?: boolean;
 }
 
 export interface HotelDetailResponse {
@@ -427,7 +434,7 @@ export async function fetchHotelById(hotelId: string, options?: { force?: boolea
 /** With a stay, room availability is for those dates; without, today's room status. */
 export async function fetchHotelDetailById(
   hotelId: string,
-  stay?: { checkIn: string; checkOut: string },
+  stay?: { checkIn: string; checkOut: string; adults?: number; children?: number },
 ): Promise<HotelDetailResponse> {
   return cachedQuery(
     cacheKey(['hotel-detail', hotelId, stay ?? null]),

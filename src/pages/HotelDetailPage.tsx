@@ -1,7 +1,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
-import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, ShieldCheck, Calendar, Users, MessageSquareQuote } from 'lucide-react';
+import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, MessageSquareQuote, Clock, IdCard, Wallet } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
@@ -11,7 +11,9 @@ import { useToast } from '../components/ui/ToastProvider';
 import StarRating from '../components/ui/StarRating';
 import { HotelDetailSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
-import { format, addDays } from 'date-fns';
+import { readStay, stayQuery, writeStay } from '../lib/stayParams';
+import StayBar from '../components/booking/StayBar';
+import RoomsAndRates from '../components/booking/RoomsAndRates';
 import { buildGoogleMapsDirectionsUrl, getCurrentPosition, resolveHotelMapsDestination } from '../lib/nearMe';
 import { removeRecentlyViewed, trackRecentlyViewed } from '../lib/recentlyViewed';
 
@@ -20,6 +22,14 @@ const AMENITY_ICONS: Record<string, React.ComponentType<{ className?: string }>>
   parking: ParkingCircle, 'air-conditioning': Wind, bar: Coffee, tv: Tv,
   'beach-access': Waves, spa: Star, kitchen: Utensils, 'airport-shuttle': MapPin,
 };
+
+const SECTIONS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'rooms', label: 'Rooms & Rates' },
+  { id: 'facilities', label: 'Facilities' },
+  { id: 'house-rules', label: 'House Rules' },
+  { id: 'reviews', label: 'Reviews' },
+] as const;
 
 function ImageGallery({
   images,
@@ -103,107 +113,18 @@ function ImageGallery({
   );
 }
 
-function StickyBookingWidget({
-  onBook,
-  categories,
-  checkIn,
-  checkOut,
-  guests,
-  onCheckInChange,
-  onCheckOutChange,
-  onGuestsChange,
-}: {
-  onBook: (cat: HotelDetailCategory, checkIn: string, checkOut: string, guests: number) => void;
-  categories: HotelDetailCategory[];
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  onCheckInChange: (value: string) => void;
-  onCheckOutChange: (value: string) => void;
-  onGuestsChange: (value: number) => void;
-}) {
-  const nights = Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000));
-  const lowestCat = categories.filter(c => c.availableRooms > 0).sort((a, b) => a.defaultPrice - b.defaultPrice)[0];
-
-  return (
-    <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-lg p-6 lg:sticky lg:top-28">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">Starting from</p>
-      {categories.length === 0 ? (
-        <div className="mb-4">
-          <p className="text-xl font-serif font-bold text-brand-dark">Contact for rates</p>
-        </div>
-      ) : (
-        <p className="text-3xl font-serif font-bold text-brand-dark mb-4">
-          ₱{lowestCat ? lowestCat.defaultPrice.toLocaleString() : '...'}<span className="text-sm font-sans text-brand-dark/50">/night</span>
-        </p>
-      )}
-
-      <div className="space-y-3 mb-4">
-        <div>
-          <label className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 block mb-1">Check-in</label>
-          <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-brand-primary/60" />
-            <input type="date" value={checkIn} min={format(new Date(), 'yyyy-MM-dd')}
-              onChange={e => {
-                onCheckInChange(e.target.value);
-                if (e.target.value >= checkOut) onCheckOutChange(format(addDays(new Date(e.target.value), 1), 'yyyy-MM-dd'));
-              }}
-              className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1" />
-          </div>
-        </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 block mb-1">Check-out</label>
-          <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-brand-primary/60" />
-            <input type="date" value={checkOut} min={checkIn ? format(addDays(new Date(checkIn), 1), 'yyyy-MM-dd') : undefined}
-              onChange={e => onCheckOutChange(e.target.value)}
-              className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1" />
-          </div>
-        </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/50 block mb-1">Guests</label>
-          <div className="flex items-center gap-2 border border-brand-primary/20 rounded-xl px-3 py-2">
-            <Users className="w-4 h-4 text-brand-primary/60" />
-            <select value={guests} onChange={e => onGuestsChange(Number(e.target.value))} className="bg-transparent text-sm text-brand-dark font-bold outline-none flex-1">
-              {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} Guest{n !== 1 ? 's' : ''}</option>)}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {lowestCat && (
-        <p className="text-center text-sm font-bold text-brand-dark/60 mb-4">
-          {nights} night{nights !== 1 ? 's' : ''} · Est. <span className="text-brand-primary">₱{(lowestCat.defaultPrice * nights).toLocaleString()}</span>
-        </p>
-      )}
-
-      <button type="button" disabled={!lowestCat}
-        onClick={() => lowestCat && onBook(lowestCat, checkIn, checkOut, guests)}
-        className="w-full btn-primary py-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-        {lowestCat ? 'Reserve Now' : 'No rooms available'}
-      </button>
-      <p className="text-center text-[10px] text-brand-dark/40 font-bold mt-3 flex items-center justify-center gap-1">
-        <ShieldCheck className="w-3.5 h-3.5" /> No hidden fees
-      </p>
-    </div>
-  );
-}
-
 export default function HotelDetailPage() {
   const { hotelId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [, startTransition] = useTransition();
 
-  const [searchParams] = useSearchParams();
-  const urlCheckIn = searchParams.get('checkIn');
-  const urlCheckOut = searchParams.get('checkOut');
-  const urlStayValid = Boolean(urlCheckIn && urlCheckOut && /^\d{4}-\d{2}-\d{2}$/.test(urlCheckIn) && urlCheckOut > urlCheckIn);
-  const [bookCheckIn, setBookCheckIn] = useState(urlStayValid ? urlCheckIn! : format(addDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [bookCheckOut, setBookCheckOut] = useState(urlStayValid ? urlCheckOut! : format(addDays(new Date(), 2), 'yyyy-MM-dd'));
-  const stay = { checkIn: bookCheckIn, checkOut: bookCheckOut };
+  // Dates and guests live in the URL (sticky stay bar), so refresh/share keeps them.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const stay = readStay(searchParams);
+  const detailQuery = { checkIn: stay.checkIn, checkOut: stay.checkOut, adults: stay.adults, children: stay.children };
   const cachedDetail = hotelId
-    ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId, stay]))
+    ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId, detailQuery]))
     : undefined;
   const cachedReviews = hotelId
     ? peekCache<{ data: Review[]; total: number; totalPages: number }>(cacheKey(['reviews', { hotelId }]))
@@ -213,9 +134,9 @@ export default function HotelDetailPage() {
   const [categories, setCategories] = useState<HotelDetailCategory[]>(cachedDetail?.categories ?? []);
   const [reviews, setReviews] = useState<Review[]>(cachedReviews?.data ?? []);
   const [isLoading, setIsLoading] = useState(!cachedDetail);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
-  const [bookGuests, setBookGuests] = useState(2);
 
   // Collect all images across room categories
   const allImages = [
@@ -229,14 +150,16 @@ export default function HotelDetailPage() {
     if (!hotelId) return;
 
     const load = async () => {
-      // Only the first load shows the full-page spinner; date changes refresh in place.
-      if (!peekCache(cacheKey(['hotel-detail', hotelId, stay])) && !hotel) {
+      // Only the first load shows the full-page skeleton; stay changes refresh in place.
+      if (!peekCache(cacheKey(['hotel-detail', hotelId, detailQuery])) && !hotel) {
         setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
       }
       setError(null);
       try {
         const [hotelDetail, reviewData] = await Promise.all([
-          fetchHotelDetailById(hotelId, stay),
+          fetchHotelDetailById(hotelId, detailQuery),
           fetchReviews({ hotelId }).catch(() => ({ data: [], total: 0, totalPages: 0 })),
         ]);
         if (!isActive) return;
@@ -253,13 +176,16 @@ export default function HotelDetailPage() {
           setError(errorMessageFromUnknown(err, 'Unable to load hotel details right now.'));
         }
       } finally {
-        if (isActive) setIsLoading(false);
+        if (isActive) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     };
 
     void load();
     return () => { isActive = false; };
-  }, [hotelId, bookCheckIn, bookCheckOut]);
+  }, [hotelId, stay.checkIn, stay.checkOut, stay.adults, stay.children]);
 
   const openDirections = async () => {
     if (!hotel) return;
@@ -296,13 +222,13 @@ export default function HotelDetailPage() {
     }
   };
 
-  const handleBook = (cat: HotelDetailCategory, checkIn: string, checkOut: string, guests: number) => {
+  const handleReserve = (cat: HotelDetailCategory) => {
     const candidateId = cat.firstAvailableRoomId ?? cat.fallbackRoomId;
     if (!candidateId) {
       showToast({ title: 'No rooms available', description: 'No rooms found for this category.', type: 'info' });
       return;
     }
-    navigate(`/booking/${candidateId}?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}`);
+    navigate(`/booking/${candidateId}?${stayQuery(stay)}`);
   };
 
   if (isLoading && !hotel) {
@@ -321,13 +247,17 @@ export default function HotelDetailPage() {
     );
   }
 
-  const allAmenities = Array.from(new Set(categories.flatMap(c => (c as any).amenities ?? [])));
+  const allAmenities = Array.from(new Set(categories.flatMap(c => c.amenities ?? [])));
+  const anyAvailable = categories.some(c => c.availableRooms > 0);
+  const sectionCard = 'bg-brand-cream rounded-2xl p-5 sm:p-6 border border-brand-primary/10 scroll-mt-40';
 
   return (
-    <div className="bg-brand-background min-h-screen pt-32 pb-20">
+    <div className="bg-brand-background min-h-screen pt-28 pb-28 lg:pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <StayBar stay={stay} onSearch={(next) => setSearchParams((prev) => writeStay(prev, next), { replace: true })} />
+
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+        <div id="overview" className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 scroll-mt-40">
           <div>
             <h1 className="text-3xl font-display font-semibold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
@@ -360,20 +290,20 @@ export default function HotelDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center shrink-0">
-            {categories.some(c => c.availableRooms > 0) ? (
-              <span className="inline-flex items-center gap-2 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 px-4 py-2 text-sm font-bold tracking-wide">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-success animate-pulse" aria-hidden />
-                Rooms available
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-2 rounded-full bg-brand-danger/10 text-brand-danger border border-brand-danger/25 px-4 py-2 text-sm font-bold tracking-wide">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-danger" aria-hidden />
-                Fully booked
-              </span>
-            )}
-          </div>
+          <a href="#rooms" className="btn-primary shrink-0 text-sm px-6 py-3 text-center">
+            {anyAvailable ? 'See availability' : 'No rooms for your dates'}
+          </a>
         </div>
+
+        {/* Section anchors */}
+        <nav aria-label="Hotel sections" className="flex gap-1 overflow-x-auto border-b border-brand-primary/15 mb-6 -mx-4 px-4 sm:mx-0 sm:px-0">
+          {SECTIONS.map((section) => (
+            <a key={section.id} href={`#${section.id}`}
+              className="shrink-0 px-3 py-2.5 text-sm font-bold text-brand-dark/70 hover:text-brand-primary border-b-2 border-transparent hover:border-brand-primary">
+              {section.label}
+            </a>
+          ))}
+        </nav>
 
         {/* Gallery */}
         <div className="mb-8">
@@ -385,147 +315,96 @@ export default function HotelDetailPage() {
           />
         </div>
 
-        {/* Main content + Sidebar */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8">
-          <div className="space-y-8 order-2 lg:order-none">
+        <div className="space-y-8">
+          {/* Rooms & Rates */}
+          <section id="rooms" className={sectionCard} aria-busy={isRefreshing}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+              <h2 className="text-xl font-serif font-bold text-brand-dark">Rooms & Rates</h2>
+              {isRefreshing && (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Updating prices…
+                </span>
+              )}
+            </div>
+            <RoomsAndRates categories={categories} stay={stay} onReserve={handleReserve} />
+          </section>
 
-            {/* Amenities */}
-            {allAmenities.length > 0 && (
-              <section className="bg-brand-cream rounded-2xl p-6 border border-brand-primary/10">
-                <h2 className="text-xl font-serif font-bold text-brand-dark mb-4">Amenities</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {allAmenities.map(amenity => {
-                    const Icon = AMENITY_ICONS[String(amenity).toLowerCase()] ?? Wifi;
-                    return (
-                      <div key={String(amenity)} className="flex items-center gap-2 text-sm font-bold text-brand-dark/70">
-                        <Icon className="w-4 h-4 text-brand-primary" />
-                        <span className="capitalize">{String(amenity).replace(/-/g, ' ')}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+          {/* Facilities */}
+          <section id="facilities" className={sectionCard}>
+            <h2 className="text-xl font-serif font-bold text-brand-dark mb-4">Facilities</h2>
+            {allAmenities.length === 0 ? (
+              <p className="text-sm font-bold text-brand-dark/60">The hotel hasn't listed its facilities yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {allAmenities.map(amenity => {
+                  const Icon = AMENITY_ICONS[String(amenity).toLowerCase()] ?? Wifi;
+                  return (
+                    <div key={String(amenity)} className="flex items-center gap-2 text-sm font-bold text-brand-dark/70">
+                      <Icon className="w-4 h-4 text-brand-primary" />
+                      <span className="capitalize">{String(amenity).replace(/-/g, ' ')}</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
+          </section>
 
-            {/* Room Categories */}
-            <section className="bg-brand-cream rounded-2xl p-6 border border-brand-primary/10">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <h2 className="text-xl font-serif font-bold text-brand-dark">Available Rooms</h2>
-                {categories.some(c => c.availableRooms > 0) && (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 px-3.5 py-1.5 text-xs font-bold tracking-wide">
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-success" aria-hidden />
-                    Rooms available
-                  </span>
-                )}
+          {/* House Rules */}
+          <section id="house-rules" className={sectionCard}>
+            <h2 className="text-xl font-serif font-bold text-brand-dark mb-4">House Rules</h2>
+            <dl className="divide-y divide-brand-primary/10 text-sm">
+              <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
+                <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Clock className="w-4 h-4 text-brand-primary" aria-hidden />Check-in / out</dt>
+                <dd className="text-brand-dark/70 font-bold">Check-in from 2:00 PM · Check-out until 12:00 PM</dd>
               </div>
-              <div className="space-y-4">
-                {categories.length === 0 ? (
-                  <p className="text-sm font-bold text-brand-dark/60">No room categories available.</p>
-                ) : (
-                  categories.map(cat => (
-                    <div key={cat.id} className="border border-brand-primary/10 rounded-xl overflow-hidden">
-                      <div className="flex flex-col md:flex-row">
-                        <div className="md:w-48 h-40 md:h-auto shrink-0">
-                          <img src={cat.imageUrl || NO_PHOTO_SRC} alt={cat.name} className="w-full h-full object-cover" onError={showNoPhoto} />
-                        </div>
-                        <div className="flex-1 p-5 flex flex-col md:flex-row justify-between gap-4">
-                          <div className="flex-1">
-                            <h3 className="font-serif font-bold text-lg text-brand-dark mb-1">{cat.name}</h3>
-                            {cat.description && <p className="text-sm text-brand-dark/60 mb-3 line-clamp-2">{cat.description}</p>}
-                            <div className="flex flex-wrap gap-2 mb-3">
-                              {cat.availableRooms > 0
-                                ? (
-                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-success/10 text-brand-success border border-brand-success/25 text-xs font-bold px-3 py-1.5 tracking-wide">
-                                    Available
-                                  </span>
-                                )
-                                : <span className="inline-flex items-center rounded-full bg-brand-danger/10 text-brand-danger border border-brand-danger/25 text-xs font-bold px-3 py-1.5 tracking-wide">Fully booked</span>
-                              }
-                              {(cat as any).freeCancellation && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-success/10 text-brand-success">Free cancellation</span>}
-                              {(cat as any).breakfastIncluded && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-warning/10 text-brand-warning">🍳 Breakfast included</span>}
-                            </div>
-                            <p className="text-xs font-bold text-brand-dark/50">{cat.totalRooms} total rooms in category</p>
-                          </div>
-                          <div className="flex flex-col items-end justify-between gap-3 min-w-[140px]">
-                            <div className="text-right">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/40">Per night</p>
-                              <p className="text-2xl font-serif font-bold text-brand-primary">₱{cat.defaultPrice.toLocaleString()}</p>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={cat.availableRooms === 0}
-                              onClick={() => handleBook(cat, bookCheckIn, bookCheckOut, bookGuests)}
-                              className="btn-primary text-xs w-full disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {cat.availableRooms > 0 ? `Reserve ${cat.name}` : 'Unavailable'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
+              <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
+                <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><IdCard className="w-4 h-4 text-brand-primary" aria-hidden />Valid ID</dt>
+                <dd className="text-brand-dark/70 font-bold">A valid government ID is required when you book and at check-in.</dd>
               </div>
-            </section>
+              <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
+                <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Wallet className="w-4 h-4 text-brand-primary" aria-hidden />Payment</dt>
+                <dd className="text-brand-dark/70 font-bold">Nothing is charged when you book. After the hotel confirms, you pay the full stay by GCash or Maya QR.</dd>
+              </div>
+            </dl>
+          </section>
 
-
-            {/* Reviews */}
-            <section className="bg-brand-cream rounded-2xl p-6 border border-brand-primary/10">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-serif font-bold text-brand-dark">Guest Reviews</h2>
-                {reviews.length > 0 && (
-                  <div className="flex items-center gap-2 bg-brand-primary text-white px-3 py-1.5 rounded-xl">
-                    <Star className="w-4 h-4 fill-white" />
-                    <span className="font-bold text-sm">{avgRating.toFixed(1)}</span>
-                    <span className="text-xs text-white/70">({reviews.length})</span>
-                  </div>
-                )}
-              </div>
-              {reviews.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 px-4 text-center border-2 border-dashed border-brand-primary/10 rounded-xl bg-brand-background/50">
-                  <div className="w-16 h-16 bg-brand-surface rounded-full flex items-center justify-center mb-4 shadow-sm border border-brand-primary/10">
-                    <MessageSquareQuote className="w-8 h-8 text-brand-secondary" strokeWidth={1.5} />
-                  </div>
-                  <h3 className="text-lg font-serif font-bold text-brand-dark mb-2">Be the first to review</h3>
-                  <p className="text-sm font-bold text-brand-dark/60 max-w-sm mb-6">
-                    This property doesn't have any reviews yet. Book a stay and share your experience with the Madyaw community.
-                  </p>
-                  <button type="button" onClick={() => {
-                    const el = document.querySelector('.sticky');
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  }} className="btn-outline">
-                    Book a stay
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {reviews.map(review => (
-                    <div key={review.id} className="border-b border-brand-primary/10 pb-4 last:border-0 last:pb-0">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-bold text-sm text-brand-dark">{review.authorName}</span>
-                        <StarRating rating={review.rating} size="sm" />
-                      </div>
-                      <p className="text-sm font-bold text-brand-dark/70">{review.comment}</p>
-                    </div>
-                  ))}
+          {/* Reviews */}
+          <section id="reviews" className={sectionCard}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-serif font-bold text-brand-dark">Guest Reviews</h2>
+              {reviews.length > 0 && (
+                <div className="flex items-center gap-2 bg-brand-primary text-white px-3 py-1.5 rounded-xl">
+                  <Star className="w-4 h-4 fill-white" />
+                  <span className="font-bold text-sm">{avgRating.toFixed(1)}</span>
+                  <span className="text-xs text-white/70">({reviews.length})</span>
                 </div>
               )}
-            </section>
-          </div>
-
-          {/* Sticky Sidebar */}
-          <aside className="order-1 lg:order-none">
-            <StickyBookingWidget
-              categories={categories}
-              onBook={handleBook}
-              checkIn={bookCheckIn}
-              checkOut={bookCheckOut}
-              guests={bookGuests}
-              onCheckInChange={setBookCheckIn}
-              onCheckOutChange={setBookCheckOut}
-              onGuestsChange={setBookGuests}
-            />
-          </aside>
+            </div>
+            {reviews.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center border-2 border-dashed border-brand-primary/10 rounded-xl bg-brand-background/50">
+                <div className="w-16 h-16 bg-brand-surface rounded-full flex items-center justify-center mb-4 shadow-sm border border-brand-primary/10">
+                  <MessageSquareQuote className="w-8 h-8 text-brand-secondary" strokeWidth={1.5} />
+                </div>
+                <h3 className="text-lg font-serif font-bold text-brand-dark mb-2">No reviews yet</h3>
+                <p className="text-sm font-bold text-brand-dark/60 max-w-sm mb-6">
+                  Reviews come only from guests who completed a stay here.
+                </p>
+                <a href="#rooms" className="btn-outline">See rooms</a>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reviews.map(review => (
+                  <div key={review.id} className="border-b border-brand-primary/10 pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-sm text-brand-dark">{review.authorName}</span>
+                      <StarRating rating={review.rating} size="sm" />
+                    </div>
+                    <p className="text-sm font-bold text-brand-dark/70">{review.comment}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>
