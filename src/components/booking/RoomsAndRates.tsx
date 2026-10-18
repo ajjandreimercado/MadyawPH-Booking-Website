@@ -4,7 +4,7 @@ import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
 import { describeGuests, peso, stayNights, type Stay } from '../../lib/stayParams';
 
-type SortKey = 'price-asc' | 'price-desc' | 'availability';
+type SortKey = 'price-asc' | 'price-desc';
 
 /** Price for the stay, always from the server (never recalculated here); null when it sent none. */
 function stayTotal(category: HotelDetailCategory): number | null {
@@ -30,7 +30,7 @@ function isBookable(category: HotelDetailCategory, stay: Stay): boolean {
  * One room per reservation, so "Select rooms" is 0 or 1.
  */
 export default function RoomsAndRates({
-  categories,
+  categories: allCategories,
   stay,
   onReserve,
 }: {
@@ -39,6 +39,8 @@ export default function RoomsAndRates({
   onReserve: (category: HotelDetailCategory) => void;
 }) {
   const nights = stayNights(stay);
+  // Client rule: fully booked room types are hidden until a room frees up for these dates.
+  const categories = useMemo(() => allCategories.filter((c) => c.availableRooms > 0), [allCategories]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [freeCancellationOnly, setFreeCancellationOnly] = useState(false);
   const [breakfastOnly, setBreakfastOnly] = useState(false);
@@ -64,7 +66,6 @@ export default function RoomsAndRates({
       // Rooms you can book always come first.
       const bookable = Number(isBookable(b, stay)) - Number(isBookable(a, stay));
       if (bookable !== 0) return bookable;
-      if (sort === 'availability') return b.availableRooms - a.availableRooms;
       const diff = (stayTotal(a) ?? Infinity) - (stayTotal(b) ?? Infinity);
       return sort === 'price-desc' ? -diff : diff;
     });
@@ -72,8 +73,15 @@ export default function RoomsAndRates({
 
   const selected = categories.find((c) => c.id === selectedId && isBookable(c, stay)) ?? null;
 
-  if (categories.length === 0) {
+  if (allCategories.length === 0) {
     return <p className="text-sm font-bold text-brand-dark/60">This hotel has no rooms listed yet.</p>;
+  }
+  if (categories.length === 0) {
+    return (
+      <p className="text-sm font-bold text-brand-dark/60 py-8 text-center border border-dashed border-brand-primary/20 rounded-xl">
+        No rooms are available for your dates. Try different dates in the bar above.
+      </p>
+    );
   }
 
   const chip = (active: boolean) => `px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ${
@@ -111,7 +119,6 @@ export default function RoomsAndRates({
             className="ml-auto px-3 py-1.5 rounded-full border border-brand-primary/25 text-xs font-bold text-brand-dark bg-white">
             <option value="price-asc">Price: lowest first</option>
             <option value="price-desc">Price: highest first</option>
-            <option value="availability">Most rooms available</option>
           </select>
         </div>
 
@@ -166,9 +173,8 @@ export default function RoomsAndRates({
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
                     {category.freeCancellation && <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Free cancellation</p>}
                     <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />No payment until the hotel confirms</p>
-                    {category.availableRooms > 0 && category.availableRooms <= 3 && (
-                      <p className="text-brand-danger">Only {category.availableRooms} left for your dates</p>
-                    )}
+                    {/* Client rule: always this wording, whatever the real count. */}
+                    <p className="text-brand-danger">Only 1 room available</p>
                   </div>
 
                   {/* Select rooms */}
@@ -185,9 +191,7 @@ export default function RoomsAndRates({
                       </select>
                     ) : (
                       <p className="text-xs font-bold text-brand-danger">
-                        {category.availableRooms === 0
-                          ? 'Not available for your dates'
-                          : !fitsParty(category, stay) ? `Fits up to ${category.maxGuests} guests` : 'Price unavailable'}
+                        {!fitsParty(category, stay) ? `Fits up to ${category.maxGuests} guests` : 'Price unavailable'}
                       </p>
                     )}
                   </div>

@@ -107,13 +107,10 @@ function HotelCard({
             </button>
           </>
         )}
-        {hotel.availableRooms > 0 ? (
+        {/* Client rule: same fixed wording as the hotel page; fully booked hotels are not listed. */}
+        {hotel.availableRooms > 0 && (
           <span className="absolute top-3 left-3 px-2 py-1 bg-brand-success/90 text-white text-[10px] font-bold uppercase tracking-wider rounded-full">
-            {hotel.availableRooms} rooms left
-          </span>
-        ) : (
-          <span className="absolute top-3 left-3 px-2 py-1 bg-brand-danger/90 text-white text-[10px] font-bold uppercase tracking-wider rounded-full">
-            Fully booked
+            Only 1 room available
           </span>
         )}
         <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-brand-dark/80 text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
