@@ -279,6 +279,16 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
       return;
     }
+    const amountDue = Number(quote?.totalPrice ?? 0);
+    if (!quote || quoteLoading || quoteError || !quote.available || !(amountDue > 0)) {
+      showToast({
+        title: 'Price not ready',
+        description: quoteError
+          ?? 'We could not get the stay total yet. Wait a moment or go back and pick the room again.',
+        type: 'error',
+      });
+      return;
+    }
     if (!paymentProofFile || paymentRef.length < 6) {
       showToast({ title: 'Upload your payment screenshot and enter the reference number', type: 'error' });
       return;
@@ -308,7 +318,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         validIdFile,
         paymentProofFile,
         paymentTransactionRef: paymentRef,
-        paymentProofAmountClaimed: quote?.totalPrice,
+        // Same total shown in the sidebar — guests do not type an amount.
+        paymentProofAmountClaimed: amountDue,
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         specialRequests: buildSpecialRequests(draft, validIdFile.name),
       });
@@ -342,7 +353,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   }
 
   const roomLabel = category.name;
-  const quoteBlocksBooking = !quote || Boolean(quoteError) || !quote.available;
+  const quoteBlocksBooking = !quote || Boolean(quoteError) || !quote.available || !(Number(quote.totalPrice) > 0);
 
   return (
     <div className="min-h-screen bg-brand-background pt-28 pb-20">

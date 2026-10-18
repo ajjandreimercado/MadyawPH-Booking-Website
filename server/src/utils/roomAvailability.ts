@@ -118,14 +118,17 @@ export function manilaToday(now: Date = new Date()): string {
 }
 
 /**
- * Order rooms of one type for automatic assignment: cheapest first, then lowest room number.
- * The hotel page prices the first bookable room in this order, and booking assigns that same
- * room, so the guest pays the price they saw.
+ * Order rooms of one type for automatic assignment: priced rooms first (cheapest), then
+ * lowest room number. Unpriced (₱0 / missing) rooms sort last so checkout never quotes ₱0
+ * when another room of the same type has a real rate.
  */
 export function compareRoomsForAssignment(
   a: { price: number; roomNumber?: string },
   b: { price: number; roomNumber?: string },
 ): number {
+  const aPriced = Number(a.price) > 0;
+  const bPriced = Number(b.price) > 0;
+  if (aPriced !== bPriced) return aPriced ? -1 : 1;
   if (a.price !== b.price) return a.price - b.price;
   return String(a.roomNumber ?? '').localeCompare(String(b.roomNumber ?? ''), undefined, { numeric: true });
 }

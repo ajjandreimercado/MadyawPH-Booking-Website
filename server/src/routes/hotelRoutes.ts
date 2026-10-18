@@ -861,9 +861,12 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
     const bookRoom = roomsInCategory
       .filter(roomIsFree)
       .sort((a, b) => compareRoomsForAssignment(a, b))[0];
-    const stayPrice = stay && bookRoom
+    const nightly = bookRoom && Number(bookRoom.price) > 0
+      ? Number(bookRoom.price)
+      : Number(category.defaultPrice ?? 0);
+    const stayPrice = stay && bookRoom && nightly > 0
       ? calculateBookingPricing({
-        propertyPrice: bookRoom.price,
+        propertyPrice: nightly,
         checkInDate: String(req.query.checkIn),
         checkOutDate: String(req.query.checkOut),
         adults: Math.min(20, Math.max(1, Number.parseInt(String(req.query.adults ?? '2'), 10) || 2)),
