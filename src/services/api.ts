@@ -97,6 +97,8 @@ export interface BookingCreatePayload {
   paymentTransactionRef?: string;
   /** Amount guest claims they paid (defaults to deposit due). */
   paymentProofAmountClaimed?: number;
+  /** Estimated arrival, HH:mm — saved to the hotel app's check-in time. */
+  arrivalTime?: string;
 }
 
 export interface BookingUpdatePayload {
@@ -323,6 +325,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.discountReason) form.append('discountReason', payload.discountReason);
   if (payload.discountAmount != null) form.append('discountAmount', String(payload.discountAmount));
   if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
+  if (payload.arrivalTime) form.append('arrivalTime', payload.arrivalTime);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);

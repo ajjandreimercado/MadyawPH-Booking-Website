@@ -91,6 +91,10 @@ export function buildExternalReservationDoc(input: {
   paymentProofAmountClaimed?: number;
   paymentProofExpectedAmount?: number;
   paymentProofVerified?: boolean;
+  /** Guest's estimated arrival (HH:mm) — the hotel app reads metadata.check_in_time. */
+  checkInTime?: string;
+  /** Link the hotel app opens for the guest's valid ID — it reads metadata.guest_id_url. */
+  guestIdUrl?: string;
 }) {
   const now = input.now ?? new Date();
   const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
@@ -147,6 +151,8 @@ export function buildExternalReservationDoc(input: {
     rooms: 1,
     adults: input.adults,
     children: input.children ?? 0,
+    ...(input.checkInTime ? { check_in_time: input.checkInTime } : {}),
+    ...(input.guestIdUrl ? { guest_id_url: input.guestIdUrl } : {}),
   };
 
   return {

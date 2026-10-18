@@ -363,7 +363,7 @@ export default function HotelDetailPage() {
               </div>
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Wallet className="w-4 h-4 text-brand-primary" aria-hidden />Payment</dt>
-                <dd className="text-brand-dark/70 font-bold">Nothing is charged when you book. After the hotel confirms, you pay the full stay by GCash or Maya QR.</dd>
+                <dd className="text-brand-dark/70 font-bold">You pay the full stay when you book, by scanning the hotel's GCash or Maya QR. The hotel checks your payment and confirms your stay.</dd>
               </div>
             </dl>
           </section>

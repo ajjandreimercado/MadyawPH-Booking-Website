@@ -118,7 +118,10 @@ const bookingSchema = new Schema(
     // Hotel app schedule/queue reads Date fields (same pattern as external_reservations).
     check_in_date: { type: Date },
     check_out_date: { type: Date },
+    // Hotel app field: the guest's estimated arrival (HH:mm) for website bookings.
     check_in_time: { type: String, default: '14:00' },
+    // Hotel app field: link it opens to show the guest's valid ID.
+    guest_id_url: { type: String },
     check_out_time: { type: String, default: '12:00' },
     adults: { type: Number, default: 1 },
     children: { type: Number, default: 0 },

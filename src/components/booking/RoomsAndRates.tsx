@@ -172,7 +172,7 @@ export default function RoomsAndRates({
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
                     {category.freeCancellation && <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Free cancellation</p>}
-                    <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />No payment until the hotel confirms</p>
+                    <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Pay by GCash or Maya QR</p>
                     {/* Client rule: always this wording, whatever the real count. */}
                     <p className="text-brand-danger">Only 1 room available</p>
                   </div>
@@ -260,7 +260,7 @@ function ReserveSummary({
       {button}
       <p className="flex items-start gap-1.5 text-[11px] font-bold text-brand-dark/55">
         <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-brand-success" aria-hidden />
-        You won't be charged yet — you pay only after the hotel confirms.
+        Next: your details, then pay by the hotel's GCash or Maya QR.
       </p>
     </div>
   );

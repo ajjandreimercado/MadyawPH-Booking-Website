@@ -289,7 +289,7 @@ export default function HomePage() {
         <section className="fluid-card-grid">
           {[
             { icon: <ShieldCheck className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Secure Booking', desc: 'Your details travel over an encrypted (HTTPS) connection and go only to the hotel you book.' },
-            { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Pay with E-Wallets', desc: 'Pay by scanning the hotel’s GCash or Maya QR once your stay is confirmed.' },
+            { icon: <CreditCard className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Pay with E-Wallets', desc: 'Pay by scanning the hotel’s own GCash or Maya QR when you book, then upload your receipt.' },
             { icon: <MessageSquareQuote className="w-8 h-8 text-brand-primary" strokeWidth={1.5} />, title: 'Verified Reviews', desc: 'Only guests who completed a stay can leave a review — one per stay.' },
           ].map(item => (
             <div key={item.title} className="bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-8 flex flex-col items-start hover:shadow-luxury-hover transition-shadow">

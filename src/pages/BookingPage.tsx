@@ -16,8 +16,10 @@ import { cacheKey, peekCache } from '../lib/queryCache';
 import { errorMessageFromUnknown } from '../lib/apiError';
 import { describeGuests, formatStayDate, peso, readStay, stayQuery } from '../lib/stayParams';
 import {
-  buildSpecialRequests, clearDraft, getValidId, loadDraft, saveDraft, setValidId, type CheckoutDraft,
+  ARRIVAL_SLOTS, arrivalLabel, buildSpecialRequests, clearDraft, getPaymentProof, getValidId, loadDraft, saveDraft,
+  setPaymentProof, setValidId, type CheckoutDraft,
 } from '../lib/checkoutDraft';
+import PayByQr from '../components/booking/PayByQr';
 import CheckoutSummary, { CheckoutProgress } from '../components/booking/CheckoutSummary';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
@@ -57,12 +59,6 @@ const BOOKING_DISCOUNT_OPTIONS = [
     value: opt.value,
     label: opt.value === 'pwd' ? 'PWD — 20% off' : 'Senior Citizen — 20% off',
   })),
-];
-
-const ARRIVAL_TIMES = [
-  '2:00 PM – 3:00 PM', '3:00 PM – 4:00 PM', '4:00 PM – 5:00 PM', '5:00 PM – 6:00 PM',
-  '6:00 PM – 7:00 PM', '7:00 PM – 8:00 PM', '8:00 PM – 9:00 PM', '9:00 PM – 10:00 PM',
-  '10:00 PM – 11:00 PM', '11:00 PM – 12:00 AM', 'After midnight',
 ];
 
 const VALID_ID_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
@@ -116,6 +112,13 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     setValidId(categoryId, file);
     setValidIdFileState(file);
   };
+  const [paymentProofFile, setPaymentProofState] = useState<File | null>(() => getPaymentProof(categoryId));
+  const changePaymentProof = (file: File | null) => {
+    setPaymentProof(categoryId, file);
+    setPaymentProofState(file);
+  };
+  const paymentRef = draft.paymentRef.replace(/\s+/g, '');
+  const paymentReady = Boolean(paymentProofFile) && paymentRef.length >= 6;
 
   const [promoDiscountAmt, setPromoDiscountAmt] = useState(0);
   const [promoStatus, setPromoStatus] = useState<string | null>(null);
@@ -272,6 +275,10 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
       return;
     }
+    if (!paymentProofFile || paymentRef.length < 6) {
+      showToast({ title: 'Upload your payment screenshot and enter the reference number', type: 'error' });
+      return;
+    }
     if (!agreed) {
       showToast({ title: 'Please agree to the Terms and Privacy Policy', type: 'error' });
       return;
@@ -295,6 +302,10 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         promoCode: appliedPromo,
         membershipId: appliedMember,
         validIdFile,
+        paymentProofFile,
+        paymentTransactionRef: paymentRef,
+        paymentProofAmountClaimed: quote?.totalPrice,
+        arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         specialRequests: buildSpecialRequests(draft, validIdFile.name),
       });
       appendBooking(booking);
@@ -382,7 +393,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     <ReviewItem label="Nationality" value={draft.nationality} />
                     {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
                     <ReviewItem label="Valid ID" value={validIdFile?.name ?? ''} />
-                    {draft.arrivalTime && <ReviewItem label="Estimated arrival" value={draft.arrivalTime} />}
+                    {draft.arrivalTime && <ReviewItem label="Estimated arrival" value={arrivalLabel(draft.arrivalTime) || draft.arrivalTime} />}
                     {draft.specialRequests.trim() && <ReviewItem label="Special requests" value={draft.specialRequests.trim()} />}
                     {discountReason && <ReviewItem label="Discount" value={discountReason === 'pwd' ? 'PWD (ID checked at check-in)' : 'Senior citizen (ID checked at check-in)'} />}
                     {appliedPromo && <ReviewItem label="Promo code" value={appliedPromo} />}
@@ -402,14 +413,16 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 </Card>
 
                 <Card>
-                  <h2 className="text-lg font-bold text-brand-dark mb-2 flex items-center gap-2"><Wallet className="w-5 h-5 text-brand-primary" aria-hidden />How you'll pay</h2>
-                  <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
-                    <p className="font-bold text-brand-dark">Pay after the hotel confirms — GCash or Maya QR</p>
-                    <p className="mt-1 text-sm text-brand-dark/65">
-                      You won't be charged today. When the hotel confirms, we email you a secure link to pay
-                      {quote ? ` the full ${peso(quote.dueAfterConfirmation)}` : ' the full stay'} by scanning the hotel's QR and uploading your receipt.
-                    </p>
-                  </div>
+                  <h2 className="text-lg font-bold text-brand-dark mb-4 flex items-center gap-2"><Wallet className="w-5 h-5 text-brand-primary" aria-hidden />Pay for your stay</h2>
+                  <PayByQr
+                    hotelId={category.hotelId}
+                    amount={quote?.totalPrice ?? null}
+                    file={paymentProofFile}
+                    onFile={changePaymentProof}
+                    reference={draft.paymentRef}
+                    onReference={(value) => update({ paymentRef: value })}
+                    onError={(title) => showToast({ title, type: 'error' })}
+                  />
                 </Card>
 
                 <Card>
@@ -417,14 +430,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-primary" />
                     <span>
                       I agree to the <Link to="/terms" target="_blank" className="text-brand-primary underline">Terms of Service</Link> and{' '}
-                      <Link to="/privacy" target="_blank" className="text-brand-primary underline">Privacy Policy</Link>, and I understand this is a reservation
-                      request that the hotel must confirm.
+                      <Link to="/privacy" target="_blank" className="text-brand-primary underline">Privacy Policy</Link>, and I understand the hotel confirms
+                      my stay after checking my payment.
                     </span>
                   </label>
                   <button
                     id="booking-submit"
                     type="button"
-                    disabled={isSubmitting || !agreed || quoteBlocksBooking}
+                    disabled={isSubmitting || !agreed || !paymentReady || quoteBlocksBooking}
                     onClick={() => void completeBooking()}
                     className="mt-4 btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2 py-4 text-base"
                   >
@@ -432,7 +445,9 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                       ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending your request…</>
                       : <><ShieldCheck className="w-5 h-5" /> Complete booking</>}
                   </button>
-                  <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">No payment is taken now.</p>
+                  {!paymentReady && (
+                    <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">Upload your payment screenshot and reference number above to continue.</p>
+                  )}
                 </Card>
               </>
             )}
@@ -618,11 +633,11 @@ function DetailsStep({
         <div className="relative">
           <select id="booking-arrival" value={draft.arrivalTime} onChange={e => update({ arrivalTime: e.target.value })} className="input-field appearance-none !pr-10">
             <option value="">I don't know yet</option>
-            {ARRIVAL_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+            {ARRIVAL_SLOTS.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
           </select>
           <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
         </div>
-        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM.</p>
+        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM. The hotel sees this time with your booking.</p>
       </section>
 
       <section>

@@ -92,6 +92,8 @@ jest.mock('../data/mongoModels', () => ({
   RoomCategoryModel: { find: jest.fn(), findById: jest.fn() },
   ExternalReservationModel: {
     create: jest.fn().mockResolvedValue({}),
+    find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
     updateMany: jest.fn().mockResolvedValue({ acknowledged: true }),
     countDocuments: jest.fn().mockResolvedValue(0),
   },
@@ -212,14 +214,20 @@ describe('POST /api/bookings', () => {
     'base64',
   );
 
+  /** Guests pay by QR when they book, so a booking carries the ID and the payment screenshot. */
   function postBooking(
     fields: Record<string, string | number> = VALID_PAYLOAD,
     withId = true,
+    withProof = true,
   ) {
     let req = request(app).post('/api/bookings');
     Object.entries(fields).forEach(([key, value]) => {
       req = req.field(key, String(value));
     });
+    if (withProof) {
+      req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
+      req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
+    }
     if (withId) {
       req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
     }
@@ -262,7 +270,7 @@ describe('POST /api/bookings', () => {
       discountReason: 'pwd',
     });
     expect(quote.status).toBe(200);
-    expect(quote.body).toMatchObject({ available: true, nights: 4, dueNow: 0, taxesIncluded: true });
+    expect(quote.body).toMatchObject({ available: true, nights: 4, dueAfterConfirmation: 0, taxesIncluded: true });
     expect(quote.body.discountAmount).toBeGreaterThan(0);
 
     const res = await postBooking({ ...VALID_PAYLOAD, discountReason: 'pwd' });
@@ -270,7 +278,8 @@ describe('POST /api/bookings', () => {
     const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
     expect(created.totalPrice).toBe(quote.body.totalPrice);
-    expect(quote.body.dueAfterConfirmation).toBe(quote.body.totalPrice);
+    // Guests pay the full total by QR when they book.
+    expect(quote.body.dueNow).toBe(quote.body.totalPrice);
   });
 
   describe('booking a room type (categoryId)', () => {
@@ -387,28 +396,41 @@ describe('POST /api/bookings', () => {
     }
   });
 
-  it('ignores create-time payment proof (pay after hotel confirmation)', async () => {
-    let req = request(app).post('/api/bookings');
-    Object.entries(VALID_PAYLOAD).forEach(([key, value]) => {
-      req = req.field(key, String(value));
-    });
-    req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
-    req = req.attach('validId', TINY_PNG, { filename: 'id.png', contentType: 'image/png' });
-    req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
-    const res = await req;
-    expect([201, 409]).toContain(res.status);
-    if (res.status !== 201) return;
+  it('stores the payment screenshot, ID link and arrival time for the hotel app', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, arrivalTime: '15:00' });
+    expect(res.status).toBe(201);
 
     const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
-    expect(created.payment_proof_stored).toBe(false);
+    expect(created.check_in_time).toBe('15:00');
+    // Not paid until hotel staff verify the screenshot.
     expect(created.payment_status).toBe('unpaid');
-    expect(created.amount_paid).toBe(0);
 
-    const { BookingPaymentProofModel } = jest.requireMock('../data/mongoModels') as {
+    const mocks = jest.requireMock('../data/mongoModels') as {
       BookingPaymentProofModel: { findOneAndUpdate: jest.Mock };
+      ExternalReservationModel: { create: jest.Mock };
     };
-    expect(BookingPaymentProofModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mocks.BookingPaymentProofModel.findOneAndUpdate).toHaveBeenCalled();
+    const meta = JSON.parse(mocks.ExternalReservationModel.create.mock.calls[0][0].metadata);
+    expect(meta.check_in_time).toBe('15:00');
+    expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?sig=[0-9a-f]{64}$/);
+
+    const proofUpdate = (MockBookingModel.updateOne as jest.Mock).mock.calls
+      .map((call) => call[1]?.$set)
+      .find((set) => set?.payment_proof_stored);
+    expect(proofUpdate).toMatchObject({ payment_transaction_ref: 'GCASH-ABC12345', payment_proof_verified: false });
+  });
+
+  it('returns 400 without the payment screenshot', async () => {
+    const res = await postBooking(VALID_PAYLOAD, true, false);
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/screenshot/i);
+    expect(MockBookingModel.create).not.toHaveBeenCalled();
+  });
+
+  it('serves the ID only with a valid signed link', async () => {
+    const res = await request(app).get('/api/bookings/booking-001/files/valid-id?sig=deadbeef');
+    expect(res.status).toBe(403);
   });
 
   it('returns 400 when Valid ID is missing', async () => {
