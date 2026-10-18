@@ -88,7 +88,9 @@ function resolveServerDiscount(
   }
 
   const serverDiscount = Math.round(pricingTotal * 0.2);
-  const requested = Number(clientDiscountAmount ?? 0);
+  // No client amount (e.g. /quote) → the full server-side 20%; a client amount can only lower it.
+  if (clientDiscountAmount === undefined) return serverDiscount;
+  const requested = Number(clientDiscountAmount);
 
   if (!Number.isFinite(requested) || requested < 0) {
     return serverDiscount;
@@ -252,6 +254,190 @@ bookingRoutes.get('/availability', availabilityLimiter, async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to check availability.';
     return res.status(400).json({ message });
+  }
+});
+
+class QuoteError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+interface StayQuoteInput {
+  roomPrice: number;
+  checkInDate: string;
+  checkOutDate: string;
+  adults: number;
+  children: number;
+  infants: number;
+  roomType: string;
+  discountReason?: string;
+  discountAmount?: number;
+  promoCode?: string;
+  membershipId?: string;
+}
+
+type StayQuote = Awaited<ReturnType<typeof priceStay>>;
+
+/**
+ * The one place a stay is priced: room total, then the largest single discount among
+ * PWD/senior, promo code and Madyaw member. Used by POST / (create) and POST /quote,
+ * so the price a guest sees at checkout is the price the booking is saved with.
+ */
+async function priceStay(input: StayQuoteInput) {
+  let pricing;
+  try {
+    pricing = calculateBookingPricing({
+      propertyPrice: input.roomPrice,
+      checkInDate: input.checkInDate,
+      checkOutDate: input.checkOutDate,
+      adults: input.adults,
+      children: input.children,
+      infants: input.infants,
+      roomType: input.roomType as never,
+    });
+  } catch (error) {
+    throw new QuoteError(400, error instanceof Error ? error.message : 'Invalid booking dates.');
+  }
+
+  const canonicalDiscountReason = normalizeDiscountReason(input.discountReason);
+  const eligibilityDiscount = resolveServerDiscount(
+    canonicalDiscountReason,
+    pricing.totalPrice,
+    input.discountAmount,
+  );
+
+  let promoDiscount = 0;
+  let promoCode = '';
+  try {
+    const promo = await resolvePromoDiscount(input.promoCode, pricing.totalPrice);
+    promoDiscount = promo.discountAmount;
+    promoCode = promo.code;
+  } catch (error) {
+    throw new QuoteError(400, error instanceof Error ? error.message : 'Invalid promo code.');
+  }
+
+  let memberDiscount = 0;
+  let membershipId = '';
+  let memberDiscountPercent = 0;
+  const rawMembershipId = input.membershipId?.trim() ?? '';
+  if (rawMembershipId) {
+    const member = await resolveMemberDiscount(rawMembershipId, pricing.totalPrice);
+    if (!member.valid) {
+      throw new QuoteError(400, member.message || 'Invalid membership ID.');
+    }
+    memberDiscount = member.discountAmount;
+    membershipId = member.membershipId;
+    memberDiscountPercent = member.discountPercent;
+  }
+
+  // Apply the largest single discount among PWD/senior, promo, and Madyaw member.
+  const resolvedDiscount = Math.min(
+    pricing.totalPrice,
+    Math.max(eligibilityDiscount, promoDiscount, memberDiscount),
+  );
+  let finalDiscountReason = canonicalDiscountReason ?? '';
+  let finalDiscountType = canonicalDiscountReason ?? '';
+  let finalDiscountValue = canonicalDiscountReason ? 20 : 0;
+  if (memberDiscount >= eligibilityDiscount && memberDiscount >= promoDiscount && membershipId) {
+    finalDiscountReason = 'madyaw member';
+    finalDiscountType = 'member';
+    finalDiscountValue = memberDiscountPercent;
+  } else if (promoDiscount >= eligibilityDiscount && promoCode) {
+    finalDiscountReason = `promo:${promoCode}`;
+    finalDiscountType = 'promo';
+    finalDiscountValue = 0;
+  }
+  const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
+
+  return {
+    pricing,
+    resolvedDiscount,
+    promoCode,
+    membershipId,
+    finalDiscountReason,
+    finalDiscountType,
+    finalDiscountValue,
+    finalTotalPrice,
+  };
+}
+
+// ─── POST /quote ──────────────────────────────────────────────────────────────
+// Read-only price + availability for checkout. Creates nothing; same pricing as POST /.
+
+bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
+  const body = pickFields(req.body ?? {}, [
+    'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
+    'roomType', 'discountReason', 'promoCode', 'membershipId',
+  ] as const);
+
+  const propertyIdResult = validateId(body.propertyId, 'Room');
+  if (!propertyIdResult.ok) return res.status(400).json({ message: propertyIdResult.message });
+  const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
+  if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
+  const checkOutResult = validateString(body.checkOutDate, 'Check-out date', 1, 30);
+  if (!checkOutResult.ok) return res.status(400).json({ message: checkOutResult.message });
+  const checkIn = new Date(checkInResult.value);
+  const checkOut = new Date(checkOutResult.value);
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || checkOut <= checkIn) {
+    return res.status(400).json({ message: USER_MESSAGES.invalidDates });
+  }
+  const adultsResult = validateInteger(Number(body.adults ?? 1), 'Adults', 1, 20);
+  if (!adultsResult.ok) return res.status(400).json({ message: adultsResult.message });
+  const childrenResult = validateOptionalInteger(
+    body.children === undefined || body.children === '' ? undefined : Number(body.children), 'Children', 0, 20, 0,
+  );
+  if (!childrenResult.ok) return res.status(400).json({ message: childrenResult.message });
+  const infantsResult = validateOptionalInteger(
+    body.infants === undefined || body.infants === '' ? undefined : Number(body.infants), 'Infants', 0, 10, 0,
+  );
+  if (!infantsResult.ok) return res.status(400).json({ message: infantsResult.message });
+  const roomTypeResult = validateString(body.roomType ?? 'standard-room', 'Room type', 1, 100);
+  if (!roomTypeResult.ok) return res.status(400).json({ message: roomTypeResult.message });
+  const discountReasonResult = validateOptionalString(body.discountReason, 'Discount reason', 80);
+  if (!discountReasonResult.ok) return res.status(400).json({ message: discountReasonResult.message });
+  const promoCodeResult = validateOptionalString(body.promoCode, 'Promo code', 50);
+  if (!promoCodeResult.ok) return res.status(400).json({ message: promoCodeResult.message });
+  const membershipIdResult = validateOptionalString(body.membershipId, 'Membership ID', 40);
+  if (!membershipIdResult.ok) return res.status(400).json({ message: membershipIdResult.message });
+
+  const property = await PropertyModel.findById(propertyIdResult.value)
+    .select({ price_per_night: 1 })
+    .lean();
+  if (!property) return res.status(404).json({ message: 'Room not found.' });
+
+  try {
+    const quote = await priceStay({
+      roomPrice: property.price_per_night,
+      checkInDate: checkInResult.value,
+      checkOutDate: checkOutResult.value,
+      adults: adultsResult.value,
+      children: childrenResult.value,
+      infants: infantsResult.value,
+      roomType: roomTypeResult.value,
+      discountReason: discountReasonResult.value ?? undefined,
+      promoCode: promoCodeResult.value ?? undefined,
+      membershipId: membershipIdResult.value ?? undefined,
+    });
+    const available = !(await hasBookingOverlap(propertyIdResult.value, checkInResult.value, checkOutResult.value));
+    return res.json({
+      available,
+      nights: quote.pricing.nights,
+      roomRate: quote.pricing.roomRate,
+      stayPrice: quote.pricing.totalPrice,
+      discountAmount: quote.resolvedDiscount,
+      discountType: quote.finalDiscountType,
+      discountReason: quote.finalDiscountReason,
+      totalPrice: quote.finalTotalPrice,
+      // Website stays are paid in full online after the hotel confirms; nothing is due now.
+      dueNow: 0,
+      dueAfterConfirmation: computeOnlinePaymentDue(quote.finalTotalPrice, 'full').amountDue,
+      taxesIncluded: true,
+    });
+  } catch (error) {
+    const status = error instanceof QuoteError ? error.status : 400;
+    const message = error instanceof Error ? error.message : 'Unable to price this stay.';
+    return res.status(status).json({ message });
   }
 });
 
@@ -533,21 +719,25 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   // Website reservations always require full stay payment after hotel confirmation.
   const paymentMode = 'full' as const;
 
-  let pricing;
-
+  let quote: StayQuote;
   try {
-    pricing = calculateBookingPricing({
-      propertyPrice: property.price_per_night,
+    quote = await priceStay({
+      roomPrice: property.price_per_night,
       checkInDate: checkInResult.value,
       checkOutDate: checkOutResult.value,
       adults: adultsResult.value,
       children: childrenResult.value,
       infants: infantsResult.value,
-      roomType: roomTypeResult.value as never,
+      roomType: roomTypeResult.value,
+      discountReason: discountReasonResult.value ?? undefined,
+      discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
+      promoCode: promoCodeResult.value ?? undefined,
+      membershipId: membershipIdResult.value ?? undefined,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid booking dates.';
-    return res.status(400).json({ message });
+    const status = error instanceof QuoteError ? error.status : 400;
+    const message = error instanceof Error ? error.message : 'Invalid booking details.';
+    return res.status(status).json({ message });
   }
 
   try {
@@ -560,56 +750,16 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   }
 
   const createdAt = new Date();
-  const canonicalDiscountReason = normalizeDiscountReason(discountReasonResult.value ?? undefined);
-  const eligibilityDiscount = resolveServerDiscount(
-    canonicalDiscountReason,
-    pricing.totalPrice,
-    discountAmountResult.value,
-  );
-
-  let promoDiscount = 0;
-  let promoCode = '';
-  try {
-    const promo = await resolvePromoDiscount(promoCodeResult.value ?? undefined, pricing.totalPrice);
-    promoDiscount = promo.discountAmount;
-    promoCode = promo.code;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid promo code.';
-    return res.status(400).json({ message });
-  }
-
-  let memberDiscount = 0;
-  let membershipId = '';
-  let memberDiscountPercent = 0;
-  const rawMembershipId = membershipIdResult.value?.trim() ?? '';
-  if (rawMembershipId) {
-    const member = await resolveMemberDiscount(rawMembershipId, pricing.totalPrice);
-    if (!member.valid) {
-      return res.status(400).json({ message: member.message || 'Invalid membership ID.' });
-    }
-    memberDiscount = member.discountAmount;
-    membershipId = member.membershipId;
-    memberDiscountPercent = member.discountPercent;
-  }
-
-  // Apply the largest single discount among PWD/senior, promo, and Madyaw member.
-  const resolvedDiscount = Math.min(
-    pricing.totalPrice,
-    Math.max(eligibilityDiscount, promoDiscount, memberDiscount),
-  );
-  let finalDiscountReason = canonicalDiscountReason ?? '';
-  let finalDiscountType = canonicalDiscountReason ?? '';
-  let finalDiscountValue = canonicalDiscountReason ? 20 : 0;
-  if (memberDiscount >= eligibilityDiscount && memberDiscount >= promoDiscount && membershipId) {
-    finalDiscountReason = 'madyaw member';
-    finalDiscountType = 'member';
-    finalDiscountValue = memberDiscountPercent;
-  } else if (promoDiscount >= eligibilityDiscount && promoCode) {
-    finalDiscountReason = `promo:${promoCode}`;
-    finalDiscountType = 'promo';
-    finalDiscountValue = 0;
-  }
-  const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
+  const {
+    pricing,
+    resolvedDiscount,
+    promoCode,
+    membershipId,
+    finalDiscountReason,
+    finalDiscountType,
+    finalDiscountValue,
+    finalTotalPrice,
+  } = quote;
 
   // Shared MongoDB with the hotel management app:
   // - This website only INSERTS a reservation request (never deletes hotel/ops data).

@@ -229,6 +229,7 @@ describe('POST /api/bookings', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     MockPropertyModel.findById.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue({ ...mockProperty }),
     } as never);
     (MockPropertyModel as any).updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
@@ -248,6 +249,35 @@ describe('POST /api/bookings', () => {
       hotel_id: 'hotel-001',
       room_id: 'room-001',
     } as never);
+  });
+
+  it('quotes the same total the booking is saved with', async () => {
+    const quote = await request(app).post('/api/bookings/quote').send({
+      propertyId: VALID_PAYLOAD.propertyId,
+      checkInDate: VALID_PAYLOAD.checkInDate,
+      checkOutDate: VALID_PAYLOAD.checkOutDate,
+      adults: 2,
+      children: 0,
+      roomType: VALID_PAYLOAD.roomType,
+      discountReason: 'pwd',
+    });
+    expect(quote.status).toBe(200);
+    expect(quote.body).toMatchObject({ available: true, nights: 4, dueNow: 0, taxesIncluded: true });
+    expect(quote.body.discountAmount).toBeGreaterThan(0);
+
+    const res = await postBooking({ ...VALID_PAYLOAD, discountReason: 'pwd' });
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.totalPrice).toBe(quote.body.totalPrice);
+    expect(quote.body.dueAfterConfirmation).toBe(quote.body.totalPrice);
+  });
+
+  it('rejects a quote with check-out before check-in', async () => {
+    const res = await request(app).post('/api/bookings/quote').send({
+      propertyId: VALID_PAYLOAD.propertyId, checkInDate: '2026-08-05', checkOutDate: '2026-08-01',
+    });
+    expect(res.status).toBe(400);
   });
 
   it('creates a booking (POST /api/bookings is intentionally open for guest checkout)', async () => {

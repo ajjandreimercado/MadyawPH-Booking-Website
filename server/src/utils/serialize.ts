@@ -59,6 +59,11 @@ export function serializeProperty(property: AnyDocument) {
     roomNumber: roomNumber ? String(roomNumber) : undefined,
     roomStatus: roomStatus ? String(roomStatus) : undefined,
     description: source.description ? String(source.description) : undefined,
+    // Only what the hotel app actually set (lean docs carry no schema defaults).
+    bedConfiguration: source.bed_configuration ? String(source.bed_configuration) : undefined,
+    maxGuests: Number(source.max_guests) > 0 ? Number(source.max_guests) : undefined,
+    freeCancellation: source.free_cancellation === true,
+    breakfastIncluded: source.breakfast_included === true,
     categoryName: source.category_name ? String(source.category_name) : source.categoryName ? String(source.categoryName) : undefined,
     // Public listing must never expose in-house guest PII from shared hotel room docs.
     hotelName: source.hotel_name ? String(source.hotel_name) : source.hotelName ? String(source.hotelName) : undefined,
