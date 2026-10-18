@@ -68,7 +68,10 @@ export interface HotelDetailResponse {
 }
 
 export interface BookingCreatePayload {
-  propertyId: string;
+  /** Room type the guest books; the server assigns a free room of that type. */
+  categoryId?: string;
+  /** Legacy: book one specific room. */
+  propertyId?: string;
   propertyName: string;
   guestName: string;
   guestEmail: string;
@@ -304,7 +307,8 @@ export async function getCurrentUser() {
 
 export async function createBookingRequest(payload: BookingCreatePayload) {
   const form = new FormData();
-  form.append('propertyId', payload.propertyId);
+  if (payload.categoryId) form.append('categoryId', payload.categoryId);
+  if (payload.propertyId) form.append('propertyId', payload.propertyId);
   form.append('propertyName', payload.propertyName);
   form.append('guestName', payload.guestName);
   form.append('guestEmail', payload.guestEmail);
@@ -653,6 +657,11 @@ export interface PromoValidationResult {
 
 export interface StayQuote {
   available: boolean;
+  /** Room type name (never the room number), hotel and policy of the assigned room. */
+  roomName: string;
+  hotelName: string;
+  hotelLocation: string;
+  freeCancellation: boolean;
   nights: number;
   roomRate: number;
   /** Stay price before discounts (same number as the hotel page rate table). */
@@ -667,14 +676,19 @@ export interface StayQuote {
   taxesIncluded: boolean;
 }
 
+/** A room type (what guests book). */
+export async function fetchRoomCategory(categoryId: string): Promise<RoomCategory> {
+  const response = await api.get<RoomCategory & { _id?: string }>(`/room-categories/${encodeURIComponent(categoryId)}`);
+  return normalizeRoomCategory(response.data);
+}
+
 /** Server price for a stay, with the same pricing as booking creation. Creates nothing. */
 export async function quoteStay(payload: {
-  propertyId: string;
+  categoryId: string;
   checkInDate: string;
   checkOutDate: string;
   adults: number;
   children: number;
-  roomType: string;
   discountReason?: string;
   promoCode?: string;
   membershipId?: string;

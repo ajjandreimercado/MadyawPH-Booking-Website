@@ -21,7 +21,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
-import { findBookedRoomIds } from '../utils/roomAvailability';
+import { findBookedRoomIds, parseStayQuery, pickRoomForCategory } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
@@ -362,17 +362,49 @@ async function priceStay(input: StayQuoteInput) {
   };
 }
 
+type ResolvedRoom =
+  | { ok: true; roomId: string; byCategory: boolean }
+  | { ok: false; status: number; message: string };
+
+/**
+ * Guests book a room type (categoryId) and the server assigns a free room of that type for
+ * the stay (the hotel can reassign it in the hotel app). Older callers may still send a
+ * specific room (propertyId).
+ */
+async function resolveBookingRoom(body: {
+  categoryId?: unknown;
+  propertyId?: unknown;
+  checkInDate?: unknown;
+  checkOutDate?: unknown;
+}): Promise<ResolvedRoom> {
+  if (body.categoryId !== undefined && body.categoryId !== '') {
+    const categoryResult = validateId(body.categoryId, 'Room type');
+    if (!categoryResult.ok) return { ok: false, status: 400, message: categoryResult.message };
+    const stay = parseStayQuery(body.checkInDate, body.checkOutDate);
+    if (!stay) return { ok: false, status: 400, message: USER_MESSAGES.invalidDates };
+    const room = await pickRoomForCategory(categoryResult.value, stay.start, stay.end);
+    if (!room) {
+      return {
+        ok: false,
+        status: 409,
+        message: 'No rooms of this type are free for your dates. Please choose other dates or another room type.',
+      };
+    }
+    return { ok: true, roomId: String(room._id), byCategory: true };
+  }
+  const roomResult = validateId(body.propertyId, 'Room');
+  if (!roomResult.ok) return { ok: false, status: 400, message: roomResult.message };
+  return { ok: true, roomId: roomResult.value, byCategory: false };
+}
+
 // ─── POST /quote ──────────────────────────────────────────────────────────────
 // Read-only price + availability for checkout. Creates nothing; same pricing as POST /.
 
 bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const body = pickFields(req.body ?? {}, [
-    'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
+    'categoryId', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
     'roomType', 'discountReason', 'promoCode', 'membershipId',
   ] as const);
-
-  const propertyIdResult = validateId(body.propertyId, 'Room');
-  if (!propertyIdResult.ok) return res.status(400).json({ message: propertyIdResult.message });
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
   const checkOutResult = validateString(body.checkOutDate, 'Check-out date', 1, 30);
@@ -401,8 +433,11 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const membershipIdResult = validateOptionalString(body.membershipId, 'Membership ID', 40);
   if (!membershipIdResult.ok) return res.status(400).json({ message: membershipIdResult.message });
 
-  const property = await PropertyModel.findById(propertyIdResult.value)
-    .select({ price_per_night: 1 })
+  const resolved = await resolveBookingRoom(body);
+  if (resolved.ok === false) return res.status(resolved.status).json({ message: resolved.message });
+
+  const property = await PropertyModel.findById(resolved.roomId)
+    .select({ price_per_night: 1, room_type: 1, category_name: 1, hotel_name: 1, hotel_location: 1, free_cancellation: 1 })
     .lean();
   if (!property) return res.status(404).json({ message: 'Room not found.' });
 
@@ -414,14 +449,20 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
       adults: adultsResult.value,
       children: childrenResult.value,
       infants: infantsResult.value,
-      roomType: roomTypeResult.value,
+      // A room-type booking is priced from the assigned room, like the hotel page.
+      roomType: resolved.byCategory ? (property.room_type || 'standard-room') : roomTypeResult.value,
       discountReason: discountReasonResult.value ?? undefined,
       promoCode: promoCodeResult.value ?? undefined,
       membershipId: membershipIdResult.value ?? undefined,
     });
-    const available = !(await hasBookingOverlap(propertyIdResult.value, checkInResult.value, checkOutResult.value));
+    const available = !(await hasBookingOverlap(resolved.roomId, checkInResult.value, checkOutResult.value));
     return res.json({
       available,
+      // Shown to the guest: the room type, never the room number.
+      roomName: property.category_name ?? '',
+      hotelName: property.hotel_name ?? '',
+      hotelLocation: property.hotel_location ?? '',
+      freeCancellation: property.free_cancellation === true,
       nights: quote.pricing.nights,
       roomRate: quote.pricing.roomRate,
       stayPrice: quote.pricing.totalPrice,
@@ -581,6 +622,7 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   // OWASP A03: strip unexpected fields — only pick known booking fields
   // multipart fields arrive as strings; coerce occupancy numbers below.
   const body = pickFields(req.body, [
+    'categoryId',
     'propertyId',
     'propertyName',
     'guestName',
@@ -605,10 +647,11 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
 
   // ── Required field validation ─────────────────────────────────────────────
 
-  const propertyIdResult = validateId(body.propertyId, 'Property ID');
-  if (!propertyIdResult.ok) {
-    return res.status(400).json({ message: propertyIdResult.message });
+  const resolvedRoom = await resolveBookingRoom(body);
+  if (resolvedRoom.ok === false) {
+    return res.status(resolvedRoom.status).json({ message: resolvedRoom.message });
   }
+  const propertyIdResult = { ok: true as const, value: resolvedRoom.roomId };
 
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
@@ -629,8 +672,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   }
 
   // Accept any string for room type (property room labels vary); normalize payment methods.
-  const roomTypeResult = validateString(body.roomType, 'Room type', 1, 100);
-  if (!roomTypeResult.ok) return res.status(400).json({ message: roomTypeResult.message });
+  // Room-type bookings take the assigned room's type after it loads (see below).
+  const roomTypeCheck = resolvedRoom.byCategory ? null : validateString(body.roomType, 'Room type', 1, 100);
+  if (roomTypeCheck && !roomTypeCheck.ok) return res.status(400).json({ message: roomTypeCheck.message });
+  const roomTypeResult = { value: roomTypeCheck?.ok ? roomTypeCheck.value : '' };
 
   const rawPaymentMethod = validateString(body.paymentMethod, 'Payment method', 1, 100);
   if (!rawPaymentMethod.ok) return res.status(400).json({ message: rawPaymentMethod.message });
@@ -715,6 +760,9 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   if (!property) {
     return res.status(404).json({ message: 'Room not found.' });
   }
+  if (resolvedRoom.byCategory) {
+    roomTypeResult.value = property.room_type || 'standard-room';
+  }
 
   // Website reservations always require full stay payment after hotel confirmation.
   const paymentMode = 'full' as const;
@@ -794,7 +842,10 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     hotel_id: String(property.hotel_id ?? ''),
     room_id: toHotelRoomId(property._id),
     propertyId: propertyIdResult.value,
-    propertyName: propertyNameResult.value ?? property.display_name,
+    // Room-type bookings are named after the type; the guest never sees the room number.
+    propertyName: resolvedRoom.byCategory
+      ? (property.category_name || property.display_name)
+      : (propertyNameResult.value ?? property.display_name),
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
     guest_phone: guestPhoneResult.value,

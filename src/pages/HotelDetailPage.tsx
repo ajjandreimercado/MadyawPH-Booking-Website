@@ -222,13 +222,13 @@ export default function HotelDetailPage() {
     }
   };
 
+  // Guests book the room type; the server assigns a free room of that type.
   const handleReserve = (cat: HotelDetailCategory) => {
-    const candidateId = cat.firstAvailableRoomId ?? cat.fallbackRoomId;
-    if (!candidateId) {
-      showToast({ title: 'No rooms available', description: 'No rooms found for this category.', type: 'info' });
+    if (cat.availableRooms <= 0) {
+      showToast({ title: 'No rooms available', description: 'This room type is full for your dates.', type: 'info' });
       return;
     }
-    navigate(`/booking/${candidateId}?${stayQuery(stay)}`);
+    navigate(`/booking/${cat.id}?${stayQuery(stay)}`);
   };
 
   if (isLoading && !hotel) {

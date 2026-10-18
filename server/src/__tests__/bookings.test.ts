@@ -273,6 +273,53 @@ describe('POST /api/bookings', () => {
     expect(quote.body.dueAfterConfirmation).toBe(quote.body.totalPrice);
   });
 
+  describe('booking a room type (categoryId)', () => {
+    const ROOMS = [
+      { _id: 'room-102', hotel_id: 'hotel-001', category_id: 'cat-deluxe', category_name: 'Deluxe', display_name: 'Room 102', room_number: '102', price_per_night: 3000, room_type: 'standard-room', status: 'available' },
+      { _id: 'room-101', hotel_id: 'hotel-001', category_id: 'cat-deluxe', category_name: 'Deluxe', display_name: 'Room 101', room_number: '101', price_per_night: 2500, room_type: 'standard-room', status: 'available' },
+    ];
+    const { propertyId: _unused, roomType: _type, propertyName: _name, ...BY_CATEGORY } = { ...VALID_PAYLOAD, categoryId: 'cat-deluxe' };
+
+    beforeEach(() => {
+      (MockPropertyModel.find as jest.Mock).mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(ROOMS),
+      });
+      (MockPropertyModel.findById as jest.Mock).mockImplementation((id: string) => ({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(ROOMS.find((room) => room._id === id) ?? null),
+      }));
+    });
+
+    it('assigns the cheapest free room and names the booking after the room type', async () => {
+      const quote = await request(app).post('/api/bookings/quote').send(BY_CATEGORY);
+      expect(quote.status).toBe(200);
+      expect(quote.body).toMatchObject({ roomName: 'Deluxe', stayPrice: 10000 });
+
+      const res = await postBooking(BY_CATEGORY);
+      expect(res.status).toBe(201);
+      const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+      const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+      expect(created.propertyId).toBe('room-101');
+      expect(created.propertyName).toBe('Deluxe');
+      expect(created.totalPrice).toBe(quote.body.totalPrice);
+    });
+
+    it('refuses when every room of the type is taken for the dates', async () => {
+      (MockBookingModel.find as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(ROOMS.map((room) => ({
+          _id: `b-${room._id}`, propertyId: room._id, status: 'reserved',
+          checkInDate: VALID_PAYLOAD.checkInDate, checkOutDate: VALID_PAYLOAD.checkOutDate,
+        }))),
+      });
+      const res = await postBooking(BY_CATEGORY);
+      expect(res.status).toBe(409);
+      expect(MockBookingModel.create).not.toHaveBeenCalled();
+    });
+  });
+
   it('rejects a quote with check-out before check-in', async () => {
     const res = await request(app).post('/api/bookings/quote').send({
       propertyId: VALID_PAYLOAD.propertyId, checkInDate: '2026-08-05', checkOutDate: '2026-08-01',

@@ -1,17 +1,16 @@
 import { useEffect, useState, useTransition, type ReactNode } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, CheckCircle2, ShieldCheck, ChevronDown, Globe,
   Phone, Mail, User, Tag, Upload, Clock, MessageSquare, Wallet, Pencil,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
-import { quoteStay, validatePromoCode, validateMembershipId, type StayQuote } from '../services/api';
+import { fetchRoomCategory, quoteStay, validatePromoCode, validateMembershipId, type StayQuote } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
+import type { BookingPaymentMethod, BookingRoomType, RoomCategory } from '../types';
 import { DISCOUNT_OPTIONS } from '../lib/bookingFlow';
-import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { errorMessageFromUnknown } from '../lib/apiError';
@@ -80,13 +79,15 @@ function missingDetails(draft: CheckoutDraft, validIdFile: File | null): string 
 
 /**
  * Checkout in two steps, like Booking.com:
- *   /booking/:propertyId         → (1) Your details
- *   /booking/:propertyId/finish  → (2) Finish booking (review, terms, Complete booking)
+ *   /booking/:categoryId         → (1) Your details
+ *   /booking/:categoryId/finish  → (2) Finish booking (review, terms, Complete booking)
+ * Guests book a room type; the server assigns a free room of that type (never shown to them).
  * Dates and guests come from the URL; typed details persist in sessionStorage.
  */
 export default function BookingPage({ step = 'details' }: { step?: 'details' | 'finish' }) {
-  const { propertyId = '' } = useParams();
+  const { categoryId = '' } = useParams();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { appendBooking } = useBookings();
   const { user } = useAuth();
@@ -94,25 +95,25 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const stay = readStay(searchParams);
   const query = stayQuery(stay);
 
-  const [property, setProperty] = useState<Property | null>(() =>
-    propertyId ? peekCache<Property>(cacheKey(['property', propertyId])) ?? null : null,
+  const [category, setCategory] = useState<RoomCategory | null>(() =>
+    categoryId ? peekCache<RoomCategory>(cacheKey(['room-category', categoryId])) ?? null : null,
   );
   const [isLoading, setIsLoading] = useState(() =>
-    !(propertyId && peekCache(cacheKey(['property', propertyId]))),
+    !(categoryId && peekCache(cacheKey(['room-category', categoryId]))),
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [, startTransition] = useTransition();
 
-  const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(propertyId));
+  const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(categoryId));
   const update = (patch: Partial<CheckoutDraft>) => setDraft((prev) => {
     const next = { ...prev, ...patch };
-    saveDraft(propertyId, next);
+    saveDraft(categoryId, next);
     return next;
   });
-  const [validIdFile, setValidIdFileState] = useState<File | null>(() => getValidId(propertyId));
+  const [validIdFile, setValidIdFileState] = useState<File | null>(() => getValidId(categoryId));
   const changeValidId = (file: File | null) => {
-    setValidId(propertyId, file);
+    setValidId(categoryId, file);
     setValidIdFileState(file);
   };
 
@@ -126,7 +127,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
   const paymentMethod: BookingPaymentMethod = 'gcash';
-  const roomType = (property?.type || 'standard-room') as BookingRoomType;
+  // The server prices and names room-type bookings from the room it assigns.
+  const roomType = 'standard-room' as BookingRoomType;
   const discountReason = draft.discountType === 'pwd' || draft.discountType === 'senior citizen' ? draft.discountType : undefined;
   // Only codes the server already accepted go into the price quote, so a typo can't block pricing.
   const appliedPromo = promoDiscountAmt > 0 ? draft.promoCode.trim() : undefined;
@@ -134,53 +136,62 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const stayPrice = quote?.stayPrice ?? 0;
 
   useEffect(() => {
-    if (!propertyId) return;
+    if (!categoryId) return;
     let cancelled = false;
-    const cachedProperty = peekCache<Property>(cacheKey(['property', propertyId]));
-    if (cachedProperty) {
-      setProperty(cachedProperty);
+    const cached = peekCache<RoomCategory>(cacheKey(['room-category', categoryId]));
+    if (cached) {
+      setCategory(cached);
       setIsLoading(false);
     } else {
       setIsLoading(true);
     }
 
-    fetchPropertyById(propertyId)
-      .then((p) => {
+    fetchRoomCategory(categoryId)
+      .then((c) => {
         if (cancelled) return;
-        startTransition(() => setProperty(p));
+        startTransition(() => setCategory(c));
         setIsLoading(false);
       })
-      .catch(() => {
+      .catch(async () => {
+        // Older links point at one room (/booking/<roomId>): move them to that room's type.
+        try {
+          const room = await fetchPropertyById(categoryId);
+          if (!cancelled && room.categoryId) {
+            navigate(location.pathname.replace(categoryId, room.categoryId) + location.search, { replace: true });
+            return;
+          }
+        } catch {
+          // fall through to "not found"
+        }
         if (cancelled) return;
         setIsLoading(false);
-        if (!cachedProperty) showToast({ title: 'Unable to load room', type: 'error' });
+        if (!cached) showToast({ title: 'Unable to load this room type', type: 'error' });
       });
     return () => { cancelled = true; };
-  }, [propertyId]);
+  }, [categoryId]);
 
   // Prefill from a signed-in account (staff testing); guests type their own details.
   useEffect(() => {
     if (!user) return;
     setDraft((prev) => {
       const next = { ...prev, email: prev.email.trim() ? prev.email : user.email ?? "", fullName: prev.fullName.trim() ? prev.fullName : user.name ?? "" };
-      saveDraft(propertyId, next);
+      saveDraft(categoryId, next);
       return next;
     });
   }, [user]);
 
   // Server price for this stay — the same numbers the booking will be saved with.
   useEffect(() => {
-    if (!property) return;
+    if (!category) return;
     let cancelled = false;
     setQuoteLoading(true);
     const timer = window.setTimeout(() => {
       quoteStay({
-        propertyId,
+        categoryId,
         checkInDate: stay.checkIn,
         checkOutDate: stay.checkOut,
         adults: stay.adults,
         children: stay.children,
-        roomType,
         discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
@@ -197,7 +208,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         .finally(() => { if (!cancelled) setQuoteLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [property, propertyId, stay.checkIn, stay.checkOut, stay.adults, stay.children, roomType, discountReason, appliedPromo, appliedMember]);
+  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember]);
 
   useEffect(() => {
     const code = draft.promoCode.trim();
@@ -244,20 +255,20 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   }, [draft.membershipId, stayPrice]);
 
   const detailsProblem = missingDetails(draft, validIdFile);
-  const detailsHref = `/booking/${propertyId}?${query}`;
-  const changeSelectionHref = property?.hotelId ? `/hotels/${property.hotelId}?${query}#rooms` : '/search';
+  const detailsHref = `/booking/${categoryId}?${query}`;
+  const changeSelectionHref = category?.hotelId ? `/hotels/${category.hotelId}?${query}#rooms` : '/search';
 
   const goToFinish = () => {
     if (detailsProblem) {
       showToast({ title: detailsProblem, type: 'error' });
       return;
     }
-    navigate(`/booking/${propertyId}/finish?${query}`);
+    navigate(`/booking/${categoryId}/finish?${query}`);
     window.scrollTo({ top: 0 });
   };
 
   const completeBooking = async () => {
-    if (!property || detailsProblem || !validIdFile) {
+    if (!category || detailsProblem || !validIdFile) {
       showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
       return;
     }
@@ -268,8 +279,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     setIsSubmitting(true);
     try {
       const booking = await createBookingRequestApi({
-        propertyId,
-        propertyName: formatRoomLabel(property),
+        categoryId,
+        propertyName: category.name,
         guestName: draft.fullName.trim(),
         guestEmail: draft.email.trim(),
         guestPhone: draft.phone.trim(),
@@ -287,7 +298,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         specialRequests: buildSpecialRequests(draft, validIdFile.name),
       });
       appendBooking(booking);
-      clearDraft(propertyId);
+      clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
       const params = new URLSearchParams({ email: draft.email.trim() });
       if (receiptToken) params.set('token', receiptToken);
@@ -299,22 +310,22 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     }
   };
 
-  if (isLoading && !property) {
+  if (isLoading && !category) {
     return <BookingFormSkeleton />;
   }
 
-  if (!property) {
+  if (!category) {
     return (
       <div className="min-h-screen bg-brand-background flex items-center justify-center p-4 pt-32 pb-16">
         <div className="bg-brand-cream rounded-2xl p-8 text-center">
-          <h2 className="text-2xl font-serif font-bold text-brand-dark mb-3">Room Not Found</h2>
+          <h2 className="text-2xl font-serif font-bold text-brand-dark mb-3">Room type not found</h2>
           <button onClick={() => navigate(-1)} className="btn-primary">Go Back</button>
         </div>
       </div>
     );
   }
 
-  const roomLabel = formatRoomLabel(property);
+  const roomLabel = category.name;
   const quoteBlocksBooking = !quote || Boolean(quoteError) || !quote.available;
 
   return (
@@ -326,15 +337,15 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
           <div className="min-w-0 lg:order-2">
             <CheckoutSummary
               roomName={roomLabel}
-              roomImage={(property as { imageUrl?: string }).imageUrl || property.image}
-              hotelName={property.hotelName}
-              location={property.hotelLocation || property.location}
+              roomImage={category.imageUrl}
+              hotelName={quote?.hotelName}
+              location={quote?.hotelLocation}
               stay={stay}
               changeSelectionHref={changeSelectionHref}
               quote={quote}
               quoteLoading={quoteLoading}
               quoteError={quoteError}
-              freeCancellation={(property as { freeCancellation?: boolean }).freeCancellation}
+              freeCancellation={quote?.freeCancellation}
             />
           </div>
 
