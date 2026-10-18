@@ -70,7 +70,8 @@ export default function App() {
         <Route path="/terms" element={<Suspense fallback={<PageLoader />}><TermsOfServicePage /></Suspense>} />
 
         <Route path="/hotels/:hotelId" element={<Suspense fallback={<PageLoader />}><HotelDetailPage /></Suspense>} />
-        <Route path="/booking/:propertyId" element={<Suspense fallback={<PageLoader />}><BookingPage /></Suspense>} />
+        <Route path="/booking/:propertyId" element={<Suspense fallback={<PageLoader />}><BookingPage step="details" /></Suspense>} />
+        <Route path="/booking/:propertyId/finish" element={<Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>} />
         <Route path="/booking/confirm/:bookingId" element={<Suspense fallback={<PageLoader />}><BookingConfirmationPage /></Suspense>} />
 
         <Route path="*" element={<NotFoundPage />} />

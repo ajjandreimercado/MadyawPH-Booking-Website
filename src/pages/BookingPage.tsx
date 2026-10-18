@@ -1,27 +1,25 @@
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useState, useTransition, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Users, Globe,
-  Phone, Mail, User, Calendar, Tag, Info, Upload,
+  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Globe,
+  Phone, Mail, User, Tag, Upload, Clock, MessageSquare, Wallet, Pencil,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
-import { validatePromoCode, validateMembershipId } from '../services/api';
+import { quoteStay, validatePromoCode, validateMembershipId, type StayQuote } from '../services/api';
 import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
-import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
 import type { BookingPaymentMethod, BookingRoomType, Property } from '../types';
-import { DISCOUNT_OPTIONS, calculateBookingPricing, computeOnlinePaymentDue } from '../lib/bookingFlow';
+import { DISCOUNT_OPTIONS } from '../lib/bookingFlow';
 import { formatRoomLabel } from '../lib/formatRoomLabel';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
-import { format, addDays, parseISO, isValid } from 'date-fns';
-
-/** yyyy-MM-dd → "Oct 18, 2026" (month-day-year); leaves unparseable input as-is. */
-function formatStayDate(value: string) {
-  const date = parseISO(value);
-  return isValid(date) ? format(date, 'MMM d, yyyy') : value;
-}
+import { errorMessageFromUnknown } from '../lib/apiError';
+import { describeGuests, formatStayDate, peso, readStay, stayQuery } from '../lib/stayParams';
+import {
+  buildSpecialRequests, clearDraft, getValidId, loadDraft, saveDraft, setValidId, type CheckoutDraft,
+} from '../lib/checkoutDraft';
+import CheckoutSummary, { CheckoutProgress } from '../components/booking/CheckoutSummary';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
 const NATIONALITIES = [
@@ -62,18 +60,39 @@ const BOOKING_DISCOUNT_OPTIONS = [
   })),
 ];
 
+const ARRIVAL_TIMES = [
+  '2:00 PM – 3:00 PM', '3:00 PM – 4:00 PM', '4:00 PM – 5:00 PM', '5:00 PM – 6:00 PM',
+  '6:00 PM – 7:00 PM', '7:00 PM – 8:00 PM', '8:00 PM – 9:00 PM', '9:00 PM – 10:00 PM',
+  '10:00 PM – 11:00 PM', '11:00 PM – 12:00 AM', 'After midnight',
+];
 
-export default function BookingPage() {
-  const { propertyId } = useParams();
+const VALID_ID_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function missingDetails(draft: CheckoutDraft, validIdFile: File | null): string | null {
+  if (!draft.fullName.trim()) return 'Enter your full name.';
+  if (!EMAIL_RE.test(draft.email.trim())) return 'Enter a valid email address.';
+  if (!draft.phone.trim()) return 'Enter your phone number.';
+  if (draft.bookingForSomeoneElse && !draft.stayGuestName.trim()) return 'Enter the name of the guest who will stay.';
+  if (!validIdFile) return 'Upload your valid ID.';
+  return null;
+}
+
+/**
+ * Checkout in two steps, like Booking.com:
+ *   /booking/:propertyId         → (1) Your details
+ *   /booking/:propertyId/finish  → (2) Finish booking (review, terms, Complete booking)
+ * Dates and guests come from the URL; typed details persist in sessionStorage.
+ */
+export default function BookingPage({ step = 'details' }: { step?: 'details' | 'finish' }) {
+  const { propertyId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { appendBooking } = useBookings();
   const { user } = useAuth();
   const { showToast } = useToast();
-
-  const urlCheckIn = searchParams.get('checkIn') ?? format(addDays(new Date(), 1), 'yyyy-MM-dd');
-  const urlCheckOut = searchParams.get('checkOut') ?? format(addDays(new Date(), 2), 'yyyy-MM-dd');
-  const urlGuests = Number(searchParams.get('guests') ?? 2);
+  const stay = readStay(searchParams);
+  const query = stayQuery(stay);
 
   const [property, setProperty] = useState<Property | null>(() =>
     propertyId ? peekCache<Property>(cacheKey(['property', propertyId])) ?? null : null,
@@ -82,71 +101,37 @@ export default function BookingPage() {
     !(propertyId && peekCache(cacheKey(['property', propertyId]))),
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [, startTransition] = useTransition();
 
-  // ── Booking Details ─────────────────────────────────────────────────────────
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(propertyId));
+  const update = (patch: Partial<CheckoutDraft>) => setDraft((prev) => {
+    const next = { ...prev, ...patch };
+    saveDraft(propertyId, next);
+    return next;
+  });
+  const [validIdFile, setValidIdFileState] = useState<File | null>(() => getValidId(propertyId));
+  const changeValidId = (file: File | null) => {
+    setValidId(propertyId, file);
+    setValidIdFileState(file);
+  };
 
-  const [adults, setAdults] = useState(Math.max(1, urlGuests));
-  const [children, setChildren] = useState(0);
-
-  const [malePax, setMalePax] = useState(0);
-  const [femalePax, setFemalePax] = useState(0);
-
-  const [nationality, setNationality] = useState('Filipino');
-  const [validIdFile, setValidIdFile] = useState<File | null>(null);
-
-  const [discountType, setDiscountType] = useState('');
-  const [promoCode, setPromoCode] = useState('');
   const [promoDiscountAmt, setPromoDiscountAmt] = useState(0);
   const [promoStatus, setPromoStatus] = useState<string | null>(null);
-  const [membershipId, setMembershipId] = useState('');
   const [memberDiscountAmt, setMemberDiscountAmt] = useState(0);
   const [memberStatus, setMemberStatus] = useState<string | null>(null);
-  const [memberPoints, setMemberPoints] = useState<number | null>(null);
 
-  const [checkIn, setCheckIn] = useState(urlCheckIn);
-  const [checkOut, setCheckOut] = useState(urlCheckOut);
+  const [quote, setQuote] = useState<StayQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+
   const paymentMethod: BookingPaymentMethod = 'gcash';
-
-  // ── Computed Values (must match server calculateBookingPricing) ─────────────
-  const roomType = ((property as { roomType?: string; type?: string } | null)?.roomType
-    ?? (property as { type?: string } | null)?.type
-    ?? 'standard-room') as BookingRoomType;
-  const discountReason =
-    discountType === 'pwd' || discountType === 'senior citizen' ? discountType : undefined;
-  const pricing = property
-    ? calculateBookingPricing(property, {
-        checkInDate: checkIn,
-        checkOutDate: checkOut,
-        adults,
-        children,
-        infants: 0,
-        roomType,
-        paymentMethod,
-        discountReason,
-      })
-    : null;
-  const nights = pricing?.nights ?? 1;
-  const roomRate = pricing?.roomTotal ?? 0;
-  const discountAmt = pricing?.discountAmount ?? 0;
-  // Server compares PWD/senior vs promo on the pre-discount subtotal and keeps the larger.
-  const staySubtotal = (pricing?.totalPrice ?? 0) + discountAmt;
-  const effectiveDiscount = Math.max(discountAmt, promoDiscountAmt, memberDiscountAmt);
-  const total = Math.max(0, staySubtotal - effectiveDiscount);
-  const paymentMode = 'full' as const;
-  const { amountDue, balanceDue } = computeOnlinePaymentDue(total, paymentMode);
-  const activeDiscountLabel = memberDiscountAmt >= discountAmt && memberDiscountAmt >= promoDiscountAmt && memberDiscountAmt > 0
-    ? 'Madyaw member'
-    : promoDiscountAmt >= discountAmt && promoDiscountAmt > 0
-      ? 'Promo discount'
-      : discountType === 'pwd'
-        ? 'PWD Discount (20%)'
-        : discountType === 'senior citizen'
-          ? 'Senior Citizen Discount (20%)'
-          : '';
+  const roomType = (property?.type || 'standard-room') as BookingRoomType;
+  const discountReason = draft.discountType === 'pwd' || draft.discountType === 'senior citizen' ? draft.discountType : undefined;
+  // Only codes the server already accepted go into the price quote, so a typo can't block pricing.
+  const appliedPromo = promoDiscountAmt > 0 ? draft.promoCode.trim() : undefined;
+  const appliedMember = memberDiscountAmt > 0 ? draft.membershipId.trim() : undefined;
+  const stayPrice = quote?.stayPrice ?? 0;
 
   useEffect(() => {
     if (!propertyId) return;
@@ -173,33 +158,60 @@ export default function BookingPage() {
     return () => { cancelled = true; };
   }, [propertyId]);
 
-  // Prefill from signed-in account (Google-verified email preferred for confirmations).
+  // Prefill from a signed-in account (staff testing); guests type their own details.
   useEffect(() => {
     if (!user) return;
-    if (user.email) setEmail(prev => prev.trim() ? prev : user.email);
-    if (user.name) setFullName(prev => prev.trim() ? prev : user.name);
+    setDraft((prev) => {
+      const next = { ...prev, email: prev.email.trim() ? prev.email : user.email ?? "", fullName: prev.fullName.trim() ? prev.fullName : user.name ?? "" };
+      saveDraft(propertyId, next);
+      return next;
+    });
   }, [user]);
 
-  const isGoogleVerifiedEmail = Boolean(
-    user?.email
-    && user.emailVerified
-    && email.trim().toLowerCase() === user.email.toLowerCase()
-    && (user.authProvider === 'google' || user.emailVerified),
-  );
+  // Server price for this stay — the same numbers the booking will be saved with.
+  useEffect(() => {
+    if (!property) return;
+    let cancelled = false;
+    setQuoteLoading(true);
+    const timer = window.setTimeout(() => {
+      quoteStay({
+        propertyId,
+        checkInDate: stay.checkIn,
+        checkOutDate: stay.checkOut,
+        adults: stay.adults,
+        children: stay.children,
+        roomType,
+        discountReason,
+        promoCode: appliedPromo,
+        membershipId: appliedMember,
+      })
+        .then((result) => {
+          if (cancelled) return;
+          setQuote(result);
+          setQuoteError(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setQuoteError(errorMessageFromUnknown(err, 'We could not price this stay. Please try again.'));
+        })
+        .finally(() => { if (!cancelled) setQuoteLoading(false); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [property, propertyId, stay.checkIn, stay.checkOut, stay.adults, stay.children, roomType, discountReason, appliedPromo, appliedMember]);
 
   useEffect(() => {
-    const code = promoCode.trim();
-    if (!code || staySubtotal <= 0) {
+    const code = draft.promoCode.trim();
+    if (!code || stayPrice <= 0) {
       setPromoDiscountAmt(0);
       setPromoStatus(null);
       return;
     }
     setPromoStatus('Checking promo…');
     const timer = window.setTimeout(() => {
-      void validatePromoCode(code, staySubtotal).then(result => {
+      void validatePromoCode(code, stayPrice).then(result => {
         if (result.valid && typeof result.discountAmount === 'number' && result.discountAmount > 0) {
           setPromoDiscountAmt(result.discountAmount);
-          setPromoStatus(`Promo applied — you save ₱${result.discountAmount.toLocaleString()}`);
+          setPromoStatus(`Promo accepted — you save ${peso(result.discountAmount)}`);
         } else {
           setPromoDiscountAmt(0);
           setPromoStatus(result.message ?? 'Invalid promo code');
@@ -207,101 +219,81 @@ export default function BookingPage() {
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [promoCode, staySubtotal]);
+  }, [draft.promoCode, stayPrice]);
 
   useEffect(() => {
-    const id = membershipId.trim();
-    if (!id || staySubtotal <= 0) {
+    const id = draft.membershipId.trim();
+    if (!id || stayPrice <= 0) {
       setMemberDiscountAmt(0);
       setMemberStatus(null);
-      setMemberPoints(null);
       return;
     }
     setMemberStatus('Checking membership…');
     const timer = window.setTimeout(() => {
-      void validateMembershipId(id, staySubtotal).then((result) => {
+      void validateMembershipId(id, stayPrice).then((result) => {
         if (result.valid && typeof result.discountAmount === 'number' && result.discountAmount > 0) {
           setMemberDiscountAmt(result.discountAmount);
-          setMemberPoints(typeof result.pointsBalance === 'number' ? result.pointsBalance : null);
-          setMemberStatus(result.message ?? `Member discount — you save ₱${result.discountAmount.toLocaleString()}`);
+          setMemberStatus(result.message ?? `Member discount — you save ${peso(result.discountAmount)}`);
         } else {
           setMemberDiscountAmt(0);
-          setMemberPoints(typeof result.pointsBalance === 'number' ? result.pointsBalance : null);
           setMemberStatus(result.message ?? 'Invalid membership ID');
         }
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [membershipId, staySubtotal]);
+  }, [draft.membershipId, stayPrice]);
 
-  const isFormValid =
-    fullName.trim() &&
-    email.trim() &&
-    phone.trim() &&
-    checkIn &&
-    checkOut &&
-    new Date(checkOut) > new Date(checkIn) &&
-    Boolean(validIdFile);
+  const detailsProblem = missingDetails(draft, validIdFile);
+  const detailsHref = `/booking/${propertyId}?${query}`;
+  const changeSelectionHref = property?.hotelId ? `/hotels/${property.hotelId}?${query}#rooms` : '/search';
 
-  const handleSubmit = async () => {
-    if (!property || !propertyId) return;
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !checkIn || !checkOut) {
-      showToast({ title: 'Please fill in all required personal information and stay dates', type: 'error' });
+  const goToFinish = () => {
+    if (detailsProblem) {
+      showToast({ title: detailsProblem, type: 'error' });
       return;
     }
-    if (!validIdFile) {
-      showToast({ title: 'Please upload your valid ID to continue', type: 'error' });
-      return;
-    }
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!allowedTypes.includes(validIdFile.type)) {
-      showToast({ title: 'Valid ID must be a JPG, PNG, WEBP, or PDF', type: 'error' });
-      return;
-    }
-    if (validIdFile.size > 5 * 1024 * 1024) {
-      showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
-      return;
-    }
+    navigate(`/booking/${propertyId}/finish?${query}`);
+    window.scrollTo({ top: 0 });
+  };
 
+  const completeBooking = async () => {
+    if (!property || detailsProblem || !validIdFile) {
+      showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
+      return;
+    }
+    if (!agreed) {
+      showToast({ title: 'Please agree to the Terms and Privacy Policy', type: 'error' });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      // Must match server allowlist: 'pwd' | 'senior citizen'
-      const discountReason =
-        discountType === 'pwd' || discountType === 'senior citizen' ? discountType : undefined;
-
       const booking = await createBookingRequestApi({
         propertyId,
         propertyName: formatRoomLabel(property),
-        guestName: fullName,
-        guestEmail: email,
-        guestPhone: phone,
-        checkInDate: checkIn,
-        checkOutDate: checkOut,
-        adults,
-        children,
+        guestName: draft.fullName.trim(),
+        guestEmail: draft.email.trim(),
+        guestPhone: draft.phone.trim(),
+        checkInDate: stay.checkIn,
+        checkOutDate: stay.checkOut,
+        adults: stay.adults,
+        children: stay.children,
         infants: 0,
         roomType,
         paymentMethod,
-        discountAmount: discountAmt,
         discountReason,
-        promoCode: promoCode.trim() || undefined,
-        membershipId: membershipId.trim() || undefined,
+        promoCode: appliedPromo,
+        membershipId: appliedMember,
         validIdFile,
-        specialRequests: [
-          `Valid ID uploaded: ${validIdFile.name}`,
-          nationality !== 'Filipino' ? `Nationality: ${nationality}` : '',
-          malePax || femalePax ? `Demographics: ${malePax}M / ${femalePax}F` : '',
-          `Payment: full stay after hotel confirmation`,
-        ].filter(Boolean).join(' | ') || undefined,
+        specialRequests: buildSpecialRequests(draft, validIdFile.name),
       });
       appendBooking(booking);
+      clearDraft(propertyId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
-      const params = new URLSearchParams({ email });
+      const params = new URLSearchParams({ email: draft.email.trim() });
       if (receiptToken) params.set('token', receiptToken);
       navigate(`/booking/confirm/${booking.id}?${params.toString()}`);
-    } catch (err: any) {
-      const serverMessage = err.response?.data?.message || err.message;
-      showToast({ title: 'Booking failed', description: serverMessage || 'Please try again.', type: 'error' });
+    } catch (err) {
+      showToast({ title: 'Booking failed', description: errorMessageFromUnknown(err, 'Please try again.'), type: 'error' });
     } finally {
       setIsSubmitting(false);
     }
@@ -323,472 +315,359 @@ export default function BookingPage() {
   }
 
   const roomLabel = formatRoomLabel(property);
+  const quoteBlocksBooking = !quote || Boolean(quoteError) || !quote.available;
 
   return (
-    <>
-    <div className="min-h-screen bg-brand-background pt-32 pb-20">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl sm:text-3xl font-display font-semibold text-brand-dark mb-1">Booking Details</h1>
-          <p className="text-brand-dark/60 font-bold text-sm px-2 break-words">{roomLabel}</p>
-        </div>
+    <div className="min-h-screen bg-brand-background pt-28 pb-20">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <CheckoutProgress step={step === 'details' ? 1 : 2} />
 
-        <div className="max-w-3xl mx-auto">
-
-          {/* ── Main Form ─────────────────────────────────────────────────── */}
-          <div className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-7">
-
-            {/* Section: Personal Info */}
-            <section>
-              <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <User className="w-4 h-4" /> Personal Information
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="field-label">Full Name <span className="text-red-400">*</span></label>
-                  <input
-                    id="booking-fullname"
-                    type="text"
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    placeholder="Full name as shown on ID"
-                    className="input-field"
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="field-label">
-                      Email Address <span className="text-red-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                      <input
-                        id="booking-email"
-                        type="email"
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
-                        placeholder="yourname@gmail.com"
-                        className="input-field !pl-10"
-                        readOnly={isGoogleVerifiedEmail}
-                      />
-                    </div>
-                    <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                      {isGoogleVerifiedEmail
-                        ? 'Using your Google-verified email — confirmation will be sent here when the hotel approves your stay.'
-                        : 'Confirmation is sent to this email when the hotel approves your reservation for check-in. Please double-check it.'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="field-label">Phone Number <span className="text-red-400">*</span></label>
-                    <div className="relative">
-                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                      <input
-                        id="booking-phone"
-                        type="tel"
-                        value={phone}
-                        onChange={e => setPhone(e.target.value)}
-                        placeholder="+63 9XX XXX XXXX"
-                        className="input-field !pl-10"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Nationality */}
-                <div>
-                  <label className="field-label"><Globe className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Nationality</label>
-                  <div className="relative">
-                    <select
-                      id="booking-nationality"
-                      value={nationality}
-                      onChange={e => setNationality(e.target.value)}
-                      className="input-field appearance-none !pr-10"
-                    >
-                      {NATIONALITIES.map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* Send your valid ID */}
-                <div className="pt-2">
-                  <label className="field-label flex items-center justify-between">
-                    <span><ShieldCheck className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Send your valid ID <span className="text-red-400">*</span></span>
-                    <span className="text-[10px] text-brand-dark/40 font-normal lowercase">Passport, Driver's License, or Gov ID</span>
-                  </label>
-                  <label
-                    htmlFor="booking-valid-id"
-                    className={`mt-1 flex flex-col items-center justify-center w-full p-4 transition-all duration-200 border-2 border-dashed rounded-xl cursor-pointer ${
-                      validIdFile
-                        ? 'border-brand-success bg-brand-success/5 text-brand-success shadow-sm'
-                        : 'border-brand-primary/25 bg-brand-background/40 hover:bg-brand-background/70 hover:border-brand-primary/50 text-brand-dark/60'
-                    }`}
-                  >
-                    {validIdFile ? (
-                      <div className="flex items-center justify-between w-full gap-2 text-sm font-bold">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <CheckCircle2 className="w-5 h-5 text-brand-success shrink-0" />
-                          <span className="truncate">{validIdFile.name}</span>
-                          <span className="text-xs font-normal text-brand-dark/50 shrink-0">({(validIdFile.size / 1024).toFixed(0)} KB)</span>
-                        </div>
-                        <span className="text-xs text-brand-primary underline hover:text-brand-hover shrink-0">Change ID</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center text-center py-2">
-                        <Upload className="w-6 h-6 mb-2 text-brand-primary/60" />
-                        <p className="text-xs font-bold text-brand-dark">
-                          Click to upload or drag & drop your valid ID
-                        </p>
-                        <p className="text-[10px] text-brand-dark/50 mt-0.5">
-                          JPG, PNG, WEBP, or PDF (MAX. 5MB) — stored securely for the hotel
-                        </p>
-                      </div>
-                    )}
-                    <input
-                      id="booking-valid-id"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-                        if (!allowed.includes(file.type)) {
-                          showToast({ title: 'Valid ID must be a JPG, PNG, WEBP, or PDF', type: 'error' });
-                          e.target.value = '';
-                          return;
-                        }
-                        if (file.size > 5 * 1024 * 1024) {
-                          showToast({ title: 'Valid ID must be 5 MB or smaller', type: 'error' });
-                          e.target.value = '';
-                          return;
-                        }
-                        setValidIdFile(file);
-                      }}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              </div>
-            </section>
-
-            <div className="h-px bg-brand-primary/8" />
-
-            {/* Section: Room Occupancy */}
-            <section>
-              <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Users className="w-4 h-4" /> Guests in Room
-              </h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="field-label">Adults</label>
-                  <div className="relative">
-                    <select
-                      id="booking-adults"
-                      value={adults}
-                      onChange={e => setAdults(Number(e.target.value))}
-                      className="input-field appearance-none !pr-10"
-                    >
-                      {[1,2,3,4,5,6].map(n => (
-                        <option key={n} value={n}>{n} Adult{n !== 1 ? 's' : ''}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                  </div>
-                </div>
-                <div>
-                  <label className="field-label">Children</label>
-                  <div className="relative">
-                    <select
-                      id="booking-children"
-                      value={children}
-                      onChange={e => setChildren(Number(e.target.value))}
-                      className="input-field appearance-none !pr-10"
-                    >
-                      {[0,1,2,3,4].map(n => (
-                        <option key={n} value={n}>{n} {n === 1 ? 'Child' : 'Children'}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Demographics */}
-              <div className="mt-4">
-                <label className="field-label">Demographics — Head Count</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] text-brand-dark/50 font-bold block mb-1">Male</label>
-                    <input
-                      id="booking-male-pax"
-                      type="number"
-                      min={0}
-                      value={malePax}
-                      onChange={e => setMalePax(Math.max(0, Number(e.target.value)))}
-                      className="input-field"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-brand-dark/50 font-bold block mb-1">Female</label>
-                    <input
-                      id="booking-female-pax"
-                      type="number"
-                      min={0}
-                      value={femalePax}
-                      onChange={e => setFemalePax(Math.max(0, Number(e.target.value)))}
-                      className="input-field"
-                    />
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <div className="h-px bg-brand-primary/8" />
-
-            {/* Section: Dates & Discount */}
-            <section>
-              <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2">
-                <Calendar className="w-4 h-4" /> Stay Dates & Discount
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="field-label">Check-in Date <span className="text-red-400">*</span></label>
-                  <input
-                    id="booking-checkin"
-                    type="date"
-                    value={checkIn}
-                    min={format(new Date(), 'yyyy-MM-dd')}
-                    onChange={e => {
-                      setCheckIn(e.target.value);
-                      if (e.target.value >= checkOut)
-                        setCheckOut(format(addDays(new Date(e.target.value), 1), 'yyyy-MM-dd'));
-                    }}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="field-label">Check-out Date <span className="text-red-400">*</span></label>
-                  <input
-                    id="booking-checkout"
-                    type="date"
-                    value={checkOut}
-                    min={checkIn ? format(addDays(new Date(checkIn), 1), 'yyyy-MM-dd') : undefined}
-                    onChange={e => setCheckOut(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
-              </div>
-
-              {/* Discount Dropdown */}
-              <div className="mt-4">
-                <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Discount Type</label>
-                <div className="relative">
-                  <select
-                    id="booking-discount"
-                    value={discountType}
-                    onChange={e => setDiscountType(e.target.value)}
-                    className="input-field appearance-none pr-9"
-                  >
-                    {BOOKING_DISCOUNT_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                </div>
-                {discountType && (
-                  <p className="mt-1.5 text-xs text-brand-success font-bold">
-                    ✓ 20% discount applied — you save ₱{discountAmt.toLocaleString()}
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4">
-                <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Madyaw Membership ID</label>
-                <input
-                  id="booking-membership"
-                  type="text"
-                  value={membershipId}
-                  onChange={e => setMembershipId(e.target.value.toUpperCase())}
-                  placeholder="e.g. SHID-XXXXXXXX"
-                  className="input-field uppercase"
-                  autoComplete="off"
-                />
-                <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                  Enter your Membership ID to apply the Madyaw member discount. Points wallet discount can be used once per day. Amount depends on your balance and the member rate set in the hotel app.
-                </p>
-                <Link
-                  to="/become-a-member"
-                  className="mt-2 inline-block text-sm font-bold text-brand-primary hover:text-brand-hover underline underline-offset-2"
-                >
-                  Be a member
-                </Link>
-                {memberStatus && (
-                  <p className={`mt-1.5 text-xs font-bold ${memberDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>
-                    {memberDiscountAmt > 0 ? '✓ ' : ''}{memberStatus}
-                    {memberPoints != null && memberDiscountAmt > 0 ? '' : ''}
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4">
-                <label className="field-label"><Tag className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Promo Code</label>
-                <input
-                  id="booking-promo"
-                  type="text"
-                  value={promoCode}
-                  onChange={e => setPromoCode(e.target.value.toUpperCase())}
-                  placeholder="Optional promo code"
-                  className="input-field uppercase"
-                />
-                <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                  If PWD/senior, promo, and member discounts all apply, the largest discount is used.
-                </p>
-                {promoStatus && (
-                  <p className={`mt-1.5 text-xs font-bold ${promoDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>
-                    {promoDiscountAmt > 0 ? '✓ ' : ''}{promoStatus}
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <div className="h-px bg-brand-primary/8" />
-
-            {/* Section: Payment timing */}
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-base font-bold uppercase tracking-widest text-brand-primary flex items-center gap-2">
-                  <Info className="w-4 h-4" /> Full payment after confirmation
-                </h2>
-                <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
-                  No payment is needed now. After the hotel confirms your request, you will get an email with a secure link to pay the full stay amount on this website.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                <div className="rounded-2xl border-2 border-brand-primary bg-gradient-to-b from-brand-primary/10 to-brand-primary/5 p-3 sm:p-4 text-center sm:text-left">
-                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-primary mb-1">
-                    Pay after confirm
-                  </p>
-                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-primary tabular-nums">
-                    ₱{amountDue.toLocaleString()}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-primary/70">Full stay (100%)</p>
-                </div>
-                <div className="rounded-2xl border border-brand-primary/10 bg-brand-background/80 p-3 sm:p-4 text-center sm:text-left">
-                  <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-brand-dark/40 mb-1">
-                    Balance at hotel
-                  </p>
-                  <p className="font-serif font-bold text-lg sm:text-2xl text-brand-dark tabular-nums">
-                    ₱{balanceDue.toLocaleString()}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-bold text-brand-dark/40">None after full pay</p>
-                </div>
-              </div>
-            </section>
-
-            {/* Security Note */}
-            <div className="flex items-center gap-2 text-xs font-bold text-brand-dark/50 bg-brand-primary/5 rounded-xl p-3">
-              <Info className="w-4 h-4 text-brand-primary shrink-0" />
-              Your stay is submitted as a reservation request. The hotel will review it in their management system and contact you at the email you provide.
-            </div>
-
-            {/* Booking Summary — review everything right before submitting */}
-            <section className="bg-brand-background/60 rounded-2xl border border-brand-primary/10 p-4 sm:p-6 space-y-4">
-              <h2 className="font-serif font-bold text-lg text-brand-dark">Booking Summary</h2>
-
-              <img
-                src={(property as any).imageUrl || property.image || NO_PHOTO_SRC}
-                alt={roomLabel}
-                className="w-full h-36 object-cover rounded-xl"
-                onError={showNoPhoto}
-              />
-
-              <div className="space-y-1">
-                <p className="font-serif font-bold text-brand-dark">
-                  {roomLabel}
-                </p>
-                {(property.hotelLocation || property.location) && (
-                  <p className="text-brand-dark/60 font-bold text-xs">
-                    {property.hotelLocation || property.location}
-                  </p>
-                )}
-              </div>
-
-              <div className="border-t border-brand-primary/8 pt-3 space-y-2">
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Check-in</span>
-                  <span className="text-brand-dark">{formatStayDate(checkIn)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Check-out</span>
-                  <span className="text-brand-dark">{formatStayDate(checkOut)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Duration</span>
-                  <span className="text-brand-dark">{nights} night{nights !== 1 ? 's' : ''}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Guests</span>
-                  <span className="text-brand-dark">{adults + children} guest{adults + children !== 1 ? 's' : ''}</span>
-                </div>
-              </div>
-
-              <div className="border-t border-brand-primary/8 pt-3 space-y-2">
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-brand-dark/60">Room rate ({nights} night{nights !== 1 ? 's' : ''})</span>
-                  <span className="text-brand-dark">₱{roomRate.toLocaleString()}</span>
-                </div>
-                {effectiveDiscount > 0 && (
-                  <div className="flex justify-between text-sm font-bold text-brand-success">
-                    <span>{activeDiscountLabel || 'Discount'}</span>
-                    <span>−₱{effectiveDiscount.toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-serif font-bold text-lg border-t border-brand-primary/8 pt-3">
-                  <span className="text-brand-dark">Stay total</span>
-                  <span className="text-brand-dark">₱{total.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold pt-1">
-                  <span className="text-brand-primary">Full payment after confirm</span>
-                  <span className="text-brand-primary">₱{amountDue.toLocaleString()}</span>
-                </div>
-                {balanceDue > 0 && (
-                  <div className="flex justify-between text-sm font-bold">
-                    <span className="text-brand-dark/60">Balance at hotel check-out</span>
-                    <span className="text-brand-dark">₱{balanceDue.toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-
-              <p className="flex items-center gap-2 text-[10px] text-brand-dark/40 font-bold">
-                <ShieldCheck className="w-3.5 h-3.5 text-brand-success" />
-                {(property as any).freeCancellation ? 'Free cancellation · ' : ''}
-                Full stay payment due after hotel confirmation
-              </p>
-            </section>
-
-            {/* Submit */}
-            <button
-              id="booking-submit"
-              type="button"
-              disabled={isSubmitting || !isFormValid}
-              onClick={handleSubmit}
-              className="btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2 py-4 text-base"
-            >
-              {isSubmitting
-                ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
-                : <><ShieldCheck className="w-5 h-5" /> Submit Reservation Request</>
-              }
-            </button>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
+          <div className="min-w-0 lg:order-2">
+            <CheckoutSummary
+              roomName={roomLabel}
+              roomImage={(property as { imageUrl?: string }).imageUrl || property.image}
+              hotelName={property.hotelName}
+              location={property.hotelLocation || property.location}
+              stay={stay}
+              changeSelectionHref={changeSelectionHref}
+              quote={quote}
+              quoteLoading={quoteLoading}
+              quoteError={quoteError}
+              freeCancellation={(property as { freeCancellation?: boolean }).freeCancellation}
+            />
           </div>
 
+          <div className="min-w-0 lg:order-1 space-y-5">
+            {step === 'details' ? (
+              <DetailsStep
+                draft={draft}
+                update={update}
+                validIdFile={validIdFile}
+                onValidId={changeValidId}
+                promoStatus={promoStatus}
+                promoAccepted={promoDiscountAmt > 0}
+                memberStatus={memberStatus}
+                memberAccepted={memberDiscountAmt > 0}
+                onError={(title) => showToast({ title, type: 'error' })}
+                onNext={goToFinish}
+              />
+            ) : detailsProblem ? (
+              <Card>
+                <h1 className="text-xl font-bold text-brand-dark mb-2">A few details are missing</h1>
+                <p className="text-sm font-bold text-brand-dark/65 mb-4">
+                  {detailsProblem}{!validIdFile ? ' (For your security, an uploaded ID is not kept after the page reloads.)' : ''}
+                </p>
+                <Link to={detailsHref} className="btn-primary inline-block">Back to your details</Link>
+              </Card>
+            ) : (
+              <>
+                <Card>
+                  <ReviewHeader title="Your details" editHref={detailsHref} />
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                    <ReviewItem label="Name" value={draft.fullName} />
+                    <ReviewItem label="Email" value={draft.email} />
+                    <ReviewItem label="Phone" value={draft.phone} />
+                    <ReviewItem label="Nationality" value={draft.nationality} />
+                    {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
+                    <ReviewItem label="Valid ID" value={validIdFile?.name ?? ''} />
+                    {draft.arrivalTime && <ReviewItem label="Estimated arrival" value={draft.arrivalTime} />}
+                    {draft.specialRequests.trim() && <ReviewItem label="Special requests" value={draft.specialRequests.trim()} />}
+                    {discountReason && <ReviewItem label="Discount" value={discountReason === 'pwd' ? 'PWD (ID checked at check-in)' : 'Senior citizen (ID checked at check-in)'} />}
+                    {appliedPromo && <ReviewItem label="Promo code" value={appliedPromo} />}
+                    {appliedMember && <ReviewItem label="Membership ID" value={appliedMember} />}
+                  </dl>
+                </Card>
 
+                <Card>
+                  <ReviewHeader title="Your stay" editHref={changeSelectionHref} editLabel="Change" />
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                    <ReviewItem label="Room" value={roomLabel} />
+                    <ReviewItem label="Guests" value={`${describeGuests(stay)} · 1 room`} />
+                    <ReviewItem label="Check-in" value={`${formatStayDate(stay.checkIn)}, from 2:00 PM`} />
+                    <ReviewItem label="Check-out" value={`${formatStayDate(stay.checkOut)}, until 12:00 PM`} />
+                    {quote && <ReviewItem label="Total" value={`${peso(quote.totalPrice)} (taxes and charges included)`} />}
+                  </dl>
+                </Card>
+
+                <Card>
+                  <h2 className="text-lg font-bold text-brand-dark mb-2 flex items-center gap-2"><Wallet className="w-5 h-5 text-brand-primary" aria-hidden />How you'll pay</h2>
+                  <div className="rounded-xl border-2 border-brand-primary bg-brand-primary/5 p-4">
+                    <p className="font-bold text-brand-dark">Pay after the hotel confirms — GCash or Maya QR</p>
+                    <p className="mt-1 text-sm text-brand-dark/65">
+                      You won't be charged today. When the hotel confirms, we email you a secure link to pay
+                      {quote ? ` the full ${peso(quote.dueAfterConfirmation)}` : ' the full stay'} by scanning the hotel's QR and uploading your receipt.
+                    </p>
+                  </div>
+                </Card>
+
+                <Card>
+                  <label className="flex items-start gap-3 text-sm font-bold text-brand-dark">
+                    <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-primary" />
+                    <span>
+                      I agree to the <Link to="/terms" target="_blank" className="text-brand-primary underline">Terms of Service</Link> and{' '}
+                      <Link to="/privacy" target="_blank" className="text-brand-primary underline">Privacy Policy</Link>, and I understand this is a reservation
+                      request that the hotel must confirm.
+                    </span>
+                  </label>
+                  <button
+                    id="booking-submit"
+                    type="button"
+                    disabled={isSubmitting || !agreed || quoteBlocksBooking}
+                    onClick={() => void completeBooking()}
+                    className="mt-4 btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2 py-4 text-base"
+                  >
+                    {isSubmitting
+                      ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending your request…</>
+                      : <><ShieldCheck className="w-5 h-5" /> Complete booking</>}
+                  </button>
+                  <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">No payment is taken now.</p>
+                </Card>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
+  );
+}
 
-    </>
+function Card({ children }: { children: ReactNode }) {
+  return <section className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6">{children}</section>;
+}
+
+function ReviewHeader({ title, editHref, editLabel = 'Edit' }: { title: string; editHref: string; editLabel?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <h2 className="text-lg font-bold text-brand-dark">{title}</h2>
+      <Link to={editHref} className="flex items-center gap-1 text-sm font-bold text-brand-primary underline underline-offset-2">
+        <Pencil className="w-3.5 h-3.5" aria-hidden />{editLabel}
+      </Link>
+    </div>
+  );
+}
+
+function ReviewItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-bold text-brand-dark/50">{label}</dt>
+      <dd className="font-bold text-brand-dark break-words">{value || '—'}</dd>
+    </div>
+  );
+}
+
+function DetailsStep({
+  draft,
+  update,
+  validIdFile,
+  onValidId,
+  promoStatus,
+  promoAccepted,
+  memberStatus,
+  memberAccepted,
+  onError,
+  onNext,
+}: {
+  draft: CheckoutDraft;
+  update: (patch: Partial<CheckoutDraft>) => void;
+  validIdFile: File | null;
+  onValidId: (file: File | null) => void;
+  promoStatus: string | null;
+  promoAccepted: boolean;
+  memberStatus: string | null;
+  memberAccepted: boolean;
+  onError: (title: string) => void;
+  onNext: () => void;
+}) {
+  const sectionTitle = 'text-base font-bold uppercase tracking-widest text-brand-primary mb-4 flex items-center gap-2';
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => { e.preventDefault(); onNext(); }}
+      className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm p-4 sm:p-6 space-y-7"
+    >
+      <section>
+        <h1 className={sectionTitle}><User className="w-4 h-4" /> Enter your details</h1>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="booking-fullname" className="field-label">Full Name <span className="text-red-400">*</span></label>
+            <input id="booking-fullname" type="text" autoComplete="name" value={draft.fullName}
+              onChange={e => update({ fullName: e.target.value })} placeholder="Full name as shown on ID" className="input-field" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="booking-email" className="field-label">Email Address <span className="text-red-400">*</span></label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
+                <input id="booking-email" type="email" autoComplete="email" value={draft.email}
+                  onChange={e => update({ email: e.target.value })} placeholder="yourname@gmail.com" className="input-field !pl-10" />
+              </div>
+              <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">The hotel's confirmation and payment link are sent here. Please double-check it.</p>
+            </div>
+            <div>
+              <label htmlFor="booking-phone" className="field-label">Phone Number <span className="text-red-400">*</span></label>
+              <div className="relative">
+                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
+                <input id="booking-phone" type="tel" autoComplete="tel" value={draft.phone}
+                  onChange={e => update({ phone: e.target.value })} placeholder="+63 9XX XXX XXXX" className="input-field !pl-10" />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="booking-nationality" className="field-label"><Globe className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Nationality</label>
+            <div className="relative">
+              <select id="booking-nationality" value={draft.nationality} onChange={e => update({ nationality: e.target.value })} className="input-field appearance-none !pr-10">
+                {NATIONALITIES.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
+            </div>
+          </div>
+
+          <fieldset>
+            <legend className="field-label">Who are you booking for?</legend>
+            <div className="flex flex-wrap gap-4 text-sm font-bold text-brand-dark">
+              <label className="flex items-center gap-2">
+                <input type="radio" name="booking-for" checked={!draft.bookingForSomeoneElse} onChange={() => update({ bookingForSomeoneElse: false })} className="accent-brand-primary" />
+                I'm the main guest
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="booking-for" checked={draft.bookingForSomeoneElse} onChange={() => update({ bookingForSomeoneElse: true })} className="accent-brand-primary" />
+                I'm booking for someone else
+              </label>
+            </div>
+            {draft.bookingForSomeoneElse && (
+              <div className="mt-3">
+                <label htmlFor="booking-stay-guest" className="field-label">Full name of the guest staying <span className="text-red-400">*</span></label>
+                <input id="booking-stay-guest" type="text" value={draft.stayGuestName}
+                  onChange={e => update({ stayGuestName: e.target.value })} className="input-field" />
+              </div>
+            )}
+          </fieldset>
+
+          <div>
+            <label htmlFor="booking-valid-id" className="field-label flex items-center justify-between">
+              <span><ShieldCheck className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Valid ID <span className="text-red-400">*</span></span>
+              <span className="text-[10px] text-brand-dark/40 font-normal">Passport, driver's license, or government ID</span>
+            </label>
+            <label
+              htmlFor="booking-valid-id"
+              className={`mt-1 flex flex-col items-center justify-center w-full p-4 transition-colors border-2 border-dashed rounded-xl cursor-pointer ${
+                validIdFile
+                  ? 'border-brand-success bg-brand-success/5 text-brand-success'
+                  : 'border-brand-primary/25 bg-brand-background/40 hover:bg-brand-background/70 hover:border-brand-primary/50 text-brand-dark/60'
+              }`}
+            >
+              {validIdFile ? (
+                <span className="flex items-center justify-between w-full gap-2 text-sm font-bold">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{validIdFile.name}</span>
+                    <span className="text-xs font-normal text-brand-dark/50 shrink-0">({(validIdFile.size / 1024).toFixed(0)} KB)</span>
+                  </span>
+                  <span className="text-xs text-brand-primary underline shrink-0">Change ID</span>
+                </span>
+              ) : (
+                <span className="flex flex-col items-center text-center py-2">
+                  <Upload className="w-6 h-6 mb-2 text-brand-primary/60" />
+                  <span className="text-xs font-bold text-brand-dark">Click to upload your valid ID</span>
+                  <span className="text-[10px] text-brand-dark/50 mt-0.5">JPG, PNG, WEBP, or PDF (max 5 MB) — shared only with the hotel</span>
+                </span>
+              )}
+              <input
+                id="booking-valid-id"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (!VALID_ID_TYPES.includes(file.type)) {
+                    onError('Valid ID must be a JPG, PNG, WEBP, or PDF');
+                    e.target.value = '';
+                    return;
+                  }
+                  if (file.size > 5 * 1024 * 1024) {
+                    onError('Valid ID must be 5 MB or smaller');
+                    e.target.value = '';
+                    return;
+                  }
+                  onValidId(file);
+                }}
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <div className="h-px bg-brand-primary/10" />
+
+      <section>
+        <h2 className={sectionTitle}><Clock className="w-4 h-4" /> Your arrival time</h2>
+        <label htmlFor="booking-arrival" className="field-label">Estimated arrival (optional)</label>
+        <div className="relative">
+          <select id="booking-arrival" value={draft.arrivalTime} onChange={e => update({ arrivalTime: e.target.value })} className="input-field appearance-none !pr-10">
+            <option value="">I don't know yet</option>
+            {ARRIVAL_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
+        </div>
+        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM.</p>
+      </section>
+
+      <section>
+        <h2 className={sectionTitle}><MessageSquare className="w-4 h-4" /> Special requests</h2>
+        <label htmlFor="booking-requests" className="field-label">Anything the hotel should know? (optional)</label>
+        <textarea id="booking-requests" rows={3} maxLength={300} value={draft.specialRequests}
+          onChange={e => update({ specialRequests: e.target.value })} className="input-field" />
+        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Requests depend on availability and aren't guaranteed.</p>
+        <div className="mt-4">
+          <span className="field-label">Head count by sex (optional, for the hotel's records)</span>
+          <div className="grid grid-cols-2 gap-4">
+            <label className="text-[10px] text-brand-dark/50 font-bold">Male
+              <input type="number" min={0} value={draft.malePax} onChange={e => update({ malePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
+            </label>
+            <label className="text-[10px] text-brand-dark/50 font-bold">Female
+              <input type="number" min={0} value={draft.femalePax} onChange={e => update({ femalePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <div className="h-px bg-brand-primary/10" />
+
+      <section>
+        <h2 className={sectionTitle}><Tag className="w-4 h-4" /> Discounts</h2>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="booking-discount" className="field-label">PWD / Senior citizen</label>
+            <div className="relative">
+              <select id="booking-discount" value={draft.discountType} onChange={e => update({ discountType: e.target.value })} className="input-field appearance-none pr-9">
+                {BOOKING_DISCOUNT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
+            </div>
+            {draft.discountType && <p className="mt-1.5 text-[11px] text-brand-dark/55 font-bold">Bring the matching ID — the hotel checks it at check-in.</p>}
+          </div>
+          <div>
+            <label htmlFor="booking-membership" className="field-label">Madyaw Membership ID</label>
+            <input id="booking-membership" type="text" autoComplete="off" value={draft.membershipId}
+              onChange={e => update({ membershipId: e.target.value.toUpperCase() })} placeholder="e.g. SHID-XXXXXXXX" className="input-field uppercase" />
+            <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+              Points wallet discount, once per day. <Link to="/become-a-member" className="text-brand-primary underline">Be a member</Link>
+            </p>
+            {memberStatus && <p className={`mt-1 text-xs font-bold ${memberAccepted ? 'text-brand-success' : 'text-brand-dark/55'}`}>{memberAccepted ? '✓ ' : ''}{memberStatus}</p>}
+          </div>
+          <div>
+            <label htmlFor="booking-promo" className="field-label">Promo code</label>
+            <input id="booking-promo" type="text" value={draft.promoCode}
+              onChange={e => update({ promoCode: e.target.value.toUpperCase() })} placeholder="Optional" className="input-field uppercase" />
+            {promoStatus && <p className={`mt-1 text-xs font-bold ${promoAccepted ? 'text-brand-success' : 'text-brand-dark/55'}`}>{promoAccepted ? '✓ ' : ''}{promoStatus}</p>}
+          </div>
+          <p className="text-[11px] text-brand-dark/45 font-bold">If more than one discount applies, the largest one is used. Your total updates on the right.</p>
+        </div>
+      </section>
+
+      <button type="submit" className="btn-primary w-full py-4 text-base">Next: Final details</button>
+    </form>
   );
 }
