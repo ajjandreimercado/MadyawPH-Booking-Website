@@ -20,6 +20,7 @@ import { ConfirmationSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { useBookings } from '../contexts/BookingsContext';
 import { useToast } from '../components/ui/ToastProvider';
+import { formatStayDate } from '../lib/stayParams';
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -366,8 +367,8 @@ export default function BookingConfirmationPage() {
             {[
               { icon: Home, label: 'Property', value: booking.propertyName },
               { icon: MapPin, label: 'Room Type', value: booking.roomType?.replace(/-/g, ' ') },
-              { icon: Calendar, label: 'Check-in', value: booking.checkInDate },
-              { icon: Calendar, label: 'Check-out', value: booking.checkOutDate },
+              { icon: Calendar, label: 'Check-in', value: `${formatStayDate(booking.checkInDate)}, from 2:00 PM` },
+              { icon: Calendar, label: 'Check-out', value: `${formatStayDate(booking.checkOutDate)}, until 12:00 PM` },
               { icon: Users, label: 'Guests', value: `${booking.adults} adult${booking.adults !== 1 ? 's' : ''}${booking.children > 0 ? ` + ${booking.children} child${booking.children !== 1 ? 'ren' : ''}` : ''}` },
               { icon: CreditCard, label: 'Payment', value: paymentLabel },
             ].map(item => (
@@ -421,13 +422,22 @@ export default function BookingConfirmationPage() {
                 ₱{(paymentDone ? (amountPaid || depositDue) : depositDue).toLocaleString()}
               </span>
             </div>
+            <div className="flex justify-between text-sm font-bold border-t border-brand-primary/8 pt-2">
+              <span className="text-brand-dark/60">Amount paid{paymentDone && !booking.paymentProofVerified ? ' (awaiting hotel verification)' : ''}</span>
+              <span className="text-brand-dark tabular-nums">₱{(paymentDone ? (amountPaid || depositDue) : 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm font-bold">
+              <span className="text-brand-dark/60">Amount due{isPending ? ' after the hotel confirms' : ''}</span>
+              <span className="text-brand-dark tabular-nums">₱{(paymentDone ? 0 : depositDue).toLocaleString()}</span>
+            </div>
             {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) !== 'full' && balanceAtCheckout > 0 && (
               <div className="flex justify-between text-sm font-bold">
                 <span className="text-brand-dark/60">Balance at hotel check-out</span>
                 <span>₱{balanceAtCheckout.toLocaleString()}</span>
               </div>
             )}
-            <p className="text-[11px] font-bold text-brand-dark/45 pt-1">
+            <p className="text-[11px] font-bold text-brand-dark/45 pt-1">Taxes and charges included. No booking fees.</p>
+            <p className="text-[11px] font-bold text-brand-dark/45">
               {isPending
                 ? 'You will receive a secure email link to pay the full stay after the hotel confirms.'
                 : paymentDone && booking.paymentProofVerified
