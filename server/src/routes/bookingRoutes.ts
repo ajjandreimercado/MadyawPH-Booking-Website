@@ -23,7 +23,6 @@ import {
 import { withRetries } from '../utils/withRetries';
 import { findBookedRoomIds, parseStayQuery, pickRoomForCategory } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
-import { ensureWebsiteOnlinePaymentLedger } from '../utils/websiteBillingLedger';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret, getMadyawApiPublicUrl } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
@@ -1123,8 +1122,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     online_payment_mode: onlinePaymentMode,
     deposit_percent: depositPercent,
     payment_status: paymentStatus,
-    // Room is reserved for check-in as soon as the guest finishes booking online.
-    status: 'reserved',
+    // Hotel Online Bookings queue expects "pending" here; hotel approval sets reserved.
+    // Do NOT write check_in_date/check_out_date on create (inventory hold).
+    status: 'pending',
     // Guest's estimated arrival → the hotel app's check-in time field.
     ...(arrivalTime ? { check_in_time: arrivalTime } : {}),
     requestedAt: createdAt.toISOString(),
@@ -1260,7 +1260,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Failed to store/sync payment screenshot:', proofError);
   }
 
-  // Hotel app stay row — reserved with payment screenshot + ID links for check-in.
+  // Online Bookings queue = external_reservations with pending_approval (not reserved).
+  // Keep payment screenshot + ID links on the row so staff can open them from MADYAWPH.
+  // Do NOT write billing_charges yet — a room charge is an inventory hold and blocks approval.
   try {
     await withRetries(async () => {
       const existing = await ExternalReservationModel.countDocuments({
@@ -1304,7 +1306,6 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         paymentProofExpectedAmount: amountDue,
         paymentProofVerified: false,
         paymentProofUrl: proofOk ? paymentProofUrl : undefined,
-        status: 'reserved',
       });
       await ExternalReservationModel.create(externalDoc);
     }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });
@@ -1330,30 +1331,6 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       },
     },
   ).catch((error) => console.error('[Bookings] Failed to set guest/payment file URLs:', error));
-
-  // Room charge ledger — booking is already reserved for check-in.
-  try {
-    await ensureWebsiteOnlinePaymentLedger({
-      bookingId,
-      hotelId,
-      roomId,
-      bookingReference: String(booking.booking_reference),
-      nights: pricing.nights,
-      roomRate: pricing.roomRate,
-      stayTotal: finalTotalPrice,
-      amountDue,
-      balanceDue: finalTotalPrice,
-      amountPaid: 0,
-      paymentMethod,
-      mode: onlinePaymentMode,
-      depositPercent,
-    });
-    await BookingModel.updateOne({ _id: booking._id }, { $set: { hotel_ledger_synced: true } });
-  } catch (ledgerError) {
-    const msg = ledgerError instanceof Error ? ledgerError.message : String(ledgerError);
-    syncErrors.push(`ledger:${msg}`);
-    console.error('[Bookings] Failed to write online-payment ledger:', ledgerError);
-  }
 
   if (syncErrors.length > 0) {
     await BookingModel.updateOne(

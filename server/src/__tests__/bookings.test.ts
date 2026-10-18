@@ -378,7 +378,7 @@ describe('POST /api/bookings', () => {
       expect(created.check_out_date).toBeInstanceOf(Date);
       expect(created.created_at).toBeInstanceOf(Date);
       expect(created.checkInDate).toBe(VALID_PAYLOAD.checkInDate);
-      expect(created.status).toBe('reserved');
+      expect(created.status).toBe('pending');
       expect(created.source).toBe('web');
       expect(created.payment_status).toBe('unpaid');
       expect(created.online_payment_mode).toBe('full');
@@ -400,7 +400,8 @@ describe('POST /api/bookings', () => {
       expect(ExternalReservationModel.create).toHaveBeenCalled();
       expect(BookingValidIdModel.findOneAndUpdate).toHaveBeenCalled();
       const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
-      expect(externalDoc.status).toBe('reserved');
+      // Online Bookings queue filters pending_approval — reserved hides the request.
+      expect(externalDoc.status).toBe('pending_approval');
       expect(externalDoc.source).toBe('app-customer');
       expect(externalDoc.external_reference).toBeTruthy();
       const meta = typeof externalDoc.metadata === 'string'
@@ -414,8 +415,8 @@ describe('POST /api/bookings', () => {
       expect(meta.payment_proof_uploaded).toBe(true);
       expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?sig=[0-9a-f]{64}$/);
 
-      // Room is reserved at checkout — ledger is written so the hotel can check the guest in.
-      expect(BillingChargeModel.insertMany).toHaveBeenCalled();
+      // Ledger stays off until hotel approval (room charge would block the queue).
+      expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
     }
   });
 
