@@ -651,6 +651,38 @@ export interface PromoValidationResult {
   message?: string;
 }
 
+export interface StayQuote {
+  available: boolean;
+  nights: number;
+  roomRate: number;
+  /** Stay price before discounts (same number as the hotel page rate table). */
+  stayPrice: number;
+  discountAmount: number;
+  discountType: string;
+  discountReason: string;
+  /** What the booking will be saved with. */
+  totalPrice: number;
+  dueNow: number;
+  dueAfterConfirmation: number;
+  taxesIncluded: boolean;
+}
+
+/** Server price for a stay, with the same pricing as booking creation. Creates nothing. */
+export async function quoteStay(payload: {
+  propertyId: string;
+  checkInDate: string;
+  checkOutDate: string;
+  adults: number;
+  children: number;
+  roomType: string;
+  discountReason?: string;
+  promoCode?: string;
+  membershipId?: string;
+}): Promise<StayQuote> {
+  const response = await api.post<StayQuote>('/bookings/quote', payload);
+  return response.data;
+}
+
 export async function validatePromoCode(code: string, bookingAmount: number): Promise<PromoValidationResult> {
   try {
     const response = await api.post<PromoValidationResult>('/promo-codes/validate', { code, bookingAmount });
