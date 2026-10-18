@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, RoomCategoryModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter, publicReadLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -366,6 +366,24 @@ type ResolvedRoom =
   | { ok: true; roomId: string; byCategory: boolean }
   | { ok: false; status: number; message: string };
 
+/** Nightly rate for pricing: room rate, or the room-type default when the room has no price. */
+async function resolveNightlyRate(property: {
+  price_per_night?: unknown;
+  category_id?: unknown;
+}): Promise<number> {
+  const roomPrice = Number(property.price_per_night ?? 0);
+  if (Number.isFinite(roomPrice) && roomPrice > 0) return roomPrice;
+  const categoryId = property.category_id ? String(property.category_id) : '';
+  if (!categoryId) return 0;
+  try {
+    const category = await RoomCategoryModel.findById(categoryId).select('default_price').lean();
+    const fallback = Number((category as { default_price?: unknown } | null)?.default_price ?? 0);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Guests book a room type (categoryId) and the server assigns a free room of that type for
  * the stay (the hotel can reassign it in the hotel app). Older callers may still send a
@@ -437,13 +455,20 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   if (resolved.ok === false) return res.status(resolved.status).json({ message: resolved.message });
 
   const property = await PropertyModel.findById(resolved.roomId)
-    .select({ price_per_night: 1, room_type: 1, category_name: 1, hotel_name: 1, hotel_location: 1, free_cancellation: 1 })
+    .select({ price_per_night: 1, category_id: 1, room_type: 1, category_name: 1, hotel_name: 1, hotel_location: 1, free_cancellation: 1 })
     .lean();
   if (!property) return res.status(404).json({ message: 'Room not found.' });
 
+  const nightlyRate = await resolveNightlyRate(property);
+  if (!(nightlyRate > 0)) {
+    return res.status(409).json({
+      message: 'This room type has no price set yet. Please choose another room or contact the hotel.',
+    });
+  }
+
   try {
     const quote = await priceStay({
-      roomPrice: property.price_per_night,
+      roomPrice: nightlyRate,
       checkInDate: checkInResult.value,
       checkOutDate: checkOutResult.value,
       adults: adultsResult.value,
@@ -523,9 +548,21 @@ async function checkPaymentProof(
   if (!/^[A-Z0-9][A-Z0-9\-_/]{5,63}$/i.test(ref)) {
     return { ok: false, status: 400, message: 'The reference number looks invalid. Copy it exactly from your receipt.' };
   }
+  if (!(amountDue > 0)) {
+    return {
+      ok: false,
+      status: 409,
+      message: 'This stay could not be priced. Please go back and choose the room again.',
+    };
+  }
+  // Guests pay the quoted total — no separate amount field on checkout.
   const claimed = rawAmount === undefined || rawAmount === '' ? amountDue : Number(rawAmount);
   if (!Number.isFinite(claimed) || claimed <= 0) {
-    return { ok: false, status: 400, message: 'Enter the amount you paid.' };
+    return {
+      ok: false,
+      status: 400,
+      message: `Pay exactly ₱${amountDue.toLocaleString()} with the hotel QR, then upload your receipt.`,
+    };
   }
   if (Math.abs(claimed - amountDue) > 1) {
     return { ok: false, status: 400, message: `The amount paid must be ₱${amountDue.toLocaleString()}.` };
@@ -924,13 +961,20 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     roomTypeResult.value = property.room_type || 'standard-room';
   }
 
+  const nightlyRate = await resolveNightlyRate(property);
+  if (!(nightlyRate > 0)) {
+    return res.status(409).json({
+      message: 'This room type has no price set yet. Please choose another room or contact the hotel.',
+    });
+  }
+
   // Website reservations always require full stay payment after hotel confirmation.
   const paymentMode = 'full' as const;
 
   let quote: StayQuote;
   try {
     quote = await priceStay({
-      roomPrice: property.price_per_night,
+      roomPrice: nightlyRate,
       checkInDate: checkInResult.value,
       checkOutDate: checkOutResult.value,
       adults: adultsResult.value,
