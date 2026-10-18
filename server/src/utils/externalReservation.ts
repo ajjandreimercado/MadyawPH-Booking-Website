@@ -97,7 +97,7 @@ export function buildExternalReservationDoc(input: {
   guestIdUrl?: string;
   /** Link the hotel app opens for the payment screenshot. */
   paymentProofUrl?: string;
-  /** Hotel Online Bookings status — reserved when the guest finishes paid checkout. */
+  /** Defaults to pending_approval — the Online Bookings queue filters on that status. */
   status?: string;
 }) {
   const now = input.now ?? new Date();
