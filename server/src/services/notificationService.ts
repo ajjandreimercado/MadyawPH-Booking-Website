@@ -2,11 +2,12 @@ import mongoose from 'mongoose';
 import { BookingModel, HotelModel } from '../data/mongoModels';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
 import { signReceiptToken } from '../utils/receiptToken';
-import { computeOnlinePaymentDue, resolveOnlinePaymentModeFromBooking } from '../utils/halfPayment';
 
 export interface BookingNotificationTarget {
   _id?: unknown;
   hotel_id?: unknown;
+  hotel_name?: unknown;
+  hotelName?: unknown;
   propertyId?: unknown;
   room_id?: unknown;
   booking_reference?: string;
@@ -94,8 +95,11 @@ function peso(amount: number): string {
   return `₱${Math.max(0, Math.round(amount)).toLocaleString('en-US')}`;
 }
 
-/** Emails go out in the hotel's name; Madyaw only appears when the hotel can't be found. */
+/** Emails go out in the hotel's name — never brand the guest email as Madyaw. */
 async function resolveHotelName(booking: BookingNotificationTarget): Promise<string> {
+  const embedded = String(booking.hotel_name ?? booking.hotelName ?? '').trim();
+  if (embedded) return embedded;
+
   const hotelId = booking.hotel_id ? String(booking.hotel_id) : '';
   if (hotelId && mongoose.isValidObjectId(hotelId)) {
     try {
@@ -106,7 +110,8 @@ async function resolveHotelName(booking: BookingNotificationTarget): Promise<str
       console.warn('[Notification] Hotel name lookup failed:', error instanceof Error ? error.message : error);
     }
   }
-  return 'Madyaw Bookings';
+  const roomLabel = String(booking.propertyName ?? '').trim();
+  return roomLabel || 'your hotel';
 }
 
 /** Keep the verified sending address from EMAIL_FROM, but show the hotel's name. */
@@ -202,7 +207,8 @@ async function persistSendState(
 }
 
 /**
- * Email the guest right after they submit a reservation request.
+ * Email the guest right after they complete booking — welcome from the hotel
+ * (no reservation-request copy, no payment link).
  */
 export async function sendBookingRequestReceivedNotification(
   booking: BookingNotificationTarget,
@@ -221,12 +227,15 @@ export async function sendBookingRequestReceivedNotification(
   const checkOut = formatStayDate(booking.checkOutDate, 'your selected check-out date');
   const stayLength = formatStayLength(booking);
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
+  const paidClaim = Number(booking.payment_proof_amount_claimed ?? stayTotal);
 
-  const subject = `We received your reservation request — ${hotelName}`;
+  const subject = `Welcome to ${hotelName}`;
   const messageBody = [
     `Hi ${guestFirstName(booking)},`,
     '',
-    `Thank you for booking with ${hotelName}. We have received your reservation request${room}.`,
+    `Welcome to ${hotelName}!`,
+    '',
+    `Thank you for completing your booking${room}. We look forward to hosting you.`,
     '',
     `Reference: ${ref}`,
     `Check-in: ${checkIn}`,
@@ -234,13 +243,13 @@ export async function sendBookingRequestReceivedNotification(
     ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
     `Stay total: ${peso(stayTotal)}`,
     booking.payment_proof_stored
-      ? `Payment sent: ${peso(Number(booking.payment_proof_amount_claimed ?? stayTotal))} (we received your screenshot and will verify it)`
-      : `Amount paid: ${peso(0)}`,
+      ? `Payment received: ${peso(paidClaim)} (we will verify your screenshot shortly)`
+      : null,
     '',
-    'We are checking your payment and reviewing your request. You will receive another email when your reservation is confirmed.',
+    'You will receive another email from us once your stay is confirmed.',
     '',
     `— ${hotelName}`,
-  ].join('\n');
+  ].filter((line): line is string => line !== null).join('\n');
 
   try {
     const result = await deliverEmail(email, subject, messageBody, senderFor(hotelName));
@@ -248,25 +257,26 @@ export async function sendBookingRequestReceivedNotification(
       await persistSendState(booking, {
         requestSendStatus: 'failed',
       });
-      console.warn(`[Notification] Request email not delivered: ${result.error}`);
+      console.warn(`[Notification] Welcome email not delivered: ${result.error}`);
       return false;
     }
     await persistSendState(booking, {
       requestSendStatus: 'sent',
       requestSentAt: new Date(),
     });
-    console.log(`[Notification] Request received email sent to ${email}`);
+    console.log(`[Notification] Welcome email sent to ${email} as ${hotelName}`);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown delivery failure';
-    console.error(`[Notification] Request email failed: ${message}`);
+    console.error(`[Notification] Welcome email failed: ${message}`);
     await persistSendState(booking, { requestSendStatus: 'failed' });
     return false;
   }
 }
 
 /**
- * Sends a confirmation message to the guest when the reservation is confirmed.
+ * Email the guest when the hotel confirms the stay.
+ * Guests already pay by QR when they book — no payment-link email.
  */
 export async function sendBookingConfirmationNotification(booking: BookingNotificationTarget): Promise<boolean> {
   if (booking.confirmationSendStatus === 'sent' || booking.confirmationSentAt) {
@@ -281,26 +291,11 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
   const stayLength = formatStayLength(booking);
   const ref = booking.booking_reference || String(booking._id || '');
   const guestContact = booking.guestEmail || booking.guest_phone || '';
-  const payUrl = buildPayDepositUrl(booking);
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
-  const mode = resolveOnlinePaymentModeFromBooking(booking);
-  const due = computeOnlinePaymentDue(stayTotal, mode);
-  const depositDue = Number(booking.deposit_amount ?? due.amountDue);
-  // Only treat as paid when the guest actually submitted proof (not when the
-  // approval ledger merely reserved the expected deposit amount).
-  const alreadyPaid = Boolean(
-    booking.payment_proof_stored
-    || booking.payment_proof_filename,
-  )
-    || (
-      Number(booking.amount_paid ?? booking.amountPaid ?? 0) > 0
-      && Boolean(booking.payment_transaction_ref)
-    );
-  const depositLabel = mode === 'full' ? 'full stay payment' : '50% deposit';
-  // Hotel-verified amount first, then what the guest declared with their proof.
-  const amountPaid = alreadyPaid
-    ? Number(booking.amount_paid ?? booking.amountPaid ?? 0) || Number(booking.payment_proof_amount_claimed ?? 0) || depositDue
-    : 0;
+  const amountPaid = Number(booking.amount_paid ?? booking.amountPaid ?? 0)
+    || Number(booking.payment_proof_amount_claimed ?? 0)
+    || (booking.payment_proof_stored || booking.payment_proof_filename ? stayTotal : 0);
+
   const stayLines = [
     `Reference: ${ref}`,
     `Check-in: ${checkInDate}`,
@@ -310,37 +305,18 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     `Amount paid: ${peso(amountPaid)}`,
   ];
 
-  const subject = alreadyPaid
-    ? 'Your reservation is confirmed'
-    : mode === 'full'
-      ? 'Reservation confirmed — please pay your stay in full'
-      : 'Reservation confirmed — please pay your deposit';
-  const messageBody = alreadyPaid
-    ? [
-      `Hi ${guestFirstName(booking)},`,
-      '',
-      `Great news — your reservation at ${hotelName}${room} has been confirmed.`,
-      '',
-      ...stayLines,
-      '',
-      'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact us directly.',
-      '',
-      `— ${hotelName}`,
-    ].join('\n')
-    : [
-      `Hi ${guestFirstName(booking)},`,
-      '',
-      `Great news — your reservation at ${hotelName}${room} has been confirmed.`,
-      '',
-      ...stayLines,
-      '',
-      `Please pay your ${depositLabel} of ${peso(depositDue)} to secure your stay:`,
-      payUrl,
-      '',
-      'This secure link opens our booking page where you can scan our payment QR and upload your payment proof. It works even if you closed the browser earlier.',
-      '',
-      `— ${hotelName}`,
-    ].join('\n');
+  const subject = `Welcome to ${hotelName} — your reservation is confirmed`;
+  const messageBody = [
+    `Hi ${guestFirstName(booking)},`,
+    '',
+    `Welcome to ${hotelName}! Your reservation${room} is confirmed.`,
+    '',
+    ...stayLines,
+    '',
+    'We look forward to welcoming you. If you have any questions before your stay, reply to this email or contact us directly.',
+    '',
+    `— ${hotelName}`,
+  ].join('\n');
 
   try {
     if (String(booking.guestEmail).toLowerCase() === 'fail@notification.test' || String(booking.guest_phone) === 'FAIL') {
