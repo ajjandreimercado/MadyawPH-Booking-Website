@@ -7,7 +7,7 @@
  */
 
 import type mongoose from 'mongoose';
-import { BookingModel } from '../data/mongoModels';
+import { BookingModel, PropertyModel } from '../data/mongoModels';
 
 /** Statuses that hold a room for their dates (website + hotel-app vocabulary). */
 export const ROOM_HOLD_STATUSES = [
@@ -115,4 +115,41 @@ export function isRoomBookable(
 /** Today's date (yyyy-MM-dd) in Asia/Manila, where the hotels are. */
 export function manilaToday(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(now);
+}
+
+/**
+ * Order rooms of one type for automatic assignment: cheapest first, then lowest room number.
+ * The hotel page prices the first bookable room in this order, and booking assigns that same
+ * room, so the guest pays the price they saw.
+ */
+export function compareRoomsForAssignment(
+  a: { price: number; roomNumber?: string },
+  b: { price: number; roomNumber?: string },
+): number {
+  if (a.price !== b.price) return a.price - b.price;
+  return String(a.roomNumber ?? '').localeCompare(String(b.roomNumber ?? ''), undefined, { numeric: true });
+}
+
+/**
+ * Guests book a room type, not a room: pick the room the booking is assigned to (the hotel
+ * can reassign it in the hotel app). Null when no room of that type is free for the stay.
+ */
+export async function pickRoomForCategory(
+  categoryId: string,
+  start: Date,
+  end: Date,
+  options: { session?: mongoose.ClientSession | null } = {},
+) {
+  const query = PropertyModel.find({ category_id: categoryId });
+  if (options.session) query.session(options.session);
+  const rooms = await query.lean();
+  if (rooms.length === 0) return null;
+  const booked = await findBookedRoomIds(rooms.map((room) => String(room._id)), start, end, options);
+  const free = rooms
+    .filter((room) => isRoomBookable(room, booked, start))
+    .sort((a, b) => compareRoomsForAssignment(
+      { price: Number(a.price_per_night ?? 0), roomNumber: a.room_number },
+      { price: Number(b.price_per_night ?? 0), roomNumber: b.room_number },
+    ));
+  return free[0] ?? null;
 }

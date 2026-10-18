@@ -31,7 +31,7 @@ import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
-import { findBookedRoomIds, isRoomBookable, parseStayQuery } from '../utils/roomAvailability';
+import { compareRoomsForAssignment, findBookedRoomIds, isRoomBookable, parseStayQuery } from '../utils/roomAvailability';
 import { calculateBookingPricing } from '../utils/pricing';
 import {
   buildAmenityRoomClause,
@@ -856,9 +856,11 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
     const stats = categoryStats.get(category.id) ?? { totalRooms: 0, availableRooms: 0 };
     const roomsInCategory = serializedRooms.filter((room) => room.categoryId === category.id);
     const sample = roomsInCategory[0];
-    // Price the exact room checkout will book, with the same server formula as POST /bookings.
-    const bookRoomId = firstAvailableRoomByCategory.get(category.id) ?? firstRoomByCategory.get(category.id);
-    const bookRoom = roomsInCategory.find((room) => room.id === bookRoomId);
+    // Price the room a booking of this type is assigned (cheapest free, then lowest number —
+    // same order as pickRoomForCategory), with the same formula as POST /bookings.
+    const bookRoom = roomsInCategory
+      .filter(roomIsFree)
+      .sort((a, b) => compareRoomsForAssignment(a, b))[0];
     const stayPrice = stay && bookRoom
       ? calculateBookingPricing({
         propertyPrice: bookRoom.price,
