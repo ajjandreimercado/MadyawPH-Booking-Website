@@ -84,6 +84,8 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
     if (checkIn) params.set('checkIn', checkIn);
     if (checkOut) params.set('checkOut', checkOut);
     params.set('guests', String(adults + children));
+    params.set('adults', String(adults));
+    params.set('children', String(children));
     params.set('rooms', String(rooms));
 
     if (isNearMeQuery(safeDestination)) {

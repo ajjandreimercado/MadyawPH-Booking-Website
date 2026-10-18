@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
 import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
+import { readStay, writeStay, stayQuery as buildStayQuery } from '../lib/stayParams';
+import StayBar from '../components/booking/StayBar';
 import StarRating from '../components/ui/StarRating';
 import { HotelCardSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
@@ -63,11 +65,8 @@ function HotelCard({
 }) {
   const [imgIndex, setImgIndex] = useState(0);
   const [searchParams] = useSearchParams();
-  // Carry the searched dates to the hotel page so its availability matches.
-  const stayQuery = new URLSearchParams(
-    [['checkIn', searchParams.get('checkIn')], ['checkOut', searchParams.get('checkOut')]]
-      .filter((pair): pair is [string, string] => Boolean(pair[1])),
-  ).toString();
+  // Carry the searched dates and guests to the hotel page so its availability and prices match.
+  const stayQuery = buildStayQuery(readStay(searchParams));
   const images = [
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
     ...(hotel.images || [])
@@ -165,6 +164,7 @@ function HotelCard({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-brand-dark/40">Starting from</p>
             <p className="price-tag">₱{hotel.minPrice.toLocaleString()}<span className="text-xs font-sans font-bold text-brand-dark/50">/night</span></p>
+            <p className="text-[10px] font-bold text-brand-dark/45">Taxes and charges included</p>
           </div>
           <button
             type="button"
@@ -172,7 +172,7 @@ function HotelCard({
             disabled={hotel.availableRooms === 0}
             className="btn-primary text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            View Rooms
+            See availability
           </button>
         </div>
       </div>
@@ -203,9 +203,9 @@ export default function SearchResultsPage() {
 
   // Filter state (controlled from URL params)
   const destination = searchParams.get('destination') ?? '';
-  const checkIn = searchParams.get('checkIn') ?? '';
-  const checkOut = searchParams.get('checkOut') ?? '';
-  const guests = searchParams.get('guests') ?? '2';
+  // Dates and guests always come from the stay bar (defaults: tomorrow, 1 night, 2 adults).
+  const stay = readStay(searchParams);
+  const { checkIn, checkOut } = stay;
   const sort = (searchParams.get('sort') ?? 'recommended') as SearchParams['sort'];
   const page = parseInt(searchParams.get('page') ?? '1', 10);
   const nearMe = searchParams.get('near') === '1';
@@ -376,7 +376,9 @@ export default function SearchResultsPage() {
       if (prev.get('radiusKm')) next.set('radiusKm', prev.get('radiusKm')!);
       if (prev.get('checkIn')) next.set('checkIn', prev.get('checkIn')!);
       if (prev.get('checkOut')) next.set('checkOut', prev.get('checkOut')!);
-      if (prev.get('guests')) next.set('guests', prev.get('guests')!);
+      for (const key of ['guests', 'adults', 'children']) {
+        if (prev.get(key)) next.set(key, prev.get(key)!);
+      }
       if (prev.get('sort')) next.set('sort', prev.get('sort')!);
       return next;
     });
@@ -497,11 +499,6 @@ export default function SearchResultsPage() {
             {nearMe && (
               <span className="text-xs font-bold text-brand-primary whitespace-nowrap">Near me · {radiusKm} km</span>
             )}
-            {checkIn && checkOut && (
-              <span className="text-xs font-bold text-brand-dark/60 hidden md:block whitespace-nowrap">
-                {checkIn} → {checkOut} · {guests} guests
-              </span>
-            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -534,6 +531,17 @@ export default function SearchResultsPage() {
               </button>
             </div>
           </div>
+        </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-3">
+          <StayBar
+            embedded
+            stay={stay}
+            onSearch={(next) => setSearchParams((prev) => {
+              const params = writeStay(prev, next);
+              params.delete('page');
+              return params;
+            })}
+          />
         </div>
 
         {/* Filter Panel */}
