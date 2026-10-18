@@ -28,6 +28,8 @@ export interface PaymentProofHotelSyncInput {
   roomRate?: number;
   paymentMethod?: string;
   uploadedAt?: Date;
+  /** Private link to the screenshot, for hotel screens that show images by URL. */
+  proofUrl?: string;
 }
 
 function parseMetadata(raw: unknown): Record<string, unknown> {
@@ -136,6 +138,9 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       payment_proof_collection: 'booking_payment_proofs',
       payment_proof_size: input.size,
       payment_transaction_ref: input.transactionRef,
+      // The hotel app's own field for the wallet reference.
+      payment_reference: input.transactionRef,
+      ...(input.proofUrl ? { payment_proof_url: input.proofUrl } : {}),
       payment_proof_amount_claimed: input.amountClaimed,
       payment_proof_expected_amount: amountDue,
       payment_proof_verified: false,
@@ -145,7 +150,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       amount_paid: 0,
       amount_due: amountDue,
       balance_due: Math.max(0, input.stayTotal),
-      note: 'Website guest uploaded deposit proof — awaiting hotel verification',
+      note: 'Website guest uploaded payment screenshot — awaiting hotel verification',
       deposit_awaiting_verification: true,
     };
 
@@ -171,6 +176,7 @@ export async function finalizeDepositAfterHotelVerification(bookingId: string): 
   if (!booking) return false;
   if (!booking.payment_proof_stored && !booking.payment_proof_filename) return false;
   if (!booking.payment_proof_verified) return false;
+  if (!['reserved', 'confirmed', 'booked', 'accepted', 'paid'].includes(String(booking.status ?? ''))) return false;
 
   const stayTotal = Number(booking.totalPrice ?? booking.total_amount ?? 0);
   const mode = resolveOnlinePaymentModeFromBooking(booking);

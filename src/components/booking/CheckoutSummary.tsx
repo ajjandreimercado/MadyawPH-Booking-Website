@@ -76,12 +76,8 @@ function PriceLines({ quote, quoteLoading, quoteError }: Pick<SummaryProps, 'quo
         <span className="text-brand-dark tabular-nums">{peso(quote.totalPrice)}</span>
       </div>
       <div className="flex justify-between gap-3 text-xs">
-        <span className="text-brand-dark/60">Due today</span>
+        <span className="text-brand-dark/60">Pay now by GCash or Maya QR</span>
         <span className="text-brand-dark tabular-nums">{peso(quote.dueNow)}</span>
-      </div>
-      <div className="flex justify-between gap-3 text-xs">
-        <span className="text-brand-dark/60">Due after the hotel confirms</span>
-        <span className="text-brand-dark tabular-nums">{peso(quote.dueAfterConfirmation)}</span>
       </div>
       {!quote.available && (
         <p className="text-xs font-bold text-brand-danger">This room was just booked for these dates. Change your selection to continue.</p>
@@ -126,14 +122,14 @@ function SummaryBody(props: SummaryProps) {
         <h2 className="font-bold text-brand-dark mb-2">Cancellation policy</h2>
         <p className="text-brand-dark/70">
           {props.freeCancellation ? 'This room has free cancellation. ' : ''}
-          Until the hotel confirms, nothing is charged — ask the hotel to decline the request if your plans change.
-          After you pay, the hotel's own cancellation and refund rules apply.
+          You pay when you book; the hotel checks your payment and confirms your stay. If the hotel can't
+          confirm, contact the hotel about a refund. For changes or cancellations after that, the hotel's own rules apply.
         </p>
         <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
       </section>
 
       <ul className="space-y-1.5 text-sm font-bold text-brand-dark/75">
-        {['No payment needed today', 'The hotel confirms your request by email', 'Then pay securely by GCash or Maya QR'].map((line) => (
+        {['Pay by scanning the hotel’s own GCash or Maya QR', 'Upload your receipt screenshot', 'The hotel verifies it and confirms by email'].map((line) => (
           <li key={line} className="flex items-start gap-2"><Check className="w-4 h-4 mt-0.5 shrink-0 text-brand-success" aria-hidden />{line}</li>
         ))}
       </ul>

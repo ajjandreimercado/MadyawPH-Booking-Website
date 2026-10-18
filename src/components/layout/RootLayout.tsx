@@ -43,7 +43,7 @@ export default function RootLayout() {
                 <span className="text-2xl font-display italic font-semibold tracking-tight text-brand-cream">Madyaw</span>
               </Link>
               <p className="text-sm leading-relaxed text-brand-cream/70">
-                Book rooms directly with partner hotels in the Philippines. Request your stay online, and pay once the hotel confirms.
+                Book rooms directly with partner hotels in the Philippines. Pay by the hotel's GCash or Maya QR, and the hotel confirms your stay.
               </p>
             </div>
 

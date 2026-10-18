@@ -11,6 +11,7 @@ import {
   sendBookingCancelledNotification,
 } from './notificationService';
 import { ensureWebsiteOnlinePaymentLedger } from '../utils/websiteBillingLedger';
+import { finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import {
   computeOnlinePaymentDue,
   resolveOnlinePaymentModeFromBooking,
@@ -218,6 +219,13 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       summary_only: coerceSummaryOnly(booking.summary_only),
     });
     await writeLedgerAfterApproval(booking);
+    // Guests now pay when they book; if the hotel verified the screenshot before approving,
+    // record the payment now that the booking is approved.
+    if ((booking as { payment_proof_verified?: boolean }).payment_proof_verified) {
+      await finalizeDepositAfterHotelVerification(bookingId).catch((error) => {
+        console.error('[HotelSync] Failed to finalize verified payment after approval:', error);
+      });
+    }
 
     queueGuestNotification('confirmation', () => sendBookingConfirmationNotification(booking));
     return {

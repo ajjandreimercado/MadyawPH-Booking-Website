@@ -340,7 +340,7 @@ export default function BookingConfirmationPage() {
           </h1>
           <p className="text-brand-dark/70 font-medium text-sm mt-1 max-w-md mx-auto leading-relaxed">
             {isPending
-              ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>. The hotel will review it and email you a secure pay link when they confirm.</>
+              ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>. The hotel will check your payment and email you when your stay is confirmed.</>
               : showPaySection
                 ? <>Your stay is confirmed. Scan the hotel QR, pay the full stay amount, then upload your receipt screenshot below. The hotel must see and verify that image before payment is confirmed.</>
                 : paymentDone && !booking.paymentProofVerified
@@ -427,7 +427,7 @@ export default function BookingConfirmationPage() {
               <span className="text-brand-dark tabular-nums">₱{(paymentDone ? (amountPaid || depositDue) : 0).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm font-bold">
-              <span className="text-brand-dark/60">Amount due{isPending ? ' after the hotel confirms' : ''}</span>
+              <span className="text-brand-dark/60">Amount due</span>
               <span className="text-brand-dark tabular-nums">₱{(paymentDone ? 0 : depositDue).toLocaleString()}</span>
             </div>
             {(booking.onlinePaymentMode ?? (booking.depositPercent === 100 ? 'full' : 'half')) !== 'full' && balanceAtCheckout > 0 && (
@@ -439,7 +439,7 @@ export default function BookingConfirmationPage() {
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">Taxes and charges included. No booking fees.</p>
             <p className="text-[11px] font-bold text-brand-dark/45">
               {isPending
-                ? 'You will receive a secure email link to pay the full stay after the hotel confirms.'
+                ? 'The hotel checks your payment screenshot, then confirms your stay by email.'
                 : paymentDone && booking.paymentProofVerified
                   ? 'Full payment verified by the hotel.'
                   : paymentDone

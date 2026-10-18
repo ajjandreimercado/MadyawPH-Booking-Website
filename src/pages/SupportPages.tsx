@@ -51,11 +51,11 @@ export function HelpCenterPage() {
       sections={[
         {
           heading: 'How booking works',
-          body: 'Search for a hotel or room, submit a reservation request with your details and Valid ID, wait for the hotel to accept, then pay the full stay amount online via the secure link in your confirmation email. Room assignment is handled by the hotel — not on this website.',
+          body: 'Search for a hotel, choose a room type, enter your details and Valid ID, then pay the full stay by scanning the hotel’s GCash or Maya QR and upload your receipt. The hotel verifies your payment and confirms your stay by email. The hotel assigns your room.',
         },
         {
           heading: 'Online payment',
-          body: 'Online bookings require full payment of the stay total after the hotel confirms. Pay via the hotel QR on the secure email link, then upload your payment screenshot for hotel verification.',
+          body: 'You pay the full stay total when you book, using the hotel’s own GCash or Maya QR shown at the last step. Upload the receipt screenshot and reference number; the hotel verifies it in their system.',
         },
         {
           heading: 'Valid ID',
@@ -79,11 +79,11 @@ export function CancellationPage() {
       sections={[
         {
           heading: 'Before the hotel confirms',
-          body: 'Nothing has been paid yet. If you no longer need the room, contact the hotel using the details on their listing so they can decline the request. Requests the hotel has not reviewed within 48 hours stop holding the room.',
+          body: 'Your payment is with the hotel for checking. If you no longer need the room, contact the hotel using the details on their listing; if the hotel declines your request, contact the hotel about a refund. Requests the hotel has not reviewed within 48 hours stop holding the room.',
         },
         {
           heading: 'After the hotel confirms',
-          body: 'You pay the full stay amount online by scanning the hotel’s GCash or Maya QR and uploading your payment proof. From then on, the hotel’s own cancellation and refund rules apply — contact the hotel directly for changes or refunds.',
+          body: 'The hotel’s own cancellation and refund rules apply — contact the hotel directly for changes or refunds.',
         },
         {
           heading: 'If the hotel cancels',

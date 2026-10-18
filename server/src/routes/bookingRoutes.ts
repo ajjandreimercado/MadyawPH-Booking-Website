@@ -1,9 +1,9 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, PropertyModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
-import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter } from '../middleware/rateLimiters';
+import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter, publicReadLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
 import { calculateBookingPricing } from '../utils/pricing';
 import { serializeBooking } from '../utils/serialize';
@@ -24,7 +24,7 @@ import { withRetries } from '../utils/withRetries';
 import { findBookedRoomIds, parseStayQuery, pickRoomForCategory } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
-import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
+import { CLIENT_ORIGINS, getHotelWebhookSecret, getMadyawApiPublicUrl } from '../config/env';
 // OWASP A03: schema-based field stripping and input validators
 import {
   pickFields,
@@ -470,9 +470,9 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
       discountType: quote.finalDiscountType,
       discountReason: quote.finalDiscountReason,
       totalPrice: quote.finalTotalPrice,
-      // Website stays are paid in full online after the hotel confirms; nothing is due now.
-      dueNow: 0,
-      dueAfterConfirmation: computeOnlinePaymentDue(quote.finalTotalPrice, 'full').amountDue,
+      // Guests pay the full stay by the hotel's QR when they book; the hotel verifies it.
+      dueNow: computeOnlinePaymentDue(quote.finalTotalPrice, 'full').amountDue,
+      dueAfterConfirmation: 0,
       taxesIncluded: true,
     });
   } catch (error) {
@@ -480,6 +480,154 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
     const message = error instanceof Error ? error.message : 'Unable to price this stay.';
     return res.status(status).json({ message });
   }
+});
+
+const ARRIVAL_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+type BookingFileKind = 'valid-id' | 'payment-proof';
+
+function bookingFileSignature(bookingId: string, kind: BookingFileKind): string {
+  return crypto
+    .createHmac('sha256', process.env.JWT_SECRET ?? '')
+    .update(`booking-file:${bookingId}:${kind}`)
+    .digest('hex');
+}
+
+/**
+ * Private, unguessable link to a booking's valid ID or payment screenshot. Written to the
+ * hotel app's guest_id_url / payment_proof_url so staff can open the image from MADYAWPH.
+ */
+function bookingFileUrl(bookingId: string, kind: BookingFileKind): string {
+  const params = new URLSearchParams({ sig: bookingFileSignature(bookingId, kind) });
+  return `${getMadyawApiPublicUrl()}/bookings/${encodeURIComponent(bookingId)}/files/${kind}?${params.toString()}`;
+}
+
+type PaymentProofCheck =
+  | { ok: true; ref: string; amountClaimed: number; sha256: string }
+  | { ok: false; status: number; message: string };
+
+/** Validate a payment screenshot + wallet reference before anything is saved. */
+async function checkPaymentProof(
+  file: UploadedBookingFile | undefined,
+  rawRef: unknown,
+  rawAmount: unknown,
+  amountDue: number,
+): Promise<PaymentProofCheck> {
+  if (!file) {
+    return { ok: false, status: 400, message: 'Please upload the screenshot of your GCash/Maya payment.' };
+  }
+  const refRaw = validateString(rawRef, 'Payment transaction reference', 6, 64);
+  if (!refRaw.ok) {
+    return { ok: false, status: 400, message: 'Enter the reference number from your GCash/Maya receipt (at least 6 characters).' };
+  }
+  const ref = refRaw.value.replace(/\s+/g, '').toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9\-_/]{5,63}$/i.test(ref)) {
+    return { ok: false, status: 400, message: 'The reference number looks invalid. Copy it exactly from your receipt.' };
+  }
+  const claimed = rawAmount === undefined || rawAmount === '' ? amountDue : Number(rawAmount);
+  if (!Number.isFinite(claimed) || claimed <= 0) {
+    return { ok: false, status: 400, message: 'Enter the amount you paid.' };
+  }
+  if (Math.abs(claimed - amountDue) > 1) {
+    return { ok: false, status: 400, message: `The amount paid must be ₱${amountDue.toLocaleString()}.` };
+  }
+  const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
+  if (await BookingModel.findOne({ payment_proof_sha256: sha256 }).select('_id').lean()) {
+    return { ok: false, status: 409, message: 'This payment screenshot was already used on another booking. Upload the receipt for this stay.' };
+  }
+  if (await BookingModel.findOne({ payment_transaction_ref: ref }).select('_id').lean()) {
+    return { ok: false, status: 409, message: 'This reference number was already used on another booking.' };
+  }
+  return { ok: true, ref, amountClaimed: Math.round(claimed * 100) / 100, sha256 };
+}
+
+/** Save the screenshot on the booking (unverified) and push it everywhere the hotel app reads. */
+async function savePaymentProof(
+  booking: {
+    _id: unknown;
+    booking_reference?: unknown;
+    hotel_id?: unknown;
+    room_id?: unknown;
+    nights?: unknown;
+    roomRate?: unknown;
+    paymentMethod?: unknown;
+    payment_method?: unknown;
+  },
+  file: UploadedBookingFile,
+  proof: { ref: string; amountClaimed: number; sha256: string },
+  stayTotal: number,
+  amountDue: number,
+): Promise<void> {
+  const bookingId = String(booking._id);
+  const now = new Date();
+  const base64 = file.buffer.toString('base64');
+  const filename = file.originalname.slice(0, 200);
+  // Do NOT mark amount_paid / payment_status as paid — hotel staff verify the screenshot first.
+  await BookingModel.updateOne(
+    { _id: booking._id },
+    {
+      $set: {
+        payment_proof_filename: filename,
+        payment_proof_mime: file.mimetype,
+        payment_proof_size: file.size,
+        payment_proof_base64: base64,
+        payment_proof_stored: true,
+        payment_proof_uploaded_at: now,
+        payment_transaction_ref: proof.ref,
+        payment_proof_amount_claimed: proof.amountClaimed,
+        payment_proof_sha256: proof.sha256,
+        payment_proof_verified: false,
+        payment_proof_verified_at: null,
+        deposit_amount: amountDue,
+        amountPaid: 0,
+        amount_paid: 0,
+        balance_due: stayTotal,
+        payment_status: 'unpaid',
+      },
+    },
+  );
+  await syncPaymentProofToHotelApp({
+    bookingId,
+    bookingReference: String(booking.booking_reference ?? ''),
+    hotelId: String(booking.hotel_id ?? ''),
+    roomId: String(booking.room_id ?? ''),
+    filename,
+    mime: file.mimetype,
+    size: file.size,
+    base64,
+    transactionRef: proof.ref,
+    amountClaimed: proof.amountClaimed,
+    expectedDeposit: amountDue,
+    stayTotal,
+    nights: Number(booking.nights ?? 1),
+    roomRate: Number(booking.roomRate ?? 0),
+    paymentMethod: String(booking.paymentMethod ?? booking.payment_method ?? ''),
+    uploadedAt: now,
+    proofUrl: bookingFileUrl(bookingId, 'payment-proof'),
+  });
+}
+
+// ─── GET /:bookingId/files/:kind ─────────────────────────────────────────────
+// Valid ID / payment screenshot for hotel staff, opened from the hotel app via the signed
+// link in guest_id_url / payment_proof_url. No signature, no file.
+
+bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res) => {
+  const idResult = validateId(req.params.bookingId, 'Booking ID');
+  const kind = req.params.kind as BookingFileKind;
+  if (!idResult.ok || (kind !== 'valid-id' && kind !== 'payment-proof')) {
+    return res.status(404).json({ message: 'File not found.' });
+  }
+  const sig = typeof req.query.sig === 'string' ? req.query.sig : '';
+  if (!timingSafeEqualString(sig, bookingFileSignature(idResult.value, kind))) {
+    return res.status(403).json({ message: 'This link is not valid.' });
+  }
+  const stored = kind === 'valid-id'
+    ? await BookingValidIdModel.findOne({ booking_id: idResult.value }).select({ base64: 1, mime: 1 }).lean()
+    : await BookingPaymentProofModel.findOne({ booking_id: idResult.value }).select({ base64: 1, mime: 1 }).lean();
+  if (!stored?.base64) return res.status(404).json({ message: 'File not found.' });
+  res.setHeader('Content-Type', String(stored.mime || 'application/octet-stream'));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Disposition', 'inline');
+  return res.send(Buffer.from(String(stored.base64), 'base64'));
 });
 
 // ─── POST /hotel-events ───────────────────────────────────────────────────────
@@ -598,11 +746,13 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
 
 bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
   let validIdFile: UploadedBookingFile | undefined;
+  let paymentProofFile: UploadedBookingFile | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
   if (contentType.includes('multipart/form-data')) {
     try {
       const uploads = await runBookingUploads(req, res);
       validIdFile = uploads.validId;
+      paymentProofFile = uploads.paymentProof;
     } catch (uploadError) {
       const message = uploadError instanceof Error ? uploadError.message : 'File upload failed.';
       const isSize = /File too large|LIMIT_FILE_SIZE/i.test(message);
@@ -616,8 +766,7 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Please upload a valid ID (JPG, PNG, WEBP, or PDF, max 5 MB).' });
   }
 
-  // Payment proof is collected AFTER hotel confirmation (pay-deposit link).
-  // Ignore any proof attached at create so guests never pay before approval.
+  // Guests pay by the hotel's QR when they book and attach the screenshot (checked below).
 
   // OWASP A03: strip unexpected fields — only pick known booking fields
   // multipart fields arrive as strings; coerce occupancy numbers below.
@@ -643,7 +792,12 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     'memberShidId',
     'paymentTransactionRef',
     'paymentProofAmountClaimed',
+    'arrivalTime',
   ] as const);
+
+  const arrivalTime = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime)
+    ? body.arrivalTime
+    : '';
 
   // ── Required field validation ─────────────────────────────────────────────
 
@@ -837,6 +991,16 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Full payment must equal stay total', { finalTotalPrice, amountDue });
   }
 
+  const proofCheck = await checkPaymentProof(
+    paymentProofFile,
+    body.paymentTransactionRef,
+    body.paymentProofAmountClaimed,
+    amountDue,
+  );
+  if (proofCheck.ok === false) {
+    return res.status(proofCheck.status).json({ message: proofCheck.message });
+  }
+
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
     hotel_id: String(property.hotel_id ?? ''),
@@ -893,6 +1057,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     // on create (those are what make the hotel app treat this as an inventory hold).
     // Online Bookings queue is driven by external_reservations (pending_approval).
     status: 'pending',
+    // Guest's estimated arrival → the hotel app's check-in time field.
+    ...(arrivalTime ? { check_in_time: arrivalTime } : {}),
     requestedAt: createdAt.toISOString(),
     confirmationSendStatus: 'none' as const,
     confirmationSentAt: null as null,
@@ -1045,6 +1211,8 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
         now: createdAt,
         validIdUploaded: true,
         validIdFilename: validIdFile.originalname.slice(0, 200),
+        guestIdUrl: bookingFileUrl(bookingId, 'valid-id'),
+        checkInTime: arrivalTime || undefined,
         paymentProofUploaded: false,
         paymentProofFilename: undefined,
         paymentProofMime: undefined,
@@ -1065,6 +1233,25 @@ bookingRoutes.post('/', bookingCreateLimiter, async (req, res) => {
     const msg = externalError instanceof Error ? externalError.message : String(externalError);
     syncErrors.push(`queue:${msg}`);
     console.error('[Bookings] Failed to create external_reservations Online Bookings row after retries:', externalError);
+  }
+
+  // The hotel app shows the guest's ID from guest_id_url.
+  await BookingModel.updateOne(
+    { _id: booking._id },
+    { $set: { guest_id_url: bookingFileUrl(bookingId, 'valid-id') } },
+  ).catch((error) => console.error('[Bookings] Failed to set guest_id_url:', error));
+
+  // Payment screenshot: saved on the booking and pushed to the hotel app (awaiting verification).
+  try {
+    if (paymentProofFile && proofCheck.ok) {
+      await savePaymentProof(booking, paymentProofFile, proofCheck, finalTotalPrice, amountDue);
+      // Let the request email (below) mention the payment that was just sent.
+      booking.set({ payment_proof_stored: true, payment_proof_amount_claimed: proofCheck.amountClaimed });
+    }
+  } catch (proofError) {
+    const msg = proofError instanceof Error ? proofError.message : String(proofError);
+    syncErrors.push(`payment-proof:${msg}`);
+    console.error('[Bookings] Failed to store/sync payment screenshot:', proofError);
   }
 
   if (syncErrors.length > 0) {
@@ -1407,103 +1594,18 @@ bookingRoutes.post('/:bookingId/payment-proof', bookingCreateLimiter, async (req
   const due = computeOnlinePaymentDue(stayTotal, mode);
   const amountDue = Number(booking.deposit_amount ?? due.amountDue);
 
-  const refRaw = validateString(req.body?.paymentTransactionRef, 'Payment transaction reference', 6, 64);
-  if (!refRaw.ok) {
-    return res.status(400).json({
-      message: 'Enter the GCash/Maya/bank transaction reference from your receipt (at least 6 characters).',
-    });
-  }
-  const normalizedRef = refRaw.value.replace(/\s+/g, '').toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9\-_/]{5,63}$/i.test(normalizedRef)) {
-    return res.status(400).json({
-      message: 'Transaction reference looks invalid. Copy it exactly from your wallet receipt.',
-    });
-  }
-
-  const rawClaimed =
-    req.body?.paymentProofAmountClaimed === undefined || req.body?.paymentProofAmountClaimed === ''
-      ? amountDue
-      : Number(req.body.paymentProofAmountClaimed);
-  if (!Number.isFinite(rawClaimed) || rawClaimed <= 0) {
-    return res.status(400).json({
-      message: 'Enter the amount you paid (must match the deposit due).',
-    });
-  }
-  if (Math.abs(rawClaimed - amountDue) > 1) {
-    return res.status(400).json({
-      message: `Payment amount must match the deposit due (₱${amountDue.toLocaleString()}).`,
-    });
-  }
-
-  const paymentProofSha256 = crypto.createHash('sha256').update(paymentProofFile.buffer).digest('hex');
-  const reusedProof = await BookingModel.findOne({ payment_proof_sha256: paymentProofSha256 })
-    .select('_id')
-    .lean();
-  if (reusedProof) {
-    return res.status(409).json({
-      message: 'This payment screenshot was already used on another booking. Upload a new receipt for this stay.',
-    });
-  }
-  const reusedRef = await BookingModel.findOne({ payment_transaction_ref: normalizedRef })
-    .select('_id')
-    .lean();
-  if (reusedRef) {
-    return res.status(409).json({
-      message: 'This transaction reference was already used on another booking.',
-    });
-  }
-
-  const now = new Date();
-  const paymentProofAmountClaimed = Math.round(rawClaimed * 100) / 100;
-  const proofBase64 = paymentProofFile.buffer.toString('base64');
-  const proofFilename = paymentProofFile.originalname.slice(0, 200);
-
-  // Store screenshot on the booking for hotel viewers that read inline fields.
-  // Do NOT mark amount_paid / payment_status as paid yet — hotel must verify first.
-  await BookingModel.updateOne(
-    { _id: booking._id },
-    {
-      $set: {
-        payment_proof_filename: proofFilename,
-        payment_proof_mime: paymentProofFile.mimetype,
-        payment_proof_size: paymentProofFile.size,
-        payment_proof_base64: proofBase64,
-        payment_proof_stored: true,
-        payment_proof_uploaded_at: now,
-        payment_transaction_ref: normalizedRef,
-        payment_proof_amount_claimed: paymentProofAmountClaimed,
-        payment_proof_sha256: paymentProofSha256,
-        payment_proof_verified: false,
-        payment_proof_verified_at: null,
-        // Expected deposit stays on deposit_amount; collected amount stays 0 until verify.
-        deposit_amount: amountDue,
-        amountPaid: 0,
-        amount_paid: 0,
-        balance_due: stayTotal,
-        payment_status: 'unpaid',
-      },
-    },
+  const proofCheck = await checkPaymentProof(
+    paymentProofFile,
+    req.body?.paymentTransactionRef,
+    req.body?.paymentProofAmountClaimed,
+    amountDue,
   );
+  if (proofCheck.ok === false) {
+    return res.status(proofCheck.status).json({ message: proofCheck.message });
+  }
 
   try {
-    await syncPaymentProofToHotelApp({
-      bookingId: bookingIdResult.value,
-      bookingReference: String(booking.booking_reference ?? ''),
-      hotelId: String(booking.hotel_id ?? ''),
-      roomId: String(booking.room_id ?? ''),
-      filename: proofFilename,
-      mime: paymentProofFile.mimetype,
-      size: paymentProofFile.size,
-      base64: proofBase64,
-      transactionRef: normalizedRef,
-      amountClaimed: paymentProofAmountClaimed,
-      expectedDeposit: amountDue,
-      stayTotal,
-      nights: Number(booking.nights ?? 1),
-      roomRate: Number(booking.roomRate ?? 0),
-      paymentMethod: String(booking.paymentMethod ?? booking.payment_method ?? ''),
-      uploadedAt: now,
-    });
+    await savePaymentProof(booking, paymentProofFile, proofCheck, stayTotal, amountDue);
   } catch (proofStoreError) {
     console.error('[Bookings] Failed to sync payment proof to hotel app collections:', proofStoreError);
     return res.status(502).json({

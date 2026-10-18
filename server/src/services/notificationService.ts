@@ -233,9 +233,11 @@ export async function sendBookingRequestReceivedNotification(
     `Check-out: ${checkOut}`,
     ...(stayLength ? [`Length of stay: ${stayLength}`] : []),
     `Stay total: ${peso(stayTotal)}`,
-    `Amount paid: ${peso(0)} (no payment is needed until we confirm your reservation)`,
+    booking.payment_proof_stored
+      ? `Payment sent: ${peso(Number(booking.payment_proof_amount_claimed ?? stayTotal))} (we received your screenshot and will verify it)`
+      : `Amount paid: ${peso(0)}`,
     '',
-    'We are reviewing your request. You will receive another email when it is confirmed — then you can pay the full stay amount online.',
+    'We are checking your payment and reviewing your request. You will receive another email when your reservation is confirmed.',
     '',
     `— ${hotelName}`,
   ].join('\n');
@@ -464,6 +466,9 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
     '',
     `Reference: ${ref}`,
     '',
+    ...(booking.payment_proof_stored || booking.payment_proof_filename
+      ? ['If you already paid, please reply to this email or contact us directly about your refund.', '']
+      : []),
     'You can choose new dates and submit another request here:',
     rebookUrl,
     '',
