@@ -173,15 +173,19 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     return () => { cancelled = true; };
   }, [categoryId]);
 
-  // Prefill from a signed-in account (staff testing); guests type their own details.
+  // Account email owns the booking — always bind to the signed-in session.
   useEffect(() => {
     if (!user) return;
     setDraft((prev) => {
-      const next = { ...prev, email: prev.email.trim() ? prev.email : user.email ?? "", fullName: prev.fullName.trim() ? prev.fullName : user.name ?? "" };
+      const next = {
+        ...prev,
+        email: user.email ?? prev.email,
+        fullName: prev.fullName.trim() ? prev.fullName : (user.name ?? ''),
+      };
       saveDraft(categoryId, next);
       return next;
     });
-  }, [user]);
+  }, [user, categoryId]);
 
   // Server price for this stay — the same numbers the booking will be saved with.
   useEffect(() => {
@@ -289,7 +293,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         categoryId,
         propertyName: category.name,
         guestName: draft.fullName.trim(),
-        guestEmail: draft.email.trim(),
+        guestEmail: (user?.email ?? draft.email).trim(),
         guestPhone: draft.phone.trim(),
         checkInDate: stay.checkIn,
         checkOutDate: stay.checkOut,
@@ -311,7 +315,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       appendBooking(booking);
       clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
-      const params = new URLSearchParams({ email: draft.email.trim() });
+      const accountEmail = (user?.email ?? draft.email).trim();
+      const params = new URLSearchParams({ email: accountEmail });
       if (receiptToken) params.set('token', receiptToken);
       navigate(`/booking/confirm/${booking.id}?${params.toString()}`);
     } catch (err) {
@@ -371,6 +376,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 promoAccepted={promoDiscountAmt > 0}
                 memberStatus={memberStatus}
                 memberAccepted={memberDiscountAmt > 0}
+                accountEmail={user?.email}
                 onError={(title) => showToast({ title, type: 'error' })}
                 onNext={goToFinish}
               />
@@ -388,7 +394,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   <ReviewHeader title="Your details" editHref={detailsHref} />
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                     <ReviewItem label="Name" value={draft.fullName} />
-                    <ReviewItem label="Email" value={draft.email} />
+                    <ReviewItem label="Email" value={user?.email ?? draft.email} />
                     <ReviewItem label="Phone" value={draft.phone} />
                     <ReviewItem label="Nationality" value={draft.nationality} />
                     {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
@@ -491,6 +497,7 @@ function DetailsStep({
   promoAccepted,
   memberStatus,
   memberAccepted,
+  accountEmail,
   onError,
   onNext,
 }: {
@@ -502,6 +509,7 @@ function DetailsStep({
   promoAccepted: boolean;
   memberStatus: string | null;
   memberAccepted: boolean;
+  accountEmail?: string;
   onError: (title: string) => void;
   onNext: () => void;
 }) {
@@ -525,10 +533,22 @@ function DetailsStep({
               <label htmlFor="booking-email" className="field-label">Email Address <span className="text-red-400">*</span></label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-                <input id="booking-email" type="email" autoComplete="email" value={draft.email}
-                  onChange={e => update({ email: e.target.value })} placeholder="yourname@gmail.com" className="input-field !pl-10" />
+                <input
+                  id="booking-email"
+                  type="email"
+                  autoComplete="email"
+                  value={accountEmail ?? draft.email}
+                  readOnly={Boolean(accountEmail)}
+                  onChange={e => { if (!accountEmail) update({ email: e.target.value }); }}
+                  placeholder="yourname@gmail.com"
+                  className={`input-field !pl-10 ${accountEmail ? 'bg-brand-primary/5 cursor-default' : ''}`}
+                />
               </div>
-              <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">The hotel's confirmation and payment link are sent here. Please double-check it.</p>
+              <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                {accountEmail
+                  ? 'Tied to your Madyaw account — confirmation and receipts stay here.'
+                  : "The hotel's confirmation and payment link are sent here. Please double-check it."}
+              </p>
             </div>
             <div>
               <label htmlFor="booking-phone" className="field-label">Phone Number <span className="text-red-400">*</span></label>

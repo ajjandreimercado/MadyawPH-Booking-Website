@@ -1,5 +1,8 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { BookingRequest } from '../types';
+import { fetchBookings, isAxiosError } from '../services/api';
+import { useAuth } from './AuthContext';
+import { errorMessageFromUnknown } from '../lib/apiError';
 
 interface BookingsContextType {
   bookings: BookingRequest[];
@@ -12,15 +15,42 @@ interface BookingsContextType {
 const BookingsContext = createContext<BookingsContextType | undefined>(undefined);
 
 /**
- * Lightweight in-session booking cache for the guest site.
- * Account history / management lives in the hotel management app (shared MongoDB).
+ * Guest trip history — loads from GET /bookings when signed in.
  */
 export function BookingsProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [bookings, setBookings] = useState<BookingRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
-    // No guest account API on this site — hotel app owns booking management.
-  }, []);
+    if (!user) {
+      setBookings([]);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const list = await fetchBookings({ limit: 100 });
+      setBookings(list);
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 401) {
+        setBookings([]);
+        setError(null);
+      } else {
+        setError(errorMessageFromUnknown(err, 'Unable to load your trips.'));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
 
   const appendBooking = useCallback((booking: BookingRequest) => {
     setBookings((prev) => {
@@ -31,7 +61,7 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <BookingsContext.Provider value={{ bookings, isLoading: false, error: null, appendBooking, refetch }}>
+    <BookingsContext.Provider value={{ bookings, isLoading, error, appendBooking, refetch }}>
       {children}
     </BookingsContext.Provider>
   );

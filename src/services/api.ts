@@ -627,13 +627,13 @@ export async function fetchBookingById(
 
 export async function uploadBookingPaymentProof(payload: {
   bookingId: string;
-  token: string;
+  token?: string;
   paymentProofFile: File;
   paymentTransactionRef: string;
   paymentProofAmountClaimed?: number;
 }): Promise<BookingRequest> {
   const form = new FormData();
-  form.append('token', payload.token);
+  if (payload.token) form.append('token', payload.token);
   form.append('paymentProof', payload.paymentProofFile);
   form.append('paymentTransactionRef', payload.paymentTransactionRef);
   if (payload.paymentProofAmountClaimed != null) {

@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginWithGoogleCredential, isAxiosError } from '../services/api';
+import { isAxiosError } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
 import { useToast } from '../components/ui/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
+import { takeAuthReturn } from '../lib/authReturn';
 
 function parseHash(hash: string) {
   const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -34,6 +36,7 @@ function decodeJwtPayload(token: string) {
 export default function AuthCallback() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { loginWithGoogle } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -42,15 +45,15 @@ export default function AuthCallback() {
 
       if (!id_token) {
         showToast({ title: 'Sign-in incomplete', description: 'Google sign-in did not finish. Please try again.', type: 'error' });
-        navigate('/', { replace: true });
+        navigate('/', { replace: true, state: { openAuthModal: true } });
         return;
       }
 
       try {
-        await loginWithGoogleCredential(id_token);
+        await loginWithGoogle(id_token);
         window.history.replaceState(null, '', window.location.pathname);
         showToast({ title: 'Signed in', description: 'Welcome back!', type: 'success' });
-        navigate('/', { replace: true });
+        navigate(takeAuthReturn('/'), { replace: true });
       } catch (error) {
         const message = isAxiosError(error)
           ? (error.response?.data as { message?: string })?.message ?? 'Unable to sign in with Google.'
@@ -78,10 +81,14 @@ export default function AuthCallback() {
         }
 
         showToast({ title: 'Sign-in error', description: message, type: 'error' });
-        navigate('/', { replace: true });
+        navigate('/', { replace: true, state: { openAuthModal: true } });
       }
     })();
-  }, [navigate, showToast]);
+  }, [navigate, showToast, loginWithGoogle]);
 
-  return <div className="min-h-screen flex items-center justify-center">Signing in...</div>;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-brand-background pt-28">
+      <p className="text-sm font-bold text-brand-dark/70">Signing in…</p>
+    </div>
+  );
 }

@@ -56,8 +56,10 @@ export default function PayByQr({
   }, [hotelId]);
 
   const methods = availableWalletMethods(hotel);
-  // Second try asks the API to refresh its cached copy of the hotel's QR.
-  const qrSrc = method ? paymentQrProxyUrl(hotelId, method, qrAttempt > 0) : '';
+  // Prefer the API's resolved image, then the live proxy (with cache refresh on retry).
+  const qrSrc = hotel?.paymentQrDataUrl?.startsWith('data:image/') && qrAttempt === 0
+    ? hotel.paymentQrDataUrl
+    : (method ? paymentQrProxyUrl(hotelId, method, qrAttempt > 0) : '');
 
   const saveQr = async () => {
     if (!method) return;

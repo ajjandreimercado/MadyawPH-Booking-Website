@@ -219,8 +219,12 @@ describe('POST /api/bookings', () => {
     fields: Record<string, string | number> = VALID_PAYLOAD,
     withId = true,
     withProof = true,
+    authenticated = true,
   ) {
     let req = request(app).post('/api/bookings');
+    if (authenticated) {
+      req = req.set('Cookie', guestCookie());
+    }
     Object.entries(fields).forEach(([key, value]) => {
       req = req.field(key, String(value));
     });
@@ -236,6 +240,11 @@ describe('POST /api/bookings', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    MockUserModel.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ ...mockUser }),
+      }),
+    } as never);
     MockPropertyModel.findById.mockReturnValue({
       select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue({ ...mockProperty }),
@@ -257,6 +266,19 @@ describe('POST /api/bookings', () => {
       hotel_id: 'hotel-001',
       room_id: 'room-001',
     } as never);
+  });
+
+  it('returns 401 when creating a booking without signing in', async () => {
+    const res = await postBooking(VALID_PAYLOAD, true, true, false);
+    expect(res.status).toBe(401);
+  });
+
+  it('forces guestEmail to the signed-in account email', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: 'spoofed@example.com' });
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.guestEmail).toBe('alice@example.com');
   });
 
   it('quotes the same total the booking is saved with', async () => {
