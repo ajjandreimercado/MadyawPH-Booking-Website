@@ -848,8 +848,16 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
 
   const categoriesWithAvailability = serializedCategories.map((category) => {
     const stats = categoryStats.get(category.id) ?? { totalRooms: 0, availableRooms: 0 };
+    const roomsInCategory = serializedRooms.filter((room) => room.categoryId === category.id);
+    const sample = roomsInCategory[0];
     return {
       ...category,
+      // Room-type facts from the rooms themselves; badges only when every room has them.
+      bedConfiguration: sample?.bedConfiguration,
+      maxGuests: sample?.maxGuests,
+      amenities: [...new Set(roomsInCategory.flatMap((room) => room.amenities))].slice(0, 12),
+      freeCancellation: roomsInCategory.length > 0 && roomsInCategory.every((room) => room.freeCancellation),
+      breakfastIncluded: roomsInCategory.length > 0 && roomsInCategory.every((room) => room.breakfastIncluded),
       totalRooms: stats.totalRooms,
       availableRooms: stats.availableRooms,
       unavailableRooms: Math.max(0, stats.totalRooms - stats.availableRooms),
