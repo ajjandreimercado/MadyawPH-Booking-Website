@@ -30,16 +30,16 @@ function statusLabel(status?: string) {
     case 'reserved':
     case 'booked':
     case 'paid':
-      return 'Confirmed';
     case 'accepted':
-      return 'Accepted';
+      return 'Booking complete';
     case 'declined':
     case 'cancelled':
       return 'Cancelled';
     case 'pending':
     case 'requested':
-    default:
       return 'Pending review';
+    default:
+      return status ? String(status) : 'Booking complete';
   }
 }
 
@@ -291,10 +291,11 @@ export default function BookingConfirmationPage() {
   );
   // Deposit is only "done" after proof upload — never from approval ledger alone.
   const paymentDone = Boolean(booking.paymentProofUploaded);
+  const bookingComplete = (isConfirmed || paymentDone) && !['declined', 'cancelled'].includes(booking.status);
   const forcePay = forcePayParam;
-  // Magic pay link always opens the deposit UI until proof is on file (recovers
-  // bookings that were wrongly marked paid by the old approval ledger).
-  const showPaySection = (isConfirmed && !paymentDone) || (forcePay && !paymentDone && !['declined', 'cancelled'].includes(booking.status));
+  // Legacy pay-after-confirm links only — new bookings already paid by QR at checkout.
+  const showPaySection = (forcePay && !paymentDone && !['declined', 'cancelled'].includes(booking.status))
+    || (isConfirmed && !paymentDone && forcePay);
   const balanceAtCheckout = Number(
     booking.balanceDue
     ?? Math.max(0, (booking.totalPrice ?? 0) - (paymentDone ? amountPaid || depositDue : 0)),
@@ -303,10 +304,10 @@ export default function BookingConfirmationPage() {
   const paymentLabel = paymentDone
     ? (booking.paymentProofVerified
       ? `Full payment confirmed${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}`
-      : `Proof submitted — awaiting hotel verification${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}`)
-    : isConfirmed
+      : `Screenshot sent to hotel${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}`)
+    : showPaySection
       ? 'Full payment due — pay via hotel QR below'
-      : 'No payment yet — wait for hotel confirmation';
+      : 'Payment details on file';
 
   return (
     <div className="min-h-screen bg-brand-background pt-32 pb-20">
@@ -321,30 +322,32 @@ export default function BookingConfirmationPage() {
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.2 }}
-            className={`inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 ${isPending ? 'bg-brand-warning/10' : 'bg-brand-success/10'}`}
+            className={`inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 ${bookingComplete ? 'bg-brand-success/10' : 'bg-brand-warning/10'}`}
           >
-            {isPending
-              ? <Clock className="w-12 h-12 text-brand-warning" />
-              : <CheckCircle2 className="w-12 h-12 text-brand-success" />}
+            {bookingComplete
+              ? <CheckCircle2 className="w-12 h-12 text-brand-success" />
+              : <Clock className="w-12 h-12 text-brand-warning" />}
           </motion.div>
           <h1 className="text-4xl font-display font-semibold text-brand-dark mb-2">
-            {isPending
-              ? 'Reservation Request Received'
-              : showPaySection
-                ? 'Pay Your Stay'
-                : paymentDone && !booking.paymentProofVerified
-                  ? 'Proof Submitted — Awaiting Hotel'
-                  : paymentDone
-                    ? 'Payment Confirmed'
-                    : 'Reservation Updated'}
+            {showPaySection
+              ? 'Pay Your Stay'
+              : bookingComplete
+                ? 'Booking Complete'
+                : isPending
+                  ? 'Reservation Request Received'
+                  : 'Reservation Updated'}
           </h1>
           <p className="text-brand-dark/70 font-medium text-sm mt-1 max-w-md mx-auto leading-relaxed">
-            {isPending
-              ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>. The hotel will check your payment and email you when your stay is confirmed.</>
-              : showPaySection
-                ? <>Your stay is confirmed. Scan the hotel QR, pay the full stay amount, then upload your receipt screenshot below. The hotel must see and verify that image before payment is confirmed.</>
-                : paymentDone && !booking.paymentProofVerified
-                  ? <>Your payment screenshot is with the hotel for review. Payment is not confirmed until they verify it in their system.</>
+            {showPaySection
+              ? <>Scan the hotel QR, pay the full stay amount, then upload your receipt screenshot below.</>
+              : bookingComplete
+                ? <>
+                    Your booking for <span className="font-bold text-brand-primary">{booking.guestEmail}</span> is complete.
+                    {' '}Your room is reserved for check-in
+                    {paymentDone ? ', and your payment screenshot is with the hotel for verification' : ''}.
+                  </>
+                : isPending
+                  ? <>We saved your request for <span className="font-bold text-brand-primary">{booking.guestEmail}</span>. Status is <span className="font-bold">{statusLabel(booking.status)}</span>.</>
                   : <>Your reservation for <span className="font-bold text-brand-primary">{booking.guestEmail}</span> is now <span className="font-bold">{statusLabel(booking.status)}</span>.</>}
           </p>
         </motion.div>
@@ -438,13 +441,13 @@ export default function BookingConfirmationPage() {
             )}
             <p className="text-[11px] font-bold text-brand-dark/45 pt-1">Taxes and charges included. No booking fees.</p>
             <p className="text-[11px] font-bold text-brand-dark/45">
-              {isPending
-                ? 'The hotel checks your payment screenshot, then confirms your stay by email.'
-                : paymentDone && booking.paymentProofVerified
-                  ? 'Full payment verified by the hotel.'
-                  : paymentDone
-                    ? 'Your payment screenshot is in the hotel app. Payment is confirmed only after they verify it.'
-                    : 'Scan the hotel QR below to pay the full stay amount, then upload your receipt screenshot on this page.'}
+              {paymentDone && booking.paymentProofVerified
+                ? 'Full payment verified by the hotel.'
+                : paymentDone
+                  ? 'Your payment screenshot is in the hotel app for verification. Your room is ready for check-in.'
+                  : showPaySection
+                    ? 'Scan the hotel QR below to pay the full stay amount, then upload your receipt screenshot on this page.'
+                    : 'Show your booking reference at the hotel front desk when you check in.'}
             </p>
           </div>
         </motion.div>

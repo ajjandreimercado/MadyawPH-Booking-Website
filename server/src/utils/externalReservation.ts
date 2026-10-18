@@ -95,6 +95,10 @@ export function buildExternalReservationDoc(input: {
   checkInTime?: string;
   /** Link the hotel app opens for the guest's valid ID — it reads metadata.guest_id_url. */
   guestIdUrl?: string;
+  /** Link the hotel app opens for the payment screenshot. */
+  paymentProofUrl?: string;
+  /** Hotel Online Bookings status — reserved when the guest finishes paid checkout. */
+  status?: string;
 }) {
   const now = input.now ?? new Date();
   const amountDue = Number(input.amountDue ?? input.halfPayment ?? 0);
@@ -112,13 +116,16 @@ export function buildExternalReservationDoc(input: {
     ?? (amountPaid <= 0
       ? 'unpaid'
       : (mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial'));
-  const note = amountPaid <= 0
-    ? (mode === 'full'
-      ? 'Website booking — full stay payment due after hotel confirmation'
-      : 'Website booking — deposit due after hotel confirmation')
-    : (mode === 'full'
-      ? 'Website full stay payment — no remaining balance at hotel check-out'
-      : 'Website half deposit — remaining balance due at hotel check-out');
+  const proofUploaded = Boolean(input.paymentProofUploaded);
+  const note = proofUploaded
+    ? 'Website booking complete — payment screenshot attached, awaiting hotel verification'
+    : (amountPaid <= 0
+      ? (mode === 'full'
+        ? 'Website booking — full stay payment due after hotel confirmation'
+        : 'Website booking — deposit due after hotel confirmation')
+      : (mode === 'full'
+        ? 'Website full stay payment — no remaining balance at hotel check-out'
+        : 'Website half deposit — remaining balance due at hotel check-out'));
 
   const metadata = {
     // Hotel Online Bookings queue filters external_reservations (often by app-customer + pending_approval).
@@ -137,15 +144,18 @@ export function buildExternalReservationDoc(input: {
     note,
     valid_id_uploaded: Boolean(input.validIdUploaded),
     valid_id_filename: input.validIdFilename ?? '',
-    payment_proof_uploaded: Boolean(input.paymentProofUploaded),
+    payment_proof_uploaded: proofUploaded,
     payment_proof_filename: input.paymentProofFilename ?? '',
     payment_proof_mime: input.paymentProofMime ?? '',
-    payment_proof_collection: input.paymentProofUploaded ? 'booking_payment_proofs' : '',
+    payment_proof_collection: proofUploaded ? 'booking_payment_proofs' : '',
     payment_transaction_ref: input.paymentTransactionRef ?? '',
+    // Hotel app also reads this alias for the wallet reference.
+    payment_reference: input.paymentTransactionRef ?? '',
     payment_proof_amount_claimed: input.paymentProofAmountClaimed ?? null,
     payment_proof_expected_amount: input.paymentProofExpectedAmount ?? amountDue,
     // Never true from website upload — hotel staff verifies in MADYAWPH.
     payment_proof_verified: Boolean(input.paymentProofVerified),
+    deposit_awaiting_verification: proofUploaded && !input.paymentProofVerified,
     billing_mode: 'nightly',
     nights: input.nights,
     rooms: 1,
@@ -153,6 +163,7 @@ export function buildExternalReservationDoc(input: {
     children: input.children ?? 0,
     ...(input.checkInTime ? { check_in_time: input.checkInTime } : {}),
     ...(input.guestIdUrl ? { guest_id_url: input.guestIdUrl } : {}),
+    ...(input.paymentProofUrl ? { payment_proof_url: input.paymentProofUrl } : {}),
   };
 
   return {
@@ -166,7 +177,7 @@ export function buildExternalReservationDoc(input: {
     check_out_date: input.checkOutDate,
     assigned_room_id: input.roomId,
     booking_id: input.bookingId,
-    status: ONLINE_BOOKING_PENDING_STATUS,
+    status: input.status?.trim() || ONLINE_BOOKING_PENDING_STATUS,
     // Match hotel/PHP documents that store metadata as a JSON string.
     metadata: JSON.stringify(metadata),
     created_at: now,
