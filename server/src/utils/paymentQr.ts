@@ -130,6 +130,33 @@ const MAYA_QR_PATHS: string[][] = [
   ['paymentMethods', 'maya'],
 ];
 
+const QRPH_QR_PATHS: string[][] = [
+  ['qrph_qr'],
+  ['qrph_qr_url'],
+  ['qrPhQr'],
+  ['qr_ph_qr'],
+  ['qr_ph_qr_url'],
+  ['qrph_qr_image'],
+  ['qrph_payment_qr'],
+  ['payment_qr_qrph'],
+  ['qr_qrph'],
+  ['qrph', 'qr'],
+  ['qrph', 'qr_url'],
+  ['qr_ph', 'qr'],
+  ['payment_settings', 'qrph_qr'],
+  ['payment_settings', 'qrph_qr_url'],
+  ['payment_settings', 'qrph'],
+  ['payment_settings', 'qr_ph'],
+  ['paymentSettings', 'qrph_qr'],
+  ['paymentSettings', 'qrph'],
+  ['settings', 'qrph_qr'],
+  ['settings', 'qr_ph_qr'],
+  ['qr_codes', 'qrph'],
+  ['qrCodes', 'qrph'],
+  ['payment_methods', 'qrph'],
+  ['paymentMethods', 'qrph'],
+];
+
 const BANK_QR_PATHS: string[][] = [
   ['bank_qr'],
   ['bank_qr_url'],
@@ -257,17 +284,22 @@ export async function fetchFirstPaymentQrImage(
   const qrs = mergePaymentQrs(hotel, systemSettings, parsePaymentMethodQrs(asRecord(systemSettings)));
   const allCandidates = collectPaymentQrCandidates(hotel, systemSettings);
 
-  // Prefer the requested wallet QR, then fall back to any other uploaded hotel QR.
-  // (A stale/broken method-specific path must not hide a working generic QR.)
+  // Wallet tabs must never borrow another wallet's QR (QR Ph ≠ PayMaya).
+  // Dedicated upload only; if none, use generic only when that method has no sibling wallets.
   if (options?.preferredMethod) {
-    const preferred = qrUrlForPaymentMethod(qrs, options.preferredMethod);
-    const ordered = preferred
-      ? [preferred, ...allCandidates.filter((path) => path !== preferred)]
-      : allCandidates;
-    const preferredHit = await tryPaymentQrCandidates(ordered, hotelId, {
-      skipCache: options.skipCache,
-    });
-    if (preferredHit) return preferredHit;
+    const dedicated = qrPathForMethodOnly(qrs, options.preferredMethod);
+    if (dedicated) {
+      const hit = await tryPaymentQrCandidates([dedicated], hotelId, {
+        skipCache: options.skipCache,
+      });
+      if (hit) return hit;
+      return null;
+    }
+    const dedicatedCount = WALLET_QR_METHODS.filter((m) => Boolean(qrPathForMethodOnly(qrs, m))).length;
+    if (dedicatedCount === 0 && qrs.generic) {
+      return tryPaymentQrCandidates([qrs.generic], hotelId, { skipCache: options.skipCache });
+    }
+    return null;
   }
 
   return tryPaymentQrCandidates(allCandidates, hotelId, options);
@@ -287,12 +319,14 @@ export function resolveHotelPaymentQrs(hotel: unknown): HotelPaymentQrs {
 
   const gcash = firstUrl(record, GCASH_QR_PATHS);
   const maya = firstUrl(record, MAYA_QR_PATHS);
+  const qrph = firstUrl(record, QRPH_QR_PATHS);
   const bank = firstUrl(record, BANK_QR_PATHS);
   const generic = firstUrl(record, GENERIC_QR_PATHS);
 
   const qrs: HotelPaymentQrs = {};
   if (gcash) qrs.gcash = gcash;
   if (maya) qrs.maya = maya;
+  if (qrph) qrs.qrph = qrph;
   if (bank) qrs.bank = bank;
   if (generic) qrs.generic = generic;
   if (!qrs.generic) {
@@ -356,9 +390,18 @@ export function qrUrlForPaymentMethod(
   const dedicated = qrPathForMethodOnly(qrs, method);
   if (dedicated) return dedicated;
   const key = method.trim().toLowerCase();
-  if (key === 'gcash') return qrs.generic;
-  if (key === 'maya' || key === 'paymaya') return qrs.generic;
-  if (key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') return qrs.generic;
+  // When any dedicated wallet QR exists, do not hand another wallet the generic/
+  // leftover image (that caused QR Ph to show the PayMaya upload).
+  const hasDedicatedWallet = WALLET_QR_METHODS.some((m) => Boolean(qrPathForMethodOnly(qrs, m)));
+  if (hasDedicatedWallet) {
+    if (key === 'bank-transfer' || key === 'bank_transfer' || key === 'bank') {
+      return qrs.bank;
+    }
+    return undefined;
+  }
+  if (key === 'gcash' || key === 'maya' || key === 'paymaya' || key === 'qrph' || key === 'qr-ph' || key === 'qr_ph') {
+    return qrs.generic;
+  }
   if (key === 'bank-transfer' || key === 'bank_transfer' || key === 'bank') {
     return qrs.bank || qrs.generic;
   }
