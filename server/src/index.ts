@@ -5,6 +5,7 @@ import {
   startExternalReservationWatcher,
   stopExternalReservationWatcher,
 } from './services/externalReservationWatcher';
+import { healBookingMediaUrls } from './utils/healBookingMediaUrls';
 
 // ─── Startup env validation (fail fast with a clear message) ──────────────────
 const REQUIRED_ENV_VARS = ['PORT', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'CLIENT_ORIGIN', 'MONGODB_URI'];
@@ -73,6 +74,11 @@ console.log(`[STARTUP] MongoDB target: ${safeMongo}`);
 async function start() {
   await connectDatabase();
   await startExternalReservationWatcher();
+
+  // Backfill guest_id_url / payment_proof_url on this environment's Mongo (Render vs local may differ).
+  void healBookingMediaUrls()
+    .then((result) => console.log(`[MediaHeal] Finished — ${result.healed} booking(s) updated.`))
+    .catch((error) => console.error('[MediaHeal] Failed:', error instanceof Error ? error.message : error));
 
   const server = app.listen(PORT, () => {
     console.log(`[INFO] Madyaw API running on http://localhost:${PORT} (env: ${process.env.NODE_ENV ?? 'development'})`);
