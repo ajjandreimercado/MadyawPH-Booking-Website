@@ -464,8 +464,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-primary" />
                     <span>
                       I agree to the <Link to="/terms" target="_blank" className="text-brand-primary underline">Terms of Service</Link> and{' '}
-                      <Link to="/privacy" target="_blank" className="text-brand-primary underline">Privacy Policy</Link>, and I understand the hotel confirms
-                      my stay after checking my payment.
+                      <Link to="/privacy" target="_blank" className="text-brand-primary underline">Privacy Policy</Link>. I understand this booking is{' '}
+                      <span className="text-brand-danger">non-refundable</span> and that the hotel confirms my stay after checking my payment.
                     </span>
                   </label>
                   <button

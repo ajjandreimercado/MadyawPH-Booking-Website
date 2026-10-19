@@ -41,6 +41,9 @@ export interface BookingNotificationTarget {
 
 export interface RoomStayDetails {
   roomLabel: string;
+  /** Room number only ("1"), '' when unknown. */
+  roomNumber: string;
+  /** Door code — only when the room's current code was issued to THIS guest (see below). */
   accessPassword: string;
 }
 
@@ -142,40 +145,40 @@ export async function resolveRoomStayDetails(
 ): Promise<RoomStayDetails> {
   const fallbackLabel = String(booking.propertyName ?? '').trim();
   const roomId = String(booking.room_id ?? booking.propertyId ?? '').trim();
-  if (!roomId) {
-    return { roomLabel: fallbackLabel, accessPassword: '' };
-  }
+  const none = { roomLabel: fallbackLabel, roomNumber: '', accessPassword: '' };
+  if (!roomId) return none;
 
   try {
     const room = await PropertyModel.findById(roomId)
-      .select('category_name display_name room_number current_access_code access_code door_code room_password')
+      .select('category_name display_name room_number current_access_code current_guest_name current_check_in')
       .lean();
-    if (!room) {
-      return { roomLabel: fallbackLabel, accessPassword: '' };
-    }
+    if (!room) return none;
     const typed = room as {
       category_name?: unknown;
       display_name?: unknown;
       room_number?: unknown;
       current_access_code?: unknown;
-      access_code?: unknown;
-      door_code?: unknown;
-      room_password?: unknown;
+      current_guest_name?: unknown;
+      current_check_in?: unknown;
     };
-    const accessPassword = String(
-      typed.current_access_code
-      ?? typed.access_code
-      ?? typed.door_code
-      ?? typed.room_password
-      ?? '',
-    ).trim();
+    // The hotel app sets current_access_code for whoever is checked in to the room NOW.
+    // Never email it unless that stay is this booking's (same guest, same check-in date),
+    // or a new guest would get the current occupant's door code.
+    const sameGuest = String(typed.current_guest_name ?? '').trim().toLowerCase()
+      === String(booking.guestName ?? '').trim().toLowerCase();
+    const checkInRaw = typed.current_check_in instanceof Date
+      ? typed.current_check_in.toISOString()
+      : String(typed.current_check_in ?? '');
+    const sameStay = checkInRaw.slice(0, 10) !== '' && checkInRaw.slice(0, 10) === String(booking.checkInDate ?? '').slice(0, 10);
+    const accessPassword = sameGuest && sameStay ? String(typed.current_access_code ?? '').trim() : '';
     return {
       roomLabel: formatRoomStayLabel(typed, fallbackLabel),
+      roomNumber: String(typed.room_number ?? '').trim(),
       accessPassword,
     };
   } catch (error) {
     console.warn('[Notification] Room lookup failed:', error instanceof Error ? error.message : error);
-    return { roomLabel: fallbackLabel, accessPassword: '' };
+    return none;
   }
 }
 
@@ -228,6 +231,46 @@ export function buildHotelWelcomeBody(input: {
   return lines.filter((line): line is string => line !== null).join('\n');
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+/**
+ * Approval email in the hotel's name, laid out like the hotel app's own welcome mail:
+ * welcome line, room card (number, reference, dates), access password, sign-off.
+ */
+export function buildHotelWelcomeHtml(input: {
+  hotelName: string;
+  guestName: string;
+  roomNumber: string;
+  roomLabel: string;
+  accessPassword: string;
+  bookingReference: string;
+  checkIn: string;
+  checkOut: string;
+}): string {
+  const hotel = escapeHtml(input.hotelName);
+  const roomTitle = escapeHtml(input.roomNumber ? `Room ${input.roomNumber}` : (input.roomLabel || 'Your room'));
+  const password = escapeHtml(input.accessPassword);
+  const font = "font-family:'Segoe UI',Arial,sans-serif;";
+  return `<!doctype html><html><body style="margin:0;background:#f3f5fa;padding:24px;${font}">
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px;color:#334155;">
+  <h1 style="margin:0 0 24px;color:#1e2a78;font-size:26px;">Welcome to ${hotel}!</h1>
+  <p style="margin:0 0 12px;font-size:15px;">Hi ${escapeHtml(input.guestName)}, your booking has been approved. Here are your room details${password ? ' and access password' : ''}.</p>
+  <div style="background:#eef2fb;border:1px solid #d6def3;border-radius:12px;padding:20px;margin:20px 0;">
+    <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:1px;color:#64748b;">YOUR ROOM</p>
+    <p style="margin:0 0 10px;font-size:20px;font-weight:700;color:#1e2a78;">${roomTitle}</p>
+    <p style="margin:0 0 6px;font-size:13px;">Reference: ${escapeHtml(input.bookingReference)}</p>
+    <p style="margin:0;font-size:13px;">Check-in: ${escapeHtml(input.checkIn)} · Check-out: ${escapeHtml(input.checkOut)}</p>
+  </div>
+  ${password ? `<p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:1px;color:#64748b;">ROOM ACCESS PASSWORD</p>
+  <div style="display:inline-block;background:#1e2a78;color:#ffffff;border-radius:10px;padding:14px 26px;font-size:26px;font-weight:700;letter-spacing:6px;">${password}</div>
+  <p style="margin:16px 0 0;font-size:13px;color:#64748b;">Use this password for guest portal access and room services during your stay. Please keep it private. If you need help, visit the front desk.</p>`
+    : `<p style="margin:0;font-size:13px;color:#64748b;">Your room access password will be given to you at check-in. If you need help, reply to this email or contact the front desk.</p>`}
+  <p style="margin:28px 0 0;font-size:14px;">Warm regards,<br><strong>${hotel}</strong></p>
+</div></body></html>`;
+}
+
 /** Keep the verified sending address from EMAIL_FROM, but show the hotel's name. */
 export function senderFor(hotelName: string): string {
   const configured = getEmailFrom();
@@ -264,7 +307,7 @@ export function queueGuestNotification(label: string, task: () => Promise<unknow
   });
 }
 
-async function deliverEmail(to: string, subject: string, text: string, from: string): Promise<EmailSendResult> {
+async function deliverEmail(to: string, subject: string, text: string, from: string, html?: string): Promise<EmailSendResult> {
   const apiKey = getResendApiKey();
   if (!apiKey) {
     console.log(`\n======================================================`);
@@ -286,6 +329,7 @@ async function deliverEmail(to: string, subject: string, text: string, from: str
       to: [to],
       subject,
       text,
+      ...(html ? { html } : {}),
     }),
   });
 
@@ -403,7 +447,17 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     || Number(booking.payment_proof_amount_claimed ?? 0)
     || (booking.payment_proof_stored || booking.payment_proof_filename ? stayTotal : 0);
 
-  const subject = `Welcome to ${hotelName} — your reservation is confirmed`;
+  const subject = `Welcome to ${hotelName}!`;
+  const messageHtml = buildHotelWelcomeHtml({
+    hotelName,
+    guestName: String(booking.guestName ?? 'Guest').trim() || 'Guest',
+    roomNumber: stay.roomNumber,
+    roomLabel: stay.roomLabel,
+    accessPassword: stay.accessPassword,
+    bookingReference: ref,
+    checkIn: checkInDate,
+    checkOut: checkOutDate,
+  });
   const messageBody = buildHotelWelcomeBody({
     guestFirstName: guestFirstName(booking),
     hotelName,
@@ -429,7 +483,7 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
       throw new Error('Guest email is required to send confirmation.');
     }
 
-    const result = await deliverEmail(booking.guestEmail, subject, messageBody, senderFor(hotelName));
+    const result = await deliverEmail(booking.guestEmail, subject, messageBody, senderFor(hotelName), messageHtml);
     const sentTimestamp = new Date();
 
     if (!result.delivered) {
@@ -545,7 +599,7 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
     `Reference: ${ref}`,
     '',
     ...(booking.payment_proof_stored || booking.payment_proof_filename
-      ? ['If you already paid, please reply to this email or contact us directly about your refund.', '']
+      ? ['If you already paid, please reply to this email or contact us directly about your payment.', '']
       : []),
     'You can choose new dates and submit another request here:',
     rebookUrl,

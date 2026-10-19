@@ -6,7 +6,10 @@ import {
   formatStayDate,
   formatStayLength,
   senderFor,
+  buildHotelWelcomeHtml,
+  resolveRoomStayDetails,
 } from '../services/notificationService';
+import { PropertyModel } from '../data/mongoModels';
 
 describe('buildRebookUrl', () => {
   it('prefers the hotel detail page when hotel_id is present', () => {
@@ -73,5 +76,44 @@ describe('email formatting', () => {
     expect(body).toContain('ROOM ACCESS PASSWORD');
     expect(body).toContain('SJSW');
     expect(body).not.toContain('reserved');
+  });
+});
+
+describe('approval welcome email', () => {
+  it('shows the room number and access password in the hotel name, escaping text', () => {
+    const html = buildHotelWelcomeHtml({
+      hotelName: 'Gloreto <Hotel>',
+      guestName: 'AJ',
+      roomNumber: '1',
+      roomLabel: 'Single Bed',
+      accessPassword: 'W4YX',
+      bookingReference: 'BR-1',
+      checkIn: 'Oct 19, 2026',
+      checkOut: 'Oct 20, 2026',
+    });
+    expect(html).toContain('Welcome to Gloreto &lt;Hotel&gt;!');
+    expect(html).toContain('Room 1');
+    expect(html).toContain('W4YX');
+    expect(html).not.toContain('Madyaw');
+  });
+
+  it('says the password comes at check-in when there is none for this guest', () => {
+    const html = buildHotelWelcomeHtml({
+      hotelName: 'Gloreto', guestName: 'AJ', roomNumber: '1', roomLabel: '', accessPassword: '',
+      bookingReference: 'BR-1', checkIn: 'a', checkOut: 'b',
+    });
+    expect(html).toMatch(/given to you at check-in/);
+    expect(html).not.toContain('ROOM ACCESS PASSWORD');
+  });
+
+  it("never uses the door code of another guest currently in the room", async () => {
+    const room = { room_number: '1', category_name: 'Single', current_access_code: 'W4YX', current_guest_name: 'Someone Else', current_check_in: new Date('2026-10-19T06:00:00Z') };
+    const spy = jest.spyOn(PropertyModel, 'findById').mockReturnValue({ select: () => ({ lean: async () => room }) } as never);
+    const other = await resolveRoomStayDetails({ room_id: 'r1', guestName: 'AJ Jandrei', checkInDate: '2026-10-19' });
+    expect(other.accessPassword).toBe('');
+    expect(other.roomNumber).toBe('1');
+    const mine = await resolveRoomStayDetails({ room_id: 'r1', guestName: 'someone else', checkInDate: '2026-10-19' });
+    expect(mine.accessPassword).toBe('W4YX');
+    spy.mockRestore();
   });
 });

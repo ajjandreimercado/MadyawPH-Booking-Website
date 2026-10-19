@@ -120,10 +120,10 @@ function SummaryBody(props: SummaryProps) {
 
       <section className="rounded-xl border border-brand-primary/15 bg-white p-4 text-sm">
         <h2 className="font-bold text-brand-dark mb-2">Cancellation policy</h2>
+        <p className="font-bold text-brand-danger">Non-refundable</p>
         <p className="text-brand-dark/70">
-          {props.freeCancellation ? 'This room has free cancellation. ' : ''}
-          You pay when you book; the hotel checks your payment and confirms your stay. If the hotel can't
-          confirm, contact the hotel about a refund. For changes or cancellations after that, the hotel's own rules apply.
+          All bookings are non-refundable. Once you pay, your payment can't be refunded if you cancel, change
+          your dates or don't arrive. Please check your dates and details before you pay.
         </p>
         <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
       </section>
