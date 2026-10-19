@@ -670,18 +670,34 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
 
   // Prefer native reads — Mongoose findById can miss string/ObjectId _id shapes in shared hotel_hms.
   const db = mongoose.connection.db;
-  const bookingFilter: Record<string, unknown> = mongoose.isValidObjectId(bookingId)
-    ? { $or: [{ _id: bookingId }, { _id: new mongoose.Types.ObjectId(bookingId) }] }
-    : { _id: bookingId };
-  const rawBooking = db
-    ? await db.collection('bookings').findOne(bookingFilter as never).catch(() => null)
-    : null;
-  const rawValidId = db
-    ? await db.collection('booking_valid_ids').findOne({ booking_id: bookingId } as never).catch(() => null)
-    : null;
-  const rawProof = db
-    ? await db.collection('booking_payment_proofs').findOne({ booking_id: bookingId } as never).catch(() => null)
-    : null;
+  let lookupError = '';
+  let rawBooking: Record<string, unknown> | null = null;
+  let rawValidId: Record<string, unknown> | null = null;
+  let rawProof: Record<string, unknown> | null = null;
+  if (db) {
+    try {
+      const oid = mongoose.isValidObjectId(bookingId) ? new mongoose.Types.ObjectId(bookingId) : null;
+      rawBooking = (oid
+        ? await db.collection('bookings').findOne({ _id: oid })
+        : await db.collection('bookings').findOne({ _id: bookingId as never })) as Record<string, unknown> | null;
+      // booking_id is stored as a string on side collections.
+      rawValidId = await db.collection('booking_valid_ids').findOne({ booking_id: bookingId }) as Record<string, unknown> | null;
+      rawProof = await db.collection('booking_payment_proofs').findOne({ booking_id: bookingId }) as Record<string, unknown> | null;
+      // Some older rows stored booking_id as the ObjectId string of a different shape — try oid hex too.
+      if (!rawValidId && oid) {
+        rawValidId = await db.collection('booking_valid_ids').findOne({
+          $or: [{ booking_id: bookingId }, { booking_id: String(oid) }],
+        }) as Record<string, unknown> | null;
+      }
+      if (!rawProof && oid) {
+        rawProof = await db.collection('booking_payment_proofs').findOne({
+          $or: [{ booking_id: bookingId }, { booking_id: String(oid) }],
+        }) as Record<string, unknown> | null;
+      }
+    } catch (error) {
+      lookupError = error instanceof Error ? error.message.slice(0, 120) : 'lookup failed';
+    }
+  }
 
   let authorized = false;
   if (token) {
@@ -714,11 +730,13 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
         hasToken: Boolean(token),
         hasSig: Boolean(sig),
         hasDb: Boolean(db),
+        dbName: db?.databaseName ?? '',
         foundBooking: Boolean(rawBooking),
         foundValidId: Boolean(rawValidId),
         foundProof: Boolean(rawProof),
         hasGuestUrl: Boolean(rawBooking?.guest_id_url),
         hasProofUrl: Boolean(rawBooking?.payment_proof_url),
+        lookupError: lookupError || undefined,
       },
     });
   }
