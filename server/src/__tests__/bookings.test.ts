@@ -70,7 +70,10 @@ jest.mock('../data/mongoModels', () => ({
       }),
     }),
     countDocuments: jest.fn().mockResolvedValue(0),
-    findById: jest.fn(),
+    findById: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+      lean: jest.fn().mockResolvedValue(null),
+    }),
     findOne: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) }),
     create: jest.fn(),
     updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
