@@ -722,23 +722,10 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
 
   if (!authorized) {
     res.setHeader('Cache-Control', 'private, no-store');
-    // Temporary diagnostics (no secrets) — remove once hotel media links are confirmed live.
-    return res.status(403).json({
-      message: 'This link is not valid.',
-      debug: {
-        kind,
-        hasToken: Boolean(token),
-        hasSig: Boolean(sig),
-        hasDb: Boolean(db),
-        dbName: db?.databaseName ?? '',
-        foundBooking: Boolean(rawBooking),
-        foundValidId: Boolean(rawValidId),
-        foundProof: Boolean(rawProof),
-        hasGuestUrl: Boolean(rawBooking?.guest_id_url),
-        hasProofUrl: Boolean(rawBooking?.payment_proof_url),
-        lookupError: lookupError || undefined,
-      },
-    });
+    if (lookupError) {
+      console.warn(`[Bookings] File lookup error for ${bookingId}: ${lookupError}`);
+    }
+    return res.status(403).json({ message: 'This link is not valid.' });
   }
 
   let base64 = '';
