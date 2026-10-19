@@ -137,6 +137,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       {
         $set: {
           payment_proof_url: proofUrl,
+          ...(accessToken ? { payment_proof_access_token: accessToken } : {}),
           payment_proof_stored: true,
           payment_proof_filename: filename,
           payment_proof_mime: input.mime,

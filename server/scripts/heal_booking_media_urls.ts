@@ -90,12 +90,21 @@ async function main() {
       );
     }
 
+    const guestToken = guestIdUrl.includes('token=')
+      ? new URL(guestIdUrl).searchParams.get('token') || ''
+      : '';
+    const proofToken = paymentProofUrl.includes('token=')
+      ? new URL(paymentProofUrl).searchParams.get('token') || ''
+      : '';
+
     await BookingModel.updateOne(
       { _id: booking._id },
       {
         $set: {
           ...(guestIdUrl ? { guest_id_url: guestIdUrl } : {}),
+          ...(guestToken ? { guest_id_access_token: guestToken } : {}),
           ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
+          ...(proofToken ? { payment_proof_access_token: proofToken } : {}),
         },
       },
     );
