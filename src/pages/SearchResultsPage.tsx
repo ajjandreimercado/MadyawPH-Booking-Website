@@ -200,7 +200,7 @@ export default function SearchResultsPage() {
 
   // Filter state (controlled from URL params)
   const destination = searchParams.get('destination') ?? '';
-  // Dates and guests always come from the stay bar (defaults: tomorrow, 1 night, 2 adults).
+  // Dates and guests come from the stay bar / URL (defaults: today, 1 night, 1 adult).
   const stay = readStay(searchParams);
   const { checkIn, checkOut } = stay;
   const sort = (searchParams.get('sort') ?? 'recommended') as SearchParams['sort'];
