@@ -1456,8 +1456,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     );
   }
 
-  // Guest email after checkout: welcome from the hotel (not a request / payment-link mail).
-  queueGuestNotification('welcome', () => sendBookingRequestReceivedNotification(booking));
+  // No email at checkout — the guest's only email is the hotel's welcome, sent when the
+  // hotel approves the booking (see hotelBookingSync → sendBookingConfirmationNotification).
 
   const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
   return res.status(201).json({

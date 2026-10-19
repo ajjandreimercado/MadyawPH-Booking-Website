@@ -36,21 +36,15 @@ describe('bookingStayRange', () => {
 });
 
 describe('isRoomBookable', () => {
-  const tomorrow = new Date('2026-10-18T00:00:00Z');
-  const today = new Date('2026-10-17T00:00:00Z');
-
-  it('ignores today\'s housekeeping status for future stays', () => {
-    expect(isRoomBookable({ _id: 'r1', status: 'occupied' }, new Set(), tomorrow, NOW)).toBe(true);
+  it('offers only rooms the hotel app marks vacant (available)', () => {
+    expect(isRoomBookable({ _id: 'r1', status: 'available' }, new Set())).toBe(true);
+    expect(isRoomBookable({ _id: 'r1', status: 'checked_in' }, new Set())).toBe(false);
+    expect(isRoomBookable({ _id: 'r1', status: 'cleaning' }, new Set())).toBe(false);
+    expect(isRoomBookable({ _id: 'r1', status: 'maintenance' }, new Set())).toBe(false);
   });
 
-  it('requires the room to be available now for a stay starting today', () => {
-    expect(isRoomBookable({ _id: 'r1', status: 'occupied' }, new Set(), today, NOW)).toBe(false);
-    expect(isRoomBookable({ _id: 'r1', status: 'available' }, new Set(), today, NOW)).toBe(true);
-  });
-
-  it('never books rooms that are booked for the dates or out of service', () => {
-    expect(isRoomBookable({ _id: 'r1', status: 'available' }, new Set(['r1']), tomorrow, NOW)).toBe(false);
-    expect(isRoomBookable({ _id: 'r1', status: 'maintenance' }, new Set(), tomorrow, NOW)).toBe(false);
+  it('never offers a vacant room that is already booked for the dates', () => {
+    expect(isRoomBookable({ _id: 'r1', status: 'available' }, new Set(['r1']))).toBe(false);
   });
 });
 

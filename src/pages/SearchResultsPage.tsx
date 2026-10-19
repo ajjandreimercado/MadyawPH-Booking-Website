@@ -654,12 +654,7 @@ export default function SearchResultsPage() {
                       ))}
                     </div>
                   </div>
-                  {supportsFreeCancellation && (
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={freeCancellation} onChange={() => { const next = !freeCancellation; setFreeCancellation(next); pushFilterParams({ freeCancellation: next }); }} className="accent-brand-primary w-4 h-4" />
-                      <span className="text-sm font-bold text-brand-dark">Free Cancellation</span>
-                    </label>
-                  )}
+                  {/* No free-cancellation filter: all bookings are non-refundable. */}
                   {supportsBreakfastIncluded && (
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input type="checkbox" checked={breakfastIncluded} onChange={() => { const next = !breakfastIncluded; setBreakfastIncluded(next); pushFilterParams({ breakfastIncluded: next }); }} className="accent-brand-primary w-4 h-4" />

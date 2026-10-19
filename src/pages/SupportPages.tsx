@@ -74,20 +74,16 @@ export function CancellationPage() {
   return (
     <InfoPage
       eyebrow="Support"
-      title="Cancellation Options"
-      intro="Cancellation rules depend on each hotel’s policy. Madyaw submits your request; the hotel manages accept, decline, and cancellation in their app."
+      title="Cancellation Policy"
+      intro="All bookings made on Madyaw are non-refundable."
       sections={[
         {
-          heading: 'Before the hotel confirms',
-          body: 'Your payment is with the hotel for checking. If you no longer need the room, contact the hotel using the details on their listing; if the hotel declines your request, contact the hotel about a refund. Requests the hotel has not reviewed within 48 hours stop holding the room.',
+          heading: 'Non-refundable bookings',
+          body: 'You pay the full stay when you book. That payment can’t be refunded if you cancel, change your dates, shorten your stay or don’t arrive. Please check your dates, room and details before you pay.',
         },
         {
-          heading: 'After the hotel confirms',
-          body: 'The hotel’s own cancellation and refund rules apply — contact the hotel directly for changes or refunds.',
-        },
-        {
-          heading: 'If the hotel cancels',
-          body: 'You will get an email from the hotel. If you already paid, reply to that email or call the hotel about your payment.',
+          heading: 'If the hotel can’t confirm your booking',
+          body: 'If the hotel declines or cancels your booking, you will get an email from the hotel. Reply to that email or call the hotel about your payment.',
         },
       ]}
     />

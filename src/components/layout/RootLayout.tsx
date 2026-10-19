@@ -60,7 +60,7 @@ export default function RootLayout() {
               <h3 className="font-display font-semibold text-lg text-brand-gold mb-4">Support</h3>
               <ul className="space-y-3 text-sm font-bold text-brand-cream/70">
                 <li><SafeLink href="/help" className="hover:text-brand-gold transition-colors">Help Center</SafeLink></li>
-                <li><SafeLink href="/cancellation" className="hover:text-brand-gold transition-colors">Cancellation Options</SafeLink></li>
+                <li><SafeLink href="/cancellation" className="hover:text-brand-gold transition-colors">Cancellation Policy</SafeLink></li>
                 <li><SafeLink href="/contact" className="hover:text-brand-gold transition-colors">Contact Us</SafeLink></li>
               </ul>
             </div>

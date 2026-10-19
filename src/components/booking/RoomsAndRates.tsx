@@ -93,11 +93,6 @@ export default function RoomsAndRates({
       <div className="min-w-0">
         {/* Filters + sort */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          {hasCancellationData && (
-            <button type="button" className={chip(freeCancellationOnly)} aria-pressed={freeCancellationOnly} onClick={() => setFreeCancellationOnly((v) => !v)}>
-              Free cancellation
-            </button>
-          )}
           {hasBreakfastData && (
             <button type="button" className={chip(breakfastOnly)} aria-pressed={breakfastOnly} onClick={() => setBreakfastOnly((v) => !v)}>
               Breakfast included
@@ -171,7 +166,7 @@ export default function RoomsAndRates({
                   {/* Your choices */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
-                    {category.freeCancellation && <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Free cancellation</p>}
+                    <p className="text-brand-danger">Non-refundable</p>
                     <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Pay by GCash or Maya QR</p>
                     {/* Client rule: always this wording, whatever the real count. */}
                     <p className="text-brand-danger">Only 1 room available</p>

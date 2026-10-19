@@ -96,20 +96,17 @@ export async function findBookedRoomIds(
 }
 
 /**
- * Can this room be booked for the stay? Out-of-service rooms never can. For a stay starting
- * today the room must also be physically available right now (an occupied room may not be
- * recorded as a booking); later stays ignore today's housekeeping status.
+ * Can this room be booked for the stay? Client rule: only rooms the hotel app marks vacant
+ * ("available") are offered — occupied (checked_in), cleaning or out-of-service rooms are
+ * hidden whatever the dates — and never a room already booked for the stay.
  */
 export function isRoomBookable(
   room: { _id?: unknown; status?: unknown },
   bookedIds: Set<string>,
-  stayStart: Date,
-  now: Date = new Date(),
+  _stayStart?: Date,
 ): boolean {
-  if (isRoomOutOfService(room)) return false;
   if (bookedIds.has(String(room._id))) return false;
-  const startsToday = stayStart.toISOString().slice(0, 10) <= manilaToday(now);
-  return startsToday ? String(room.status ?? 'available').toLowerCase() === 'available' : true;
+  return String(room.status ?? '').toLowerCase() === 'available';
 }
 
 /** Today's date (yyyy-MM-dd) in Asia/Manila, where the hotels are. */
