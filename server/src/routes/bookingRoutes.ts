@@ -607,6 +607,7 @@ async function savePaymentProof(
         payment_proof_verified: false,
         payment_proof_verified_at: null,
         payment_proof_url: proofUrl,
+        payment_proof_access_token: accessToken,
         deposit_amount: amountDue,
         amountPaid: 0,
         amount_paid: 0,
@@ -655,19 +656,6 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
   const rawSig = req.query.sig;
   const sig = (Array.isArray(rawSig) ? String(rawSig[0] ?? '') : typeof rawSig === 'string' ? rawSig : '').trim();
 
-  // Keep select simple — some Mongoose versions mishandle "+field" mixed with inclusion lists.
-  const bookingMeta = await BookingModel.findById(bookingId)
-    .select('+payment_proof_base64 guest_id_url payment_proof_url payment_proof_mime')
-    .lean()
-    .catch(() => null);
-
-  const validIdDoc = await BookingValidIdModel.findOne({ booking_id: bookingId })
-    .select({ base64: 1, mime: 1, access_token: 1, payment_proof_base64: 1, payment_proof_mime: 1, payment_proof_access_token: 1 })
-    .lean();
-  const proofDoc = await BookingPaymentProofModel.findOne({ booking_id: bookingId })
-    .select({ base64: 1, mime: 1, access_token: 1 })
-    .lean();
-
   const urlHasToken = (raw: unknown, expected: string): boolean => {
     const value = String(raw ?? '');
     if (!expected || !value.includes('token=')) return false;
@@ -680,19 +668,36 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
     }
   };
 
+  // Prefer native reads — Mongoose findById can miss string/ObjectId _id shapes in shared hotel_hms.
+  const db = mongoose.connection.db;
+  const bookingFilter: Record<string, unknown> = mongoose.isValidObjectId(bookingId)
+    ? { $or: [{ _id: bookingId }, { _id: new mongoose.Types.ObjectId(bookingId) }] }
+    : { _id: bookingId };
+  const rawBooking = db
+    ? await db.collection('bookings').findOne(bookingFilter as never).catch(() => null)
+    : null;
+  const rawValidId = db
+    ? await db.collection('booking_valid_ids').findOne({ booking_id: bookingId } as never).catch(() => null)
+    : null;
+  const rawProof = db
+    ? await db.collection('booking_payment_proofs').findOne({ booking_id: bookingId } as never).catch(() => null)
+    : null;
+
   let authorized = false;
   if (token) {
     if (kind === 'valid-id') {
       authorized = Boolean(
-        (validIdDoc?.access_token && timingSafeEqualString(token, String(validIdDoc.access_token)))
-        || urlHasToken(bookingMeta?.guest_id_url, token),
+        (rawBooking?.guest_id_access_token && timingSafeEqualString(token, String(rawBooking.guest_id_access_token)))
+        || (rawValidId?.access_token && timingSafeEqualString(token, String(rawValidId.access_token)))
+        || urlHasToken(rawBooking?.guest_id_url, token),
       );
     } else {
       authorized = Boolean(
-        (proofDoc?.access_token && timingSafeEqualString(token, String(proofDoc.access_token)))
-        || (validIdDoc?.payment_proof_access_token
-          && timingSafeEqualString(token, String(validIdDoc.payment_proof_access_token)))
-        || urlHasToken(bookingMeta?.payment_proof_url, token),
+        (rawBooking?.payment_proof_access_token && timingSafeEqualString(token, String(rawBooking.payment_proof_access_token)))
+        || (rawProof?.access_token && timingSafeEqualString(token, String(rawProof.access_token)))
+        || (rawValidId?.payment_proof_access_token
+          && timingSafeEqualString(token, String(rawValidId.payment_proof_access_token)))
+        || urlHasToken(rawBooking?.payment_proof_url, token),
       );
     }
   } else if (sig) {
@@ -700,30 +705,34 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
   }
 
   if (!authorized) {
+    res.setHeader('Cache-Control', 'private, no-store');
     return res.status(403).json({ message: 'This link is not valid.' });
   }
 
   let base64 = '';
   let mime = 'application/octet-stream';
   if (kind === 'valid-id') {
-    base64 = String(validIdDoc?.base64 ?? '');
-    mime = String(validIdDoc?.mime || mime);
+    base64 = String(rawValidId?.base64 ?? '');
+    mime = String(rawValidId?.mime || mime);
   } else {
     base64 = String(
-      proofDoc?.base64
-      ?? validIdDoc?.payment_proof_base64
-      ?? (bookingMeta as { payment_proof_base64?: string } | null)?.payment_proof_base64
+      rawProof?.base64
+      ?? rawValidId?.payment_proof_base64
+      ?? rawBooking?.payment_proof_base64
       ?? '',
     );
     mime = String(
-      proofDoc?.mime
-      || validIdDoc?.payment_proof_mime
-      || (bookingMeta as { payment_proof_mime?: string } | null)?.payment_proof_mime
+      rawProof?.mime
+      || rawValidId?.payment_proof_mime
+      || rawBooking?.payment_proof_mime
       || mime,
     );
   }
 
-  if (!base64) return res.status(404).json({ message: 'File not found.' });
+  if (!base64) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(404).json({ message: 'File not found.' });
+  }
   res.setHeader('Content-Type', mime);
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Disposition', 'inline');
@@ -1393,6 +1402,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     {
       $set: {
         guest_id_url: guestIdUrl,
+        guest_id_access_token: validIdToken,
         ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
       },
     },

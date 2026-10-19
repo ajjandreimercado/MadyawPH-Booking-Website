@@ -122,8 +122,13 @@ const bookingSchema = new Schema(
     check_in_time: { type: String, default: '14:00' },
     // Hotel app field: link it opens to show the guest's valid ID.
     guest_id_url: { type: String },
+    // Token embedded in guest_id_url (?token=) — kept on the booking so file GET
+    // auth does not depend on side collections.
+    guest_id_access_token: { type: String, select: false },
     // Hotel app field: link it opens to show the payment screenshot.
     payment_proof_url: { type: String },
+    // Token embedded in payment_proof_url (?token=).
+    payment_proof_access_token: { type: String, select: false },
     check_out_time: { type: String, default: '12:00' },
     adults: { type: Number, default: 1 },
     children: { type: Number, default: 0 },
