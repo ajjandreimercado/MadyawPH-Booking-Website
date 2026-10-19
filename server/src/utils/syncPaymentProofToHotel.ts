@@ -175,12 +175,12 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       payment_proof_expected_amount: amountDue,
       payment_proof_verified: false,
       payment_proof_verified_at: null,
-      // Still unpaid until hotel verifies the screenshot.
+      // Show the guest-claimed amount in hotel Payments; still awaiting staff verification.
       payment_status: 'unpaid',
-      amount_paid: 0,
+      amount_paid: input.amountClaimed,
       amount_due: amountDue,
-      balance_due: Math.max(0, input.stayTotal),
-      note: 'Website guest uploaded payment screenshot — awaiting hotel verification',
+      balance_due: Math.max(0, input.stayTotal - input.amountClaimed),
+      note: `Website guest paid ₱${Number(input.amountClaimed).toLocaleString()} — awaiting hotel verification`,
       deposit_awaiting_verification: true,
     };
 
@@ -192,6 +192,8 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
           metadata: JSON.stringify(nextMeta),
           // Top-level aliases — some hotel screens read these off the reservation row.
           ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+          amount_paid: input.amountClaimed,
+          payment_proof_amount_claimed: input.amountClaimed,
           updated_at: now,
         },
       },

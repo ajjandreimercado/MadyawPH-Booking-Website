@@ -16,6 +16,8 @@ export interface CheckoutDraft {
   specialRequests: string;
   /** Reference number from the guest's GCash/Maya receipt. */
   paymentRef: string;
+  /** Amount the guest paid (from the receipt), as typed — '' until they enter it. */
+  paymentAmountPaid: string;
   malePax: number;
   femalePax: number;
   discountType: string;
@@ -33,6 +35,7 @@ export const EMPTY_DRAFT: CheckoutDraft = {
   arrivalTime: '',
   specialRequests: '',
   paymentRef: '',
+  paymentAmountPaid: '',
   malePax: 0,
   femalePax: 0,
   discountType: '',

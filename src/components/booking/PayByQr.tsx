@@ -27,6 +27,8 @@ export default function PayByQr({
   onFile,
   reference,
   onReference,
+  amountPaid,
+  onAmountPaid,
   onError,
 }: {
   hotelId: string;
@@ -35,6 +37,9 @@ export default function PayByQr({
   onFile: (file: File | null) => void;
   reference: string;
   onReference: (value: string) => void;
+  /** Amount the guest typed from their receipt (₱). */
+  amountPaid: string;
+  onAmountPaid: (value: string) => void;
   onError: (message: string) => void;
 }) {
   const [hotel, setHotel] = useState<Hotel | null>(null);
@@ -171,6 +176,27 @@ export default function PayByQr({
           <input id="booking-payment-ref" type="text" autoComplete="off" value={reference}
             onChange={(e) => onReference(e.target.value.toUpperCase())}
             placeholder="From your GCash/Maya receipt" className="input-field uppercase" />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="booking-payment-amount" className="field-label">
+            Amount paid (₱) <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="booking-payment-amount"
+            type="number"
+            inputMode="decimal"
+            min={1}
+            step="0.01"
+            autoComplete="off"
+            value={amountPaid}
+            onChange={(e) => onAmountPaid(e.target.value)}
+            placeholder={amount != null ? String(amount) : 'Amount on your receipt'}
+            className="input-field"
+          />
+          <p className="mt-1 text-[11px] font-bold text-brand-dark/50">
+            Enter the amount shown on your receipt
+            {amount != null ? ` (stay total due: ${peso(amount)})` : ''}. The hotel will see this in MADYAWPH.
+          </p>
         </div>
       </div>
       <p className="text-[11px] font-bold text-brand-dark/50">

@@ -118,7 +118,11 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     setPaymentProofState(file);
   };
   const paymentRef = draft.paymentRef.replace(/\s+/g, '');
-  const paymentReady = Boolean(paymentProofFile) && paymentRef.length >= 6;
+  const paymentAmountPaid = Number(String(draft.paymentAmountPaid ?? '').replace(/,/g, ''));
+  const paymentReady = Boolean(paymentProofFile)
+    && paymentRef.length >= 6
+    && Number.isFinite(paymentAmountPaid)
+    && paymentAmountPaid > 0;
 
   const [promoDiscountAmt, setPromoDiscountAmt] = useState(0);
   const [promoStatus, setPromoStatus] = useState<string | null>(null);
@@ -217,6 +221,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember]);
 
+  // Prefill "amount paid" with the stay total once — guest can still edit the receipt amount.
+  useEffect(() => {
+    const due = Number(quote?.totalPrice ?? 0);
+    if (!(due > 0) || draft.paymentAmountPaid.trim()) return;
+    update({ paymentAmountPaid: String(due) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only seed when quote first has a total
+  }, [quote?.totalPrice]);
+
   useEffect(() => {
     const code = draft.promoCode.trim();
     if (!code || stayPrice <= 0) {
@@ -289,8 +301,12 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       });
       return;
     }
-    if (!paymentProofFile || paymentRef.length < 6) {
-      showToast({ title: 'Upload your payment screenshot and enter the reference number', type: 'error' });
+    if (!paymentProofFile || paymentRef.length < 6 || !(paymentAmountPaid > 0)) {
+      showToast({
+        title: 'Add your payment details',
+        description: 'Upload the screenshot, enter the reference number, and the amount you paid.',
+        type: 'error',
+      });
       return;
     }
     if (!agreed) {
@@ -318,8 +334,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         validIdFile,
         paymentProofFile,
         paymentTransactionRef: paymentRef,
-        // Same total shown in the sidebar — guests do not type an amount.
-        paymentProofAmountClaimed: amountDue,
+        paymentProofAmountClaimed: paymentAmountPaid,
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         specialRequests: buildSpecialRequests(draft, validIdFile.name),
       });
@@ -438,6 +453,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     onFile={changePaymentProof}
                     reference={draft.paymentRef}
                     onReference={(value) => update({ paymentRef: value })}
+                    amountPaid={draft.paymentAmountPaid}
+                    onAmountPaid={(value) => update({ paymentAmountPaid: value })}
                     onError={(title) => showToast({ title, type: 'error' })}
                   />
                 </Card>
