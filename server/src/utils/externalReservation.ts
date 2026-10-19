@@ -117,8 +117,11 @@ export function buildExternalReservationDoc(input: {
       ? 'unpaid'
       : (mode === 'full' || balanceDue <= 0 ? 'paid' : 'partial'));
   const proofUploaded = Boolean(input.paymentProofUploaded);
+  const claimed = Number(input.paymentProofAmountClaimed ?? amountPaid);
   const note = proofUploaded
-    ? 'Website booking complete — payment screenshot attached, awaiting hotel verification'
+    ? (claimed > 0
+      ? `Website guest paid ₱${claimed.toLocaleString()} — screenshot attached, awaiting hotel verification`
+      : 'Website booking complete — payment screenshot attached, awaiting hotel verification')
     : (amountPaid <= 0
       ? (mode === 'full'
         ? 'Website booking — full stay payment due after hotel confirmation'

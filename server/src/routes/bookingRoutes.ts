@@ -545,17 +545,30 @@ async function checkPaymentProof(
       message: 'This stay could not be priced. Please go back and choose the room again.',
     };
   }
-  // Guests pay the quoted total — no separate amount field on checkout.
-  const claimed = rawAmount === undefined || rawAmount === '' ? amountDue : Number(rawAmount);
+  // Guest types the amount from their receipt — hotel staff verify it in MADYAWPH.
+  if (rawAmount === undefined || rawAmount === '' || rawAmount === null) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Enter the amount you paid (from your GCash/Maya receipt).',
+    };
+  }
+  const claimed = Number(rawAmount);
   if (!Number.isFinite(claimed) || claimed <= 0) {
     return {
       ok: false,
       status: 400,
-      message: `Pay exactly ₱${amountDue.toLocaleString()} with the hotel QR, then upload your receipt.`,
+      message: 'Enter a valid amount paid greater than ₱0.',
     };
   }
-  if (Math.abs(claimed - amountDue) > 1) {
-    return { ok: false, status: 400, message: `The amount paid must be ₱${amountDue.toLocaleString()}.` };
+  // Soft cap — block obvious typos (e.g. an extra zero), not small over/under payments.
+  const maxClaim = Math.max(amountDue * 2, amountDue + 5000);
+  if (claimed > maxClaim) {
+    return {
+      ok: false,
+      status: 400,
+      message: `That amount looks too high for this stay (due ₱${amountDue.toLocaleString()}). Check your receipt and try again.`,
+    };
   }
   const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
   if (await BookingModel.findOne({ payment_proof_sha256: sha256 }).select('_id').lean()) {
@@ -1374,8 +1387,11 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         paymentMethod,
         totalAmount: finalTotalPrice,
         amountDue,
-        amountPaid: 0,
-        balanceDue: finalTotalPrice,
+        // Guest-claimed receipt amount — hotel Payments UI reads amount_paid / payment_proof_amount_claimed.
+        amountPaid: proofOk ? proofCheck.amountClaimed : 0,
+        balanceDue: proofOk
+          ? Math.max(0, finalTotalPrice - proofCheck.amountClaimed)
+          : finalTotalPrice,
         onlinePaymentMode,
         depositPercent,
         paymentStatus: 'unpaid',
@@ -1400,7 +1416,13 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         ...externalDoc,
         // Top-level aliases matching hotel booking fields.
         guest_id_url: guestIdUrl,
-        ...(proofOk ? { payment_proof_url: paymentProofUrl } : {}),
+        ...(proofOk
+          ? {
+            payment_proof_url: paymentProofUrl,
+            amount_paid: proofCheck.amountClaimed,
+            payment_proof_amount_claimed: proofCheck.amountClaimed,
+          }
+          : {}),
       });
     }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });
 

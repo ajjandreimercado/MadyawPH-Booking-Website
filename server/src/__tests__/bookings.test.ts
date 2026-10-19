@@ -239,6 +239,10 @@ describe('POST /api/bookings', () => {
     });
     if (withProof) {
       req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
+      // Guest-entered receipt amount (hotel Payments UI shows this as amount_paid).
+      if (fields.paymentProofAmountClaimed == null) {
+        req = req.field('paymentProofAmountClaimed', '2500');
+      }
       req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
     }
     if (withId) {
@@ -419,7 +423,8 @@ describe('POST /api/bookings', () => {
       expect(meta.payment_status).toBe('unpaid');
       expect(meta.deposit_percent).toBe(100);
       expect(meta.online_payment_mode).toBe('full');
-      expect(meta.amount_paid).toBe(0);
+      expect(meta.amount_paid).toBe(2500);
+      expect(meta.payment_proof_amount_claimed).toBe(2500);
       expect(meta.valid_id_uploaded).toBe(true);
       expect(meta.payment_proof_uploaded).toBe(true);
       expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
