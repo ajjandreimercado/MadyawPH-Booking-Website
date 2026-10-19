@@ -122,6 +122,13 @@ export default function HotelDetailPage() {
   // Dates and guests live in the URL (sticky stay bar), so refresh/share keeps them.
   const [searchParams, setSearchParams] = useSearchParams();
   const stay = readStay(searchParams);
+  // Homepage / deep links without ?checkIn often fall back to session stay — write that into the URL once.
+  useEffect(() => {
+    if (searchParams.get('checkIn') && searchParams.get('checkOut') && searchParams.get('adults')) return;
+    setSearchParams((prev) => writeStay(prev, stay), { replace: true });
+    // Only when the URL is missing stay fields — not on every stay edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId]);
   const detailQuery = { checkIn: stay.checkIn, checkOut: stay.checkOut, adults: stay.adults, children: stay.children };
   const cachedDetail = hotelId
     ? peekCache<HotelDetailResponse>(cacheKey(['hotel-detail', hotelId, detailQuery]))

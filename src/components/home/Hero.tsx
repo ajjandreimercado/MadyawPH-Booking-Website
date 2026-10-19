@@ -2,8 +2,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Calendar, Users, Search as SearchIcon, ChevronDown, Plus, Minus, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, addDays } from 'date-fns';
+import { format, addDays, parseISO } from 'date-fns';
 import { trackSearchSubmitted } from '../../lib/analytics';
+import { currentStay, rememberStay } from '../../lib/stayParams';
 import { sanitize } from '../../utils/sanitize';
 import { getCurrentPosition, isNearMeQuery } from '../../lib/nearMe';
 import { useToast } from '../ui/ToastProvider';
@@ -27,11 +28,12 @@ const HERO_SLIDES: HeroSlide[] = [
 export default function Hero({ initialDestination = '' }: HeroProps) {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const initialStay = currentStay();
   const [destination, setDestination] = useState<string>(initialDestination);
-  const [checkIn, setCheckIn] = useState<string>(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [checkOut, setCheckOut] = useState<string>(format(addDays(new Date(), 2), 'yyyy-MM-dd'));
-  const [adults, setAdults] = useState<number>(2);
-  const [children, setChildren] = useState<number>(0);
+  const [checkIn, setCheckIn] = useState<string>(initialStay.checkIn);
+  const [checkOut, setCheckOut] = useState<string>(initialStay.checkOut);
+  const [adults, setAdults] = useState<number>(initialStay.adults);
+  const [children, setChildren] = useState<number>(initialStay.children);
   const [rooms, setRooms] = useState<number>(1);
   const [showGuestPanel, setShowGuestPanel] = useState(false);
   const [activeSlide, setActiveSlide] = useState<number>(0);
@@ -50,6 +52,11 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
   useEffect(() => {
     setDestination(initialDestination);
   }, [initialDestination]);
+
+  // Keep homepage dates/guests for featured-hotel clicks and later booking steps.
+  useEffect(() => {
+    rememberStay({ checkIn, checkOut, adults, children });
+  }, [checkIn, checkOut, adults, children]);
 
   useEffect(() => {
     const next = HERO_SLIDES[(activeSlide + 1) % HERO_SLIDES.length];
@@ -212,8 +219,11 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
                   value={checkIn}
                   min={format(new Date(), 'yyyy-MM-dd')}
                   onChange={e => {
-                    setCheckIn(e.target.value);
-                    if (e.target.value >= checkOut) setCheckOut(format(addDays(new Date(e.target.value), 1), 'yyyy-MM-dd'));
+                    const nextCheckIn = e.target.value;
+                    setCheckIn(nextCheckIn);
+                    if (nextCheckIn && nextCheckIn >= checkOut) {
+                      setCheckOut(format(addDays(parseISO(nextCheckIn), 1), 'yyyy-MM-dd'));
+                    }
                   }}
                   className="bg-transparent border-none outline-none text-brand-dark text-base font-serif w-full cursor-pointer"
                 />
@@ -228,7 +238,9 @@ export default function Hero({ initialDestination = '' }: HeroProps) {
                 <input
                   type="date"
                   value={checkOut}
-                  min={checkIn ? format(addDays(new Date(checkIn), 1), 'yyyy-MM-dd') : format(addDays(new Date(), 1), 'yyyy-MM-dd')}
+                  min={checkIn
+                    ? format(addDays(parseISO(checkIn), 1), 'yyyy-MM-dd')
+                    : format(addDays(new Date(), 1), 'yyyy-MM-dd')}
                   onChange={e => setCheckOut(e.target.value)}
                   className="bg-transparent border-none outline-none text-brand-dark text-base font-serif w-full cursor-pointer"
                 />

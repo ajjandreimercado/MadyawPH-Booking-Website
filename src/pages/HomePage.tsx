@@ -12,6 +12,7 @@ import {
   readRecentlyViewed,
   type RecentlyViewedHotel,
 } from '../lib/recentlyViewed';
+import { withStay } from '../lib/stayParams';
 
 const DESTINATION_IMAGES: Record<string, string> = {
   'boracay': '/images/boracay.png',
@@ -57,7 +58,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
   return (
     <div
       className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer w-full max-w-sm mx-auto sm:max-w-none sm:mx-0 hover:shadow-md transition-shadow"
-      onClick={() => navigate(`/hotels/${hotel.id}`)}
+      onClick={() => navigate(withStay(`/hotels/${hotel.id}`))}
     >
       <div className="relative aspect-[4/3] bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 overflow-hidden">
         <img
@@ -92,7 +93,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
         <div className="flex items-center justify-end">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); navigate(`/hotels/${hotel.id}`); }}
+            onClick={(e) => { e.stopPropagation(); navigate(withStay(`/hotels/${hotel.id}`)); }}
             className="text-xs font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1 transition-colors"
           >
             View rooms <ArrowRight className="w-3.5 h-3.5" />
@@ -198,14 +199,18 @@ export default function HomePage() {
                 <p className="section-eyebrow">Explore Philippines</p>
                 <h2 className="section-title">Featured Destinations</h2>
               </div>
-              <button type="button" onClick={() => navigate('/search')}
+              <button type="button" onClick={() => navigate(withStay('/search'))}
                 className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors shrink-0">
                 View all <ArrowRight className="w-4 h-4" />
               </button>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {destinations.map(dest => (
-                <DestinationCard key={dest.name} dest={dest} onClick={() => navigate(`/search?destination=${encodeURIComponent(dest.query)}`)} />
+                <DestinationCard
+                  key={dest.name}
+                  dest={dest}
+                  onClick={() => navigate(withStay(`/search?destination=${encodeURIComponent(dest.query)}`))}
+                />
               ))}
             </div>
           </section>
@@ -219,7 +224,7 @@ export default function HomePage() {
                 <p className="section-eyebrow">Handpicked for you</p>
                 <h2 className="section-title">Featured Properties</h2>
               </div>
-              <button type="button" onClick={() => navigate('/search')}
+              <button type="button" onClick={() => navigate(withStay('/search'))}
                 className="text-sm font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1.5 transition-colors shrink-0">
                 All properties <ArrowRight className="w-4 h-4" />
               </button>
@@ -246,7 +251,7 @@ export default function HomePage() {
                   {featuredPromo.description} Use code <span className="text-brand-cream font-bold bg-white/10 px-2 py-0.5 rounded-lg">{featuredPromo.code}</span> at checkout.
                 </p>
               </div>
-              <button type="button" onClick={() => navigate('/search?sort=price')}
+              <button type="button" onClick={() => navigate(withStay('/search?sort=price'))}
                 className="shrink-0 px-8 py-4 bg-brand-cream text-brand-dark font-bold text-sm rounded-xl hover:bg-brand-cream/90 transition-all active:scale-95 shadow-lg">
                 Browse Deals <ArrowRight className="inline w-4 h-4 ml-1" />
               </button>
@@ -266,7 +271,7 @@ export default function HomePage() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => navigate(`/hotels/${item.id}`)}
+                  onClick={() => navigate(withStay(`/hotels/${item.id}`))}
                   className="shrink-0 bg-brand-surface rounded-2xl border border-brand-primary/10 shadow-luxury p-5 text-left w-[240px] hover:border-brand-primary/30 hover:shadow-luxury-hover transition-colors"
                 >
                   <div className="h-32 mb-4 rounded-xl bg-brand-background overflow-hidden relative">
