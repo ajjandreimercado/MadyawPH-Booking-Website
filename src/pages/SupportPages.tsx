@@ -83,7 +83,7 @@ export function CancellationPage() {
         },
         {
           heading: 'If the hotel can’t confirm your booking',
-          body: 'If the hotel declines or cancels your booking, you will get an email from the hotel. Reply to that email or call the hotel about your payment.',
+          body: 'If the hotel declines or cancels your booking, you get your payment back in full. The hotel emails you and arranges the refund; reply to that email or call the hotel if you have questions.',
         },
       ]}
     />

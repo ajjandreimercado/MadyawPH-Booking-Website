@@ -1,6 +1,7 @@
 import './testSetup';
 import {
   bookingFileHmacSignature,
+  bookingFileLinkExpired,
   bookingFilePublicUrl,
   bookingFileUrl,
   newBookingFileToken,
@@ -8,6 +9,13 @@ import {
 } from '../utils/bookingFileAccess';
 
 describe('bookingFileAccess', () => {
+  it('expires ID/receipt links 60 days after check-out', () => {
+    const checkOut = Date.parse('2026-01-01T00:00:00+08:00');
+    expect(bookingFileLinkExpired('2026-01-01', checkOut + 59 * 86_400_000)).toBe(false);
+    expect(bookingFileLinkExpired('2026-01-01', checkOut + 61 * 86_400_000)).toBe(true);
+    expect(bookingFileLinkExpired(undefined)).toBe(false);
+  });
+
   it('builds token URLs for hotel guest_id_url / payment_proof_url', () => {
     const token = newBookingFileToken();
     expect(token).toMatch(/^[0-9a-f]{64}$/);

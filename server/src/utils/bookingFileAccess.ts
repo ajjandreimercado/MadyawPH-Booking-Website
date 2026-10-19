@@ -49,6 +49,13 @@ export function bookingFileUrl(
   return `${getMadyawApiPublicUrl()}/bookings/${encodeURIComponent(bookingId)}/files/${kind}?${params.toString()}`;
 }
 
+/** Guest IDs and receipts are only needed around the stay: links expire 60 days after check-out (Manila). */
+export function bookingFileLinkExpired(checkOutDate: unknown, now = Date.now()): boolean {
+  const day = String(checkOutDate ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return now > Date.parse(`${day}T00:00:00+08:00`) + 60 * 86_400_000;
+}
+
 export function timingSafeEqualString(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
