@@ -706,7 +706,21 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
 
   if (!authorized) {
     res.setHeader('Cache-Control', 'private, no-store');
-    return res.status(403).json({ message: 'This link is not valid.' });
+    // Temporary diagnostics (no secrets) — remove once hotel media links are confirmed live.
+    return res.status(403).json({
+      message: 'This link is not valid.',
+      debug: {
+        kind,
+        hasToken: Boolean(token),
+        hasSig: Boolean(sig),
+        hasDb: Boolean(db),
+        foundBooking: Boolean(rawBooking),
+        foundValidId: Boolean(rawValidId),
+        foundProof: Boolean(rawProof),
+        hasGuestUrl: Boolean(rawBooking?.guest_id_url),
+        hasProofUrl: Boolean(rawBooking?.payment_proof_url),
+      },
+    });
   }
 
   let base64 = '';
