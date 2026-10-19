@@ -650,8 +650,16 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
   }
 
   const bookingId = idResult.value;
-  const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
-  const sig = typeof req.query.sig === 'string' ? req.query.sig.trim() : '';
+  const rawToken = req.query.token;
+  const token = (Array.isArray(rawToken) ? String(rawToken[0] ?? '') : typeof rawToken === 'string' ? rawToken : '').trim();
+  const rawSig = req.query.sig;
+  const sig = (Array.isArray(rawSig) ? String(rawSig[0] ?? '') : typeof rawSig === 'string' ? rawSig : '').trim();
+
+  // Keep select simple — some Mongoose versions mishandle "+field" mixed with inclusion lists.
+  const bookingMeta = await BookingModel.findById(bookingId)
+    .select('+payment_proof_base64 guest_id_url payment_proof_url payment_proof_mime')
+    .lean()
+    .catch(() => null);
 
   const validIdDoc = await BookingValidIdModel.findOne({ booking_id: bookingId })
     .select({ base64: 1, mime: 1, access_token: 1, payment_proof_base64: 1, payment_proof_mime: 1, payment_proof_access_token: 1 })
@@ -660,15 +668,31 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
     .select({ base64: 1, mime: 1, access_token: 1 })
     .lean();
 
+  const urlHasToken = (raw: unknown, expected: string): boolean => {
+    const value = String(raw ?? '');
+    if (!expected || !value.includes('token=')) return false;
+    try {
+      const parsed = new URL(value);
+      const embedded = parsed.searchParams.get('token') || '';
+      return Boolean(embedded) && timingSafeEqualString(expected, embedded);
+    } catch {
+      return value.includes(`token=${expected}`);
+    }
+  };
+
   let authorized = false;
   if (token) {
     if (kind === 'valid-id') {
-      authorized = Boolean(validIdDoc?.access_token && timingSafeEqualString(token, String(validIdDoc.access_token)));
+      authorized = Boolean(
+        (validIdDoc?.access_token && timingSafeEqualString(token, String(validIdDoc.access_token)))
+        || urlHasToken(bookingMeta?.guest_id_url, token),
+      );
     } else {
       authorized = Boolean(
         (proofDoc?.access_token && timingSafeEqualString(token, String(proofDoc.access_token)))
         || (validIdDoc?.payment_proof_access_token
-          && timingSafeEqualString(token, String(validIdDoc.payment_proof_access_token))),
+          && timingSafeEqualString(token, String(validIdDoc.payment_proof_access_token)))
+        || urlHasToken(bookingMeta?.payment_proof_url, token),
       );
     }
   } else if (sig) {
@@ -685,14 +709,18 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
     base64 = String(validIdDoc?.base64 ?? '');
     mime = String(validIdDoc?.mime || mime);
   } else {
-    base64 = String(proofDoc?.base64 ?? validIdDoc?.payment_proof_base64 ?? '');
-    mime = String(proofDoc?.mime || validIdDoc?.payment_proof_mime || mime);
-    // Last resort: inline bytes on the booking (hotel list queries keep this select:false).
-    if (!base64) {
-      const booking = await BookingModel.findById(bookingId).select('+payment_proof_base64 payment_proof_mime').lean();
-      base64 = String((booking as { payment_proof_base64?: string } | null)?.payment_proof_base64 ?? '');
-      mime = String((booking as { payment_proof_mime?: string } | null)?.payment_proof_mime || mime);
-    }
+    base64 = String(
+      proofDoc?.base64
+      ?? validIdDoc?.payment_proof_base64
+      ?? (bookingMeta as { payment_proof_base64?: string } | null)?.payment_proof_base64
+      ?? '',
+    );
+    mime = String(
+      proofDoc?.mime
+      || validIdDoc?.payment_proof_mime
+      || (bookingMeta as { payment_proof_mime?: string } | null)?.payment_proof_mime
+      || mime,
+    );
   }
 
   if (!base64) return res.status(404).json({ message: 'File not found.' });
