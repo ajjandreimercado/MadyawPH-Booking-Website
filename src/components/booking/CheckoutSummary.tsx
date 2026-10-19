@@ -140,7 +140,7 @@ function SummaryBody(props: SummaryProps) {
         <p className="font-bold text-brand-danger">Non-refundable</p>
         <p className="text-brand-dark/70">
           All bookings are non-refundable. Once you pay, your payment can't be refunded if you cancel, change
-          your dates or don't arrive. Please check your dates and details before you pay.
+          your dates or don't arrive. If the hotel declines your booking, you get a full refund.
         </p>
         <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
       </section>

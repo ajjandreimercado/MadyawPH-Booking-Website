@@ -548,7 +548,7 @@ export async function sendBookingCancelledNotification(booking: BookingNotificat
     `Amount paid: ${peso(amountPaid)}`,
     '',
     ...(amountPaid > 0 || booking.payment_proof_stored || booking.payment_proof_filename
-      ? ['If you already made a payment, please reply to this email or contact us directly about it.', '']
+      ? ['Because the hotel could not keep your booking, your payment will be refunded in full by the hotel. Reply to this email if you have questions about your refund.', '']
       : []),
     'You can choose new dates and book again here:',
     buildRebookUrl(booking),
@@ -599,7 +599,7 @@ export async function sendBookingDeclinedNotification(booking: BookingNotificati
     `Reference: ${ref}`,
     '',
     ...(booking.payment_proof_stored || booking.payment_proof_filename
-      ? ['If you already paid, please reply to this email or contact us directly about your payment.', '']
+      ? ['Because the hotel could not keep your booking, your payment will be refunded in full by the hotel. Reply to this email if you have questions about your refund.', '']
       : []),
     'You can choose new dates and submit another request here:',
     rebookUrl,

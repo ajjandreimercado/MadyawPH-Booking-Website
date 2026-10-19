@@ -28,6 +28,7 @@ import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
 import {
   bookingFileHmacSignature,
   bookingFileUrl,
+  bookingFileLinkExpired,
   newBookingFileToken,
   timingSafeEqualString,
   type BookingFileKind,
@@ -493,7 +494,7 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
       checkOutDate: win.checkOutDate,
       // Shown to the guest: the room type, never the room number.
       roomName: property.category_name ?? '',
-      hotelName: property.hotel_name ?? '',
+      hotelName: await hotelNameOf(property),
       hotelLocation: property.hotel_location ?? '',
       freeCancellation: property.free_cancellation === true,
       nights: quote.pricing.nights,
@@ -654,6 +655,19 @@ async function savePaymentProof(
   return { proofUrl, accessToken };
 }
 
+/** Room docs often lack hotel_name; fall back to the hotel record. */
+async function hotelNameOf(property: object): Promise<string> {
+  const room = property as { hotel_name?: unknown; hotelName?: unknown; hotel_id?: unknown };
+  const name = String(room.hotel_name ?? room.hotelName ?? '').trim();
+  if (name || !room.hotel_id) return name;
+  try {
+    const hotelDoc = await HotelModel.findById(String(room.hotel_id)).select('name').lean();
+    return String((hotelDoc as { name?: unknown } | null)?.name ?? '').trim();
+  } catch {
+    return ''; // Email code still tries HotelModel later.
+  }
+}
+
 // ─── GET /:bookingId/files/:kind ─────────────────────────────────────────────
 // Valid ID / payment screenshot for hotel staff via guest_id_url / payment_proof_url.
 // Auth: ?token= (preferred) or legacy ?sig= HMAC.
@@ -741,6 +755,11 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
       console.warn(`[Bookings] File lookup error for ${bookingId}: ${lookupError}`);
     }
     return res.status(403).json({ message: 'This link is not valid.' });
+  }
+
+  if (bookingFileLinkExpired(rawBooking?.checkOutDate ?? rawBooking?.check_out_date)) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(410).json({ message: 'This link has expired.' });
   }
 
   let base64 = '';
@@ -1152,19 +1171,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   }
 
   const hotelIdForBooking = String(property.hotel_id ?? '');
-  let hotelNameForEmail = String(
-    (property as { hotel_name?: unknown }).hotel_name
-    ?? (property as { hotelName?: unknown }).hotelName
-    ?? '',
-  ).trim();
-  if (!hotelNameForEmail && hotelIdForBooking) {
-    try {
-      const hotelDoc = await HotelModel.findById(hotelIdForBooking).select('name').lean();
-      hotelNameForEmail = String((hotelDoc as { name?: unknown } | null)?.name ?? '').trim();
-    } catch {
-      // Email code still tries HotelModel later.
-    }
-  }
+  const hotelNameForEmail = await hotelNameOf(property);
 
   const bookingDoc = {
     booking_reference: `BR-${Date.now()}`,
