@@ -428,6 +428,8 @@ describe('POST /api/bookings', () => {
       expect(meta.valid_id_uploaded).toBe(true);
       expect(meta.payment_proof_uploaded).toBe(true);
       expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
+    // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
+    expect(meta.payment_screenshot_url).toBe(meta.payment_proof_url);
       expect(externalDoc.payment_proof_url).toMatch(/payment-proof\?token=/);
       expect(externalDoc.guest_id_url).toMatch(/valid-id\?token=/);
 
@@ -456,6 +458,8 @@ describe('POST /api/bookings', () => {
     expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?token=[0-9a-f]{64}$/);
     expect(meta.payment_proof_uploaded).toBe(true);
     expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
+    // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
+    expect(meta.payment_screenshot_url).toBe(meta.payment_proof_url);
     expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
 
     const proofUpdate = (MockBookingModel.updateOne as jest.Mock).mock.calls

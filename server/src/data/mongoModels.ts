@@ -127,6 +127,8 @@ const bookingSchema = new Schema(
     guest_id_access_token: { type: String, select: false },
     // Hotel app field: link it opens to show the payment screenshot.
     payment_proof_url: { type: String },
+    // MADYAWPH reads the receipt image from this field (booking + Online Bookings metadata).
+    payment_screenshot_url: { type: String },
     // Token embedded in payment_proof_url (?token=).
     payment_proof_access_token: { type: String, select: false },
     check_out_time: { type: String, default: '12:00' },
@@ -250,6 +252,8 @@ const bookingValidIdSchema = new Schema(
     payment_proof_stored: { type: Boolean },
     payment_proof_access_token: { type: String, index: true },
     payment_proof_url: { type: String },
+    // MADYAWPH reads the receipt image from this field (booking + Online Bookings metadata).
+    payment_screenshot_url: { type: String },
     payment_transaction_ref: { type: String },
     payment_proof_amount_claimed: { type: Number },
     payment_proof_sha256: { type: String },
@@ -277,6 +281,8 @@ const bookingPaymentProofSchema = new Schema(
     payment_proof_mime: { type: String },
     payment_proof_filename: { type: String },
     payment_proof_url: { type: String },
+    // MADYAWPH reads the receipt image from this field (booking + Online Bookings metadata).
+    payment_screenshot_url: { type: String },
     payment_transaction_ref: { type: String, index: true },
     payment_proof_amount_claimed: { type: Number },
     payment_proof_sha256: { type: String, index: true },
