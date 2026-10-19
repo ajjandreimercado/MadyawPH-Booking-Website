@@ -5,6 +5,7 @@
 
 import { BookingModel, BookingPaymentProofModel, BookingValidIdModel, ExternalReservationModel } from '../data/mongoModels';
 import { withRetries } from './withRetries';
+import { hotelPaymentMeta } from './externalReservation';
 import { ensureWebsiteOnlinePaymentLedger } from './websiteBillingLedger';
 import {
   computeOnlinePaymentDue,
@@ -177,12 +178,10 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       payment_proof_expected_amount: amountDue,
       payment_proof_verified: false,
       payment_proof_verified_at: null,
-      // Show the guest-claimed amount in hotel Payments; still awaiting staff verification.
-      payment_status: 'unpaid',
-      amount_paid: input.amountClaimed,
+      // Same fields as the hotel app's own online bookings: paid, pending the hotel's approval.
+      ...hotelPaymentMeta({ total: input.stayTotal, amountPaid: input.amountClaimed }),
       amount_due: amountDue,
-      balance_due: Math.max(0, input.stayTotal - input.amountClaimed),
-      note: `Website guest paid ₱${Number(input.amountClaimed).toLocaleString()} — awaiting hotel verification`,
+      note: `Website guest paid ₱${Number(input.amountClaimed).toLocaleString()} — check the receipt, then approve`,
       deposit_awaiting_verification: true,
     };
 
@@ -281,11 +280,9 @@ export async function finalizeDepositAfterHotelVerification(bookingId: string): 
             ...meta,
             payment_proof_verified: true,
             payment_proof_verified_at: now.toISOString(),
-            payment_status: paymentStatus,
-            amount_paid: amountDue,
-            balance_due: balanceDue,
+            ...hotelPaymentMeta({ total: stayTotal, amountPaid: amountDue, approved: true }),
             deposit_awaiting_verification: false,
-            note: 'Website deposit verified by hotel',
+            note: 'Website payment verified by hotel (approved)',
           }),
           updated_at: now,
         },

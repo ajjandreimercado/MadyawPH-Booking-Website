@@ -224,12 +224,18 @@ describe('POST /api/bookings', () => {
   );
 
   /** Guests pay by QR when they book, so a booking carries the ID and the payment screenshot. */
-  function postBooking(
+  async function postBooking(
     fields: Record<string, string | number> = VALID_PAYLOAD,
     withId = true,
     withProof = true,
     authenticated = true,
   ) {
+    // The receipt amount must equal the stay total, so ask the quote for it like the checkout does.
+    let claimed = fields.paymentProofAmountClaimed;
+    if (withProof && claimed == null) {
+      const quote = await request(app).post('/api/bookings/quote').send(fields);
+      claimed = quote.body.totalPrice ?? 1;
+    }
     let req = request(app).post('/api/bookings');
     if (authenticated) {
       req = req.set('Cookie', guestCookie());
@@ -241,7 +247,7 @@ describe('POST /api/bookings', () => {
       req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
       // Guest-entered receipt amount (hotel Payments UI shows this as amount_paid).
       if (fields.paymentProofAmountClaimed == null) {
-        req = req.field('paymentProofAmountClaimed', '2500');
+        req = req.field('paymentProofAmountClaimed', String(claimed));
       }
       req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
     }
@@ -422,11 +428,15 @@ describe('POST /api/bookings', () => {
       const meta = typeof externalDoc.metadata === 'string'
         ? JSON.parse(externalDoc.metadata)
         : externalDoc.metadata;
-      expect(meta.payment_status).toBe('unpaid');
+      // Same payment fields as MADYAWPH's own online bookings: paid, pending the hotel's approval.
+      expect(meta.payment_method).toBe('Online');
+      expect(meta.payment_status).toBe('paid_pending_approval');
       expect(meta.deposit_percent).toBe(100);
       expect(meta.online_payment_mode).toBe('full');
-      expect(meta.amount_paid).toBe(2500);
-      expect(meta.payment_proof_amount_claimed).toBe(2500);
+      expect(meta.amount_paid).toBe(created.totalPrice);
+      expect(meta.total_amount).toBe(created.totalPrice);
+      expect(meta.balance_due).toBe(0);
+      expect(meta.payment_proof_amount_claimed).toBe(created.totalPrice);
       expect(meta.valid_id_uploaded).toBe(true);
       expect(meta.payment_proof_uploaded).toBe(true);
       expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
@@ -478,6 +488,13 @@ describe('POST /api/bookings', () => {
     const res = await postBooking(VALID_PAYLOAD, true, false);
     expect(res.status).toBe(400);
     expect(String(res.body.message)).toMatch(/screenshot/i);
+    expect(MockBookingModel.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the receipt amount is not the stay total', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, paymentProofAmountClaimed: 2500 });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/must match the stay total/i);
     expect(MockBookingModel.create).not.toHaveBeenCalled();
   });
 

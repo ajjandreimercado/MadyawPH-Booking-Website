@@ -219,9 +219,17 @@ export async function applyHotelBookingDecision(input: HotelDecisionInput): Prom
       summary_only: coerceSummaryOnly(booking.summary_only),
     });
     await writeLedgerAfterApproval(booking);
-    // Guests now pay when they book; if the hotel verified the screenshot before approving,
-    // record the payment now that the booking is approved.
-    if ((booking as { payment_proof_verified?: boolean }).payment_proof_verified) {
+    // Like MADYAWPH's own online bookings, approving is the staff's receipt check:
+    // a stored receipt counts as verified and the payment is recorded now.
+    const withProof = booking as { payment_proof_stored?: boolean; payment_proof_filename?: string; payment_proof_verified?: boolean };
+    if (!withProof.payment_proof_verified && (withProof.payment_proof_stored || withProof.payment_proof_filename)) {
+      await BookingModel.updateOne(
+        { _id: bookingId },
+        { $set: { payment_proof_verified: true, payment_proof_verified_at: new Date() } },
+      );
+      withProof.payment_proof_verified = true;
+    }
+    if (withProof.payment_proof_verified) {
       await finalizeDepositAfterHotelVerification(bookingId).catch((error) => {
         console.error('[HotelSync] Failed to finalize verified payment after approval:', error);
       });

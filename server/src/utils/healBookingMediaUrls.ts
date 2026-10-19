@@ -25,12 +25,14 @@ function parseMetadata(raw: unknown): Record<string, unknown> {
 }
 
 export async function healBookingMediaUrls(): Promise<{ healed: number }> {
+  // Only bookings still missing a token link (runs on every startup; healed rows are skipped).
+  const noTokenLink = { $not: /token=/ };
   const bookings = await BookingModel.find({
     source: 'web',
     $or: [
-      { valid_id_stored: true },
-      { payment_proof_stored: true },
-      { payment_proof_filename: { $exists: true, $nin: [null, ''] } },
+      { valid_id_stored: true, guest_id_url: noTokenLink },
+      { payment_proof_stored: true, payment_screenshot_url: noTokenLink },
+      { payment_proof_filename: { $exists: true, $nin: [null, ''] }, payment_screenshot_url: noTokenLink },
     ],
   }).select('_id booking_reference hotel_id valid_id_stored payment_proof_stored guest_id_url payment_proof_url').lean();
 

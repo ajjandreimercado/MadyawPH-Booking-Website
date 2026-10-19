@@ -194,8 +194,8 @@ export default function PayByQr({
             className="input-field"
           />
           <p className="mt-1 text-[11px] font-bold text-brand-dark/50">
-            Enter the amount shown on your receipt
-            {amount != null ? ` (stay total due: ${peso(amount)})` : ''}. The hotel will see this in MADYAWPH.
+            Pay the full stay total{amount != null ? ` of ${peso(amount)}` : ''} and enter the amount on your receipt.
+            The hotel checks your receipt before it approves the booking.
           </p>
         </div>
       </div>
