@@ -234,6 +234,8 @@ const bookingValidIdSchema = new Schema(
     size: { type: Number, required: true },
     base64: { type: String, required: true },
     uploaded_at: { type: Date, required: true },
+    // Unguessable token for GET /bookings/:id/files/valid-id?token=…
+    access_token: { type: String, index: true },
     // Payment proof can also ride on this doc so hotel UIs keyed by booking_id see both files.
     payment_proof_filename: { type: String },
     payment_proof_mime: { type: String },
@@ -241,6 +243,8 @@ const bookingValidIdSchema = new Schema(
     payment_proof_base64: { type: String },
     payment_proof_uploaded_at: { type: Date },
     payment_proof_stored: { type: Boolean },
+    payment_proof_access_token: { type: String, index: true },
+    payment_proof_url: { type: String },
     payment_transaction_ref: { type: String },
     payment_proof_amount_claimed: { type: Number },
     payment_proof_sha256: { type: String },
@@ -260,11 +264,14 @@ const bookingPaymentProofSchema = new Schema(
     size: { type: Number, required: true },
     base64: { type: String, required: true },
     uploaded_at: { type: Date, required: true },
+    // Unguessable token for GET /bookings/:id/files/payment-proof?token=…
+    access_token: { type: String, index: true },
     type: { type: String },
     kind: { type: String },
     payment_proof_base64: { type: String },
     payment_proof_mime: { type: String },
     payment_proof_filename: { type: String },
+    payment_proof_url: { type: String },
     payment_transaction_ref: { type: String, index: true },
     payment_proof_amount_claimed: { type: Number },
     payment_proof_sha256: { type: String, index: true },

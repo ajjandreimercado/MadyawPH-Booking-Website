@@ -99,9 +99,15 @@ jest.mock('../data/mongoModels', () => ({
   },
   BookingValidIdModel: {
     findOneAndUpdate: jest.fn().mockResolvedValue({}),
+    findOne: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+    }),
   },
   BookingPaymentProofModel: {
     findOneAndUpdate: jest.fn().mockResolvedValue({}),
+    findOne: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+    }),
   },
   ReviewModel: {
     find: jest.fn().mockReturnValue({
@@ -413,7 +419,9 @@ describe('POST /api/bookings', () => {
       expect(meta.amount_paid).toBe(0);
       expect(meta.valid_id_uploaded).toBe(true);
       expect(meta.payment_proof_uploaded).toBe(true);
-      expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?sig=[0-9a-f]{64}$/);
+      expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
+      expect(externalDoc.payment_proof_url).toMatch(/payment-proof\?token=/);
+      expect(externalDoc.guest_id_url).toMatch(/valid-id\?token=/);
 
       // Ledger stays off until hotel approval (room charge would block the queue).
       expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
@@ -437,9 +445,9 @@ describe('POST /api/bookings', () => {
     expect(mocks.BookingPaymentProofModel.findOneAndUpdate).toHaveBeenCalled();
     const meta = JSON.parse(mocks.ExternalReservationModel.create.mock.calls[0][0].metadata);
     expect(meta.check_in_time).toBe('15:00');
-    expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?sig=[0-9a-f]{64}$/);
+    expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?token=[0-9a-f]{64}$/);
     expect(meta.payment_proof_uploaded).toBe(true);
-    expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?sig=[0-9a-f]{64}$/);
+    expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
     expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
 
     const proofUpdate = (MockBookingModel.updateOne as jest.Mock).mock.calls
@@ -448,7 +456,7 @@ describe('POST /api/bookings', () => {
     expect(proofUpdate).toMatchObject({
       payment_transaction_ref: 'GCASH-ABC12345',
       payment_proof_verified: false,
-      payment_proof_url: expect.stringMatching(/payment-proof\?sig=/),
+      payment_proof_url: expect.stringMatching(/payment-proof\?token=/),
     });
   });
 

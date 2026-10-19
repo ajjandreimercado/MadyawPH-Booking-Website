@@ -30,6 +30,8 @@ export interface PaymentProofHotelSyncInput {
   uploadedAt?: Date;
   /** Private link to the screenshot, for hotel screens that show images by URL. */
   proofUrl?: string;
+  /** Unguessable token embedded in proofUrl (?token=…). */
+  accessToken?: string;
 }
 
 function parseMetadata(raw: unknown): Record<string, unknown> {
@@ -68,6 +70,9 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
   const due = computeOnlinePaymentDue(input.stayTotal, mode);
   const amountDue = Number(input.expectedDeposit || due.amountDue);
 
+  const accessToken = String(input.accessToken ?? '').trim();
+  const proofUrl = String(input.proofUrl ?? '').trim();
+
   await withRetries(async () => {
     await BookingPaymentProofModel.findOneAndUpdate(
       { booking_id: bookingId },
@@ -86,6 +91,8 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
           payment_proof_base64: input.base64,
           payment_proof_mime: input.mime,
           payment_proof_filename: filename,
+          ...(accessToken ? { access_token: accessToken } : {}),
+          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
           payment_transaction_ref: input.transactionRef,
           payment_proof_amount_claimed: input.amountClaimed,
           expected_deposit_amount: amountDue,
@@ -97,6 +104,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       { upsert: true, new: true },
     );
 
+    // Same doc Valid ID uses — hotel Online Bookings already reads this collection.
     await BookingValidIdModel.findOneAndUpdate(
       { booking_id: bookingId },
       {
@@ -110,6 +118,8 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
           payment_proof_base64: input.base64,
           payment_proof_uploaded_at: now,
           payment_proof_stored: true,
+          ...(accessToken ? { payment_proof_access_token: accessToken } : {}),
+          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
           payment_transaction_ref: input.transactionRef,
           payment_proof_amount_claimed: input.amountClaimed,
           payment_proof_verified: false,
@@ -120,7 +130,26 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
     );
   }, { attempts: 3, delayMs: 200, label: 'hotel payment proof image store' });
 
-  // Online Bookings row — hotel UI reads payment_proof_* from metadata.
+  // Hotel walk-ins put guest_id_url / payment_proof_url on the booking document itself.
+  if (proofUrl) {
+    await BookingModel.updateOne(
+      { _id: bookingId },
+      {
+        $set: {
+          payment_proof_url: proofUrl,
+          payment_proof_stored: true,
+          payment_proof_filename: filename,
+          payment_proof_mime: input.mime,
+          payment_proof_size: input.size,
+          payment_proof_base64: input.base64,
+        },
+      },
+    ).catch((error) => {
+      console.warn('[HotelSync] Failed to set booking.payment_proof_url:', error instanceof Error ? error.message : error);
+    });
+  }
+
+  // Online Bookings row — hotel UI reads payment_proof_* from metadata (+ top-level URL aliases).
   const externalRows = await ExternalReservationModel.find({
     $or: [
       { booking_id: bookingId },
@@ -140,7 +169,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       payment_transaction_ref: input.transactionRef,
       // The hotel app's own field for the wallet reference.
       payment_reference: input.transactionRef,
-      ...(input.proofUrl ? { payment_proof_url: input.proofUrl } : {}),
+      ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
       payment_proof_amount_claimed: input.amountClaimed,
       payment_proof_expected_amount: amountDue,
       payment_proof_verified: false,
@@ -160,6 +189,8 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       {
         $set: {
           metadata: JSON.stringify(nextMeta),
+          // Top-level aliases — some hotel screens read these off the reservation row.
+          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
           updated_at: now,
         },
       },
