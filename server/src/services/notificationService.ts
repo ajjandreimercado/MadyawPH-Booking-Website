@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { BookingModel, HotelModel, PropertyModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel } from '../data/mongoModels';
+import { parseMetadata } from '../utils/healBookingMediaUrls';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
 import { signReceiptToken } from '../utils/receiptToken';
 
@@ -140,6 +141,18 @@ export function formatRoomStayLabel(room: {
   return fallback;
 }
 
+async function approvedAccessCode(booking: BookingNotificationTarget): Promise<string> {
+  const ref = String(booking.booking_reference ?? '').trim();
+  const or: Record<string, string>[] = [{ booking_id: String(booking._id ?? '') }];
+  if (ref) or.push({ external_reference: ref });
+  try {
+    const row = await ExternalReservationModel.findOne({ $or: or }).select('metadata').lean();
+    return String(parseMetadata((row as { metadata?: unknown } | null)?.metadata).guest_access_code ?? '').trim();
+  } catch {
+    return ''; // fall back to the room's code (same-guest rule)
+  }
+}
+
 export async function resolveRoomStayDetails(
   booking: BookingNotificationTarget,
 ): Promise<RoomStayDetails> {
@@ -170,7 +183,9 @@ export async function resolveRoomStayDetails(
       ? typed.current_check_in.toISOString()
       : String(typed.current_check_in ?? '');
     const sameStay = checkInRaw.slice(0, 10) !== '' && checkInRaw.slice(0, 10) === String(booking.checkInDate ?? '').slice(0, 10);
-    const accessPassword = sameGuest && sameStay ? String(typed.current_access_code ?? '').trim() : '';
+    // MADYAWPH saves the website guest's own door code on the reservation when it approves it.
+    const accessPassword = await approvedAccessCode(booking)
+      || (sameGuest && sameStay ? String(typed.current_access_code ?? '').trim() : '');
     return {
       roomLabel: formatRoomStayLabel(typed, fallbackLabel),
       roomNumber: String(typed.room_number ?? '').trim(),

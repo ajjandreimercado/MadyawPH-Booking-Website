@@ -6,7 +6,7 @@
 import { BookingModel, BookingPaymentProofModel, BookingValidIdModel, ExternalReservationModel } from '../data/mongoModels';
 import { bookingFileUrl, newBookingFileToken } from './bookingFileAccess';
 
-function parseMetadata(raw: unknown): Record<string, unknown> {
+export function parseMetadata(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
   if (typeof raw === 'string') {
     try {
