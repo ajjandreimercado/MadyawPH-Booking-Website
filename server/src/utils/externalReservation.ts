@@ -93,6 +93,13 @@ export function buildExternalReservationDoc(input: {
   paymentProofVerified?: boolean;
   /** Guest's estimated arrival (HH:mm) — the hotel app reads metadata.check_in_time. */
   checkInTime?: string;
+  /** HH:mm the stay ends — approval uses check_in_time/check_out_time for its overlap window. */
+  checkOutTime?: string;
+  /** Hotel app billing for the stay (CustomerPortalApiController::createPendingReservation). */
+  billingMode?: 'nightly' | 'hourly';
+  stayHours?: number;
+  blockHours?: number;
+  pricePerBlock?: number;
   /** Link the hotel app opens for the guest's valid ID — it reads metadata.guest_id_url. */
   guestIdUrl?: string;
   /** Link the hotel app opens for the payment screenshot. */
@@ -159,12 +166,16 @@ export function buildExternalReservationDoc(input: {
     // Never true from website upload — hotel staff verifies in MADYAWPH.
     payment_proof_verified: Boolean(input.paymentProofVerified),
     deposit_awaiting_verification: proofUploaded && !input.paymentProofVerified,
-    billing_mode: 'nightly',
+    billing_mode: input.billingMode ?? 'nightly',
+    ...(input.billingMode === 'hourly'
+      ? { stay_hours: input.stayHours ?? null, block_hours: input.blockHours ?? null, price_per_block: input.pricePerBlock ?? null }
+      : {}),
     nights: input.nights,
     rooms: 1,
     adults: input.adults,
     children: input.children ?? 0,
     ...(input.checkInTime ? { check_in_time: input.checkInTime } : {}),
+    ...(input.checkOutTime ? { check_out_time: input.checkOutTime } : {}),
     ...(input.guestIdUrl ? { guest_id_url: input.guestIdUrl } : {}),
     ...(input.paymentProofUrl ? { payment_proof_url: input.paymentProofUrl, payment_screenshot_url: input.paymentProofUrl } : {}),
   };

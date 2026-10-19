@@ -13,7 +13,7 @@ import { HotelDetailSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { readStay, stayQuery, writeStay } from '../lib/stayParams';
 import StayBar from '../components/booking/StayBar';
-import RoomsAndRates from '../components/booking/RoomsAndRates';
+import RoomsAndRates, { type ReserveMode } from '../components/booking/RoomsAndRates';
 import { buildGoogleMapsDirectionsUrl, getCurrentPosition, resolveHotelMapsDestination } from '../lib/nearMe';
 import { removeRecentlyViewed, trackRecentlyViewed } from '../lib/recentlyViewed';
 
@@ -223,12 +223,14 @@ export default function HotelDetailPage() {
   };
 
   // Guests book the room type; the server assigns a free room of that type.
-  const handleReserve = (cat: HotelDetailCategory) => {
+  const handleReserve = (cat: HotelDetailCategory, mode: ReserveMode) => {
     if (cat.availableRooms <= 0) {
       showToast({ title: 'No rooms available', description: 'This room type is full for your dates.', type: 'info' });
       return;
     }
-    navigate(`/booking/${cat.id}?${stayQuery(stay)}`);
+    // Hourly "block": one block on the check-in day (check-out = check-in date).
+    const booked = mode === 'block' ? { ...stay, checkOut: stay.checkIn, block: true } : { ...stay, block: false };
+    navigate(`/booking/${cat.id}?${stayQuery(booked)}`);
   };
 
   if (isLoading && !hotel) {
@@ -355,7 +357,7 @@ export default function HotelDetailPage() {
             <dl className="divide-y divide-brand-primary/10 text-sm">
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Clock className="w-4 h-4 text-brand-primary" aria-hidden />Check-in / out</dt>
-                <dd className="text-brand-dark/70 font-bold">Check-in from 2:00 PM · Check-out until 12:00 PM</dd>
+                <dd className="text-brand-dark/70 font-bold">Check-in from 2:00 PM · Check-out until 11:00 AM · Hourly rooms: from your arrival time, in blocks</dd>
               </div>
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><IdCard className="w-4 h-4 text-brand-primary" aria-hidden />Valid ID</dt>

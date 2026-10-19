@@ -6,6 +6,8 @@ export interface Stay {
   checkOut: string;
   adults: number;
   children: number;
+  /** Hourly room types: one block on the check-in day (checkOut === checkIn), ?block=1. */
+  block?: boolean;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -29,7 +31,8 @@ export function readStay(params: URLSearchParams): Stay {
   const fallback = defaultStay();
   const checkIn = params.get('checkIn') ?? '';
   const checkOut = params.get('checkOut') ?? '';
-  const datesValid = DATE_RE.test(checkIn) && DATE_RE.test(checkOut) && checkOut > checkIn;
+  const block = params.get('block') === '1' && DATE_RE.test(checkIn) && checkOut === checkIn;
+  const datesValid = DATE_RE.test(checkIn) && DATE_RE.test(checkOut) && (checkOut > checkIn || block);
   // Older links only carry ?guests=N (adults + children).
   const adults = clampInt(params.get('adults') ?? params.get('guests'), 1, 6, fallback.adults);
   return {
@@ -37,6 +40,7 @@ export function readStay(params: URLSearchParams): Stay {
     checkOut: datesValid ? checkOut : fallback.checkOut,
     adults,
     children: clampInt(params.get('children'), 0, 4, 0),
+    ...(block && datesValid ? { block: true } : {}),
   };
 }
 
@@ -48,6 +52,8 @@ export function writeStay(params: URLSearchParams, stay: Stay): URLSearchParams 
   next.set('adults', String(stay.adults));
   next.set('children', String(stay.children));
   next.set('guests', String(stay.adults + stay.children));
+  if (stay.block) next.set('block', '1');
+  else next.delete('block');
   return next;
 }
 

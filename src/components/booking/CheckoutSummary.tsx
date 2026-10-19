@@ -11,6 +11,22 @@ const DISCOUNT_LABELS: Record<string, string> = {
   promo: 'Promo code discount',
 };
 
+/** "15:00" → "3:00 PM". */
+export function clockLabel(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** "12 hours (1 × 12 h)" for hourly stays, "2 nights" for nightly — from the server quote. */
+export function stayLengthLabel(quote: StayQuote | null): string | null {
+  if (!quote) return null;
+  if (quote.billingMode === 'hourly' && quote.stayHours) {
+    return `${quote.stayHours} hour${quote.stayHours === 1 ? '' : 's'}${quote.blocks && quote.blockHours ? ` (${quote.blocks} × ${quote.blockHours} h)` : ''}`;
+  }
+  return `${quote.nights} night${quote.nights === 1 ? '' : 's'}`;
+}
+
 /** Progress tracker at the top of checkout: (1) Your details → (2) Finish booking. */
 export function CheckoutProgress({ step }: { step: 1 | 2 }) {
   const item = (n: 1 | 2, label: string) => (
@@ -102,11 +118,12 @@ function SummaryBody(props: SummaryProps) {
           </div>
         </div>
         <dl className="grid grid-cols-2 gap-2 text-sm">
-          <div><dt className="text-[11px] font-bold text-brand-dark/50">Check-in</dt><dd className="font-bold text-brand-dark">{formatStayDate(stay.checkIn)}</dd><dd className="text-[11px] text-brand-dark/50">From 2:00 PM</dd></div>
-          <div><dt className="text-[11px] font-bold text-brand-dark/50">Check-out</dt><dd className="font-bold text-brand-dark">{formatStayDate(stay.checkOut)}</dd><dd className="text-[11px] text-brand-dark/50">Until 12:00 PM</dd></div>
+          <div><dt className="text-[11px] font-bold text-brand-dark/50">Check-in</dt><dd className="font-bold text-brand-dark">{formatStayDate(stay.checkIn)}</dd><dd className="text-[11px] text-brand-dark/50">From {clockLabel(quote?.checkInTime ?? '14:00')}</dd></div>
+          <div><dt className="text-[11px] font-bold text-brand-dark/50">Check-out</dt><dd className="font-bold text-brand-dark">{formatStayDate(quote?.checkOutDate ?? stay.checkOut)}</dd><dd className="text-[11px] text-brand-dark/50">Until {clockLabel(quote?.checkOutTime ?? '11:00')}</dd></div>
         </dl>
         <p className="text-sm font-bold text-brand-dark">
-          {nights ? `${nights} night${nights === 1 ? '' : 's'} · ` : ''}{describeGuests(stay)} · 1 room
+          {stayLengthLabel(quote) ?? (nights ? `${nights} night${nights === 1 ? '' : 's'}` : '')}
+          {' · '}{describeGuests(stay)} · 1 room
         </p>
         <Link to={props.changeSelectionHref} className="inline-block text-sm font-bold text-brand-primary underline underline-offset-2">
           Change your selection

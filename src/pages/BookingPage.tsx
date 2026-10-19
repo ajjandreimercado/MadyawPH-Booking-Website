@@ -20,7 +20,7 @@ import {
   setPaymentProof, setValidId, type CheckoutDraft,
 } from '../lib/checkoutDraft';
 import PayByQr from '../components/booking/PayByQr';
-import CheckoutSummary, { CheckoutProgress } from '../components/booking/CheckoutSummary';
+import CheckoutSummary, { CheckoutProgress, clockLabel } from '../components/booking/CheckoutSummary';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
 const NATIONALITIES = [
@@ -199,6 +199,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     const timer = window.setTimeout(() => {
       quoteStay({
         categoryId,
+        // Hourly rooms are priced from the arrival time (window start).
+        arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         checkInDate: stay.checkIn,
         checkOutDate: stay.checkOut,
         adults: stay.adults,
@@ -219,7 +221,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         .finally(() => { if (!cancelled) setQuoteLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember]);
+  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime]);
 
   // Prefill "amount paid" with the stay total once — guest can still edit the receipt amount.
   useEffect(() => {
@@ -438,8 +440,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                     <ReviewItem label="Room" value={roomLabel} />
                     <ReviewItem label="Guests" value={`${describeGuests(stay)} · 1 room`} />
-                    <ReviewItem label="Check-in" value={`${formatStayDate(stay.checkIn)}, from 2:00 PM`} />
-                    <ReviewItem label="Check-out" value={`${formatStayDate(stay.checkOut)}, until 12:00 PM`} />
+                    <ReviewItem label="Check-in" value={`${formatStayDate(stay.checkIn)}, from ${clockLabel(quote?.checkInTime ?? '14:00')}`} />
+                    <ReviewItem label="Check-out" value={`${formatStayDate(quote?.checkOutDate ?? stay.checkOut)}, until ${clockLabel(quote?.checkOutTime ?? '11:00')}`} />
                     {quote && <ReviewItem label="Total" value={`${peso(quote.totalPrice)} (taxes and charges included)`} />}
                   </dl>
                 </Card>
@@ -685,7 +687,7 @@ function DetailsStep({
           </select>
           <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
         </div>
-        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM. The hotel sees this time with your booking.</p>
+        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM (hourly rooms start at this time). The hotel sees this time with your booking.</p>
       </section>
 
       <section>

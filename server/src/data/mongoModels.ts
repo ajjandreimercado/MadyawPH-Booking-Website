@@ -59,6 +59,10 @@ const roomCategorySchema = new Schema(
     name: { type: String, required: true },
     description: { type: String, required: true },
     default_price: { type: Number, required: true },
+    // Hotel app: the category is the source of truth for the hourly block length.
+    billing_mode: { type: String },
+    price_per_block: { type: Number },
+    block_hours: { type: Number },
     image_url: { type: String, required: true },
     amenities: [{ type: String }],
     facilities: [{ type: String }],
@@ -78,6 +82,10 @@ const roomSchema = new Schema(
     room_number: { type: String, required: true },
     room_type: { type: String, required: true },
     price_per_night: { type: Number, required: true },
+    // Hotel app billing (RoomBillingSupport): 'nightly' | 'hourly'; hourly rooms sell blocks.
+    billing_mode: { type: String },
+    price_per_block: { type: Number },
+    block_hours: { type: Number },
     status: { type: String, required: true },
     amenities: [{ type: String }],
     facilities: [{ type: String }],

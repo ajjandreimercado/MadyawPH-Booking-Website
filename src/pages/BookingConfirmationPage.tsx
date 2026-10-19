@@ -23,6 +23,7 @@ import { useBookings } from '../contexts/BookingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { formatStayDate } from '../lib/stayParams';
+import { clockLabel } from '../components/booking/CheckoutSummary';
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -370,8 +371,8 @@ export default function BookingConfirmationPage() {
             {[
               { icon: Home, label: 'Property', value: booking.propertyName },
               { icon: MapPin, label: 'Room Type', value: booking.roomType?.replace(/-/g, ' ') },
-              { icon: Calendar, label: 'Check-in', value: `${formatStayDate(booking.checkInDate)}, from 2:00 PM` },
-              { icon: Calendar, label: 'Check-out', value: `${formatStayDate(booking.checkOutDate)}, until 12:00 PM` },
+              { icon: Calendar, label: 'Check-in', value: `${formatStayDate(booking.checkInDate)}, from ${clockLabel(booking.checkInTime || '14:00')}` },
+              { icon: Calendar, label: 'Check-out', value: `${formatStayDate(booking.checkOutDate)}, until ${clockLabel(booking.checkOutTime || '11:00')}` },
               { icon: Users, label: 'Guests', value: `${booking.adults} adult${booking.adults !== 1 ? 's' : ''}${booking.children > 0 ? ` + ${booking.children} child${booking.children !== 1 ? 'ren' : ''}` : ''}` },
               { icon: CreditCard, label: 'Payment', value: paymentLabel },
             ].map(item => (

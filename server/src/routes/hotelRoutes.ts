@@ -31,8 +31,8 @@ import { getDistance } from 'geolib';
 import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
-import { compareRoomsForAssignment, findBookedRoomIds, isRoomBookable, parseStayQuery } from '../utils/roomAvailability';
-import { calculateBookingPricing } from '../utils/pricing';
+import { compareRoomsForAssignment, findBookedRoomIds, isRoomBookable, parseStayQuery, roomListPrice } from '../utils/roomAvailability';
+import { computeStayCharge, isHourlyRoom, resolveStayWindow, surgeFor, hourlyConfig } from '../utils/hotelStayPricing';
 import {
   buildAmenityRoomClause,
   collectAmenityValues,
@@ -820,6 +820,9 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
   const bookedIds = stay
     ? await findBookedRoomIds(serializedRooms.map((room) => room.id), stay.start, stay.end)
     : new Set<string>();
+  const surge = await surgeFor(hotelId);
+  const rawRoomById = new Map(scopedRooms.map((room) => [String(room._id), room as Record<string, unknown>]));
+  const rawCategoryById = new Map(scopedCategories.map((c) => [String(c._id), c as Record<string, unknown>]));
   const roomIsFree = (room: (typeof serializedRooms)[number]) => (stay
     ? isRoomBookable({ _id: room.id, status: room.roomStatus }, bookedIds, stay.start)
     : room.roomStatus === 'available');
@@ -858,26 +861,50 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
     const sample = roomsInCategory[0];
     // Price the room a booking of this type is assigned (cheapest free, then lowest number —
     // same order as pickRoomForCategory), with the same formula as POST /bookings.
+    // The room a booking of this type gets (same order as pickRoomForCategory), priced with
+    // the hotel app's own formula so this page, checkout and the hotel all show one number.
+    const rawOf = (room: { id: string }) => rawRoomById.get(room.id) ?? {};
     const bookRoom = roomsInCategory
       .filter(roomIsFree)
-      .sort((a, b) => compareRoomsForAssignment(a, b))[0];
-    const nightly = bookRoom && Number(bookRoom.price) > 0
-      ? Number(bookRoom.price)
-      : Number(category.defaultPrice ?? 0);
-    const stayPrice = stay && bookRoom && nightly > 0
-      ? calculateBookingPricing({
-        propertyPrice: nightly,
-        checkInDate: String(req.query.checkIn),
-        checkOutDate: String(req.query.checkOut),
-        adults: Math.min(20, Math.max(1, Number.parseInt(String(req.query.adults ?? '2'), 10) || 2)),
-        children: Math.min(20, Math.max(0, Number.parseInt(String(req.query.children ?? '0'), 10) || 0)),
-        infants: 0,
-        roomType: (bookRoom.type || 'standard-room') as never,
-      })
-      : null;
+      .sort((a, b) => compareRoomsForAssignment(
+        { price: roomListPrice(rawOf(a)), roomNumber: a.roomNumber },
+        { price: roomListPrice(rawOf(b)), roomNumber: b.roomNumber },
+      ))[0];
+    const rawRoom = bookRoom ? rawOf(bookRoom) : null;
+    const rawCategory = rawCategoryById.get(category.id) ?? null;
+    let stayPrice: { nights: number; nightlyRate: number; total: number; billingMode: string; stayHours: number | null; blockHours: number | null } | null = null;
+    let hourly: { blockHours: number; blockPrice: number } | null = null;
+    if (stay && rawRoom) {
+      try {
+        const charge = computeStayCharge(
+          rawRoom,
+          rawCategory,
+          resolveStayWindow(rawRoom, rawCategory, String(req.query.checkIn), String(req.query.checkOut)),
+          surge,
+        );
+        if (charge.amount > 0) {
+          stayPrice = {
+            nights: charge.nights,
+            nightlyRate: charge.unitPrice,
+            total: charge.amount,
+            billingMode: charge.billingMode,
+            stayHours: charge.stayHours,
+            blockHours: charge.blockHours,
+          };
+        }
+        if (isHourlyRoom(rawRoom)) {
+          const { pricePerBlock, blockHours } = hourlyConfig(rawRoom, rawCategory);
+          hourly = { blockHours, blockPrice: surge(pricePerBlock) };
+        }
+      } catch {
+        stayPrice = null;
+      }
+    }
     return {
       ...category,
-      stayPrice: stayPrice ? { nights: stayPrice.nights, nightlyRate: stayPrice.roomRate, total: stayPrice.totalPrice } : null,
+      stayPrice,
+      // Hourly room types: one block's length and price (guests can book a single block).
+      hourly,
       // Room-type facts from the rooms themselves; badges only when every room has them.
       bedConfiguration: sample?.bedConfiguration,
       maxGuests: sample?.maxGuests,

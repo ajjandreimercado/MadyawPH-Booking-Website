@@ -325,6 +325,8 @@ describe('POST /api/bookings', () => {
     const { propertyId: _unused, roomType: _type, propertyName: _name, ...BY_CATEGORY } = { ...VALID_PAYLOAD, categoryId: 'cat-deluxe' };
 
     beforeEach(() => {
+      const { RoomCategoryModel } = jest.requireMock('../data/mongoModels') as { RoomCategoryModel: { findById: jest.Mock } };
+      RoomCategoryModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: 'cat-deluxe', name: 'Deluxe' }) });
       (MockPropertyModel.find as jest.Mock).mockReturnValue({
         session: jest.fn().mockReturnThis(),
         lean: jest.fn().mockResolvedValue(ROOMS),

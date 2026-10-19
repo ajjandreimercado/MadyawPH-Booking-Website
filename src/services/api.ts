@@ -48,7 +48,16 @@ export interface HotelDetailCategory extends RoomCategory {
   firstAvailableRoomId: string | null;
   fallbackRoomId: string | null;
   /** Server-priced stay for the requested dates/guests (same formula as booking creation). */
-  stayPrice?: { nights: number; nightlyRate: number; total: number } | null;
+  stayPrice?: {
+    nights: number;
+    nightlyRate: number;
+    total: number;
+    billingMode?: 'nightly' | 'hourly';
+    stayHours?: number | null;
+    blockHours?: number | null;
+  } | null;
+  /** Hourly room types (hotel app billing_mode "hourly"): one block's length and price. */
+  hourly?: { blockHours: number; blockPrice: number } | null;
   bedConfiguration?: string;
   maxGuests?: number;
   amenities?: string[];
@@ -672,6 +681,14 @@ export interface StayQuote {
   discountAmount: number;
   discountType: string;
   discountReason: string;
+  /** Hotel app billing for this stay; hourly stays are charged per block. */
+  billingMode?: 'nightly' | 'hourly';
+  stayHours?: number | null;
+  blockHours?: number | null;
+  blocks?: number | null;
+  checkInTime?: string;
+  checkOutTime?: string;
+  checkOutDate?: string;
   /** What the booking will be saved with. */
   totalPrice: number;
   dueNow: number;
@@ -688,6 +705,8 @@ export async function fetchRoomCategory(categoryId: string): Promise<RoomCategor
 /** Server price for a stay, with the same pricing as booking creation. Creates nothing. */
 export async function quoteStay(payload: {
   categoryId: string;
+  /** HH:mm arrival — hourly rooms are priced from this time. */
+  arrivalTime?: string;
   checkInDate: string;
   checkOutDate: string;
   adults: number;
