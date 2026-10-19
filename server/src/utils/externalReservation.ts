@@ -57,6 +57,33 @@ export function normalizeHotelDecisionStatus(raw: string | undefined | null): Ho
   return null;
 }
 
+/**
+ * Payment fields exactly as MADYAWPH's own customer bookings write them
+ * (CustomerPortalApiController::createPendingReservation): an online payment with a
+ * receipt is "paid_pending_approval" (or "deposit_pending_approval" when short) and the
+ * hotel verifies it when it approves the booking. Website stays are paid in full.
+ */
+export function hotelPaymentMeta(input: { total: number; amountPaid: number; approved?: boolean }) {
+  const total = Math.max(0, Number(input.total) || 0);
+  const paid = Math.max(0, Number(input.amountPaid) || 0);
+  const full = paid + 0.009 >= total;
+  let paymentStatus: string;
+  if (paid <= 0) paymentStatus = 'unpaid';
+  else if (input.approved) paymentStatus = full ? 'paid' : 'deposit_paid';
+  else paymentStatus = full ? 'paid_pending_approval' : 'deposit_pending_approval';
+  return {
+    // The hotel app only treats "online" payments as needing a receipt check.
+    payment_method: 'Online',
+    payment_status: paymentStatus,
+    estimated_total: total,
+    total_amount: total,
+    amount_paid: paid,
+    deposit_percent: 100,
+    deposit_required: total,
+    balance_due: Math.max(0, Math.round((total - paid) * 100) / 100),
+  };
+}
+
 export function buildExternalReservationDoc(input: {
   hotelId: string;
   bookingId: string;
@@ -143,14 +170,11 @@ export function buildExternalReservationDoc(input: {
     channel: 'website',
     booking_source: 'website-customer',
     booking_reference: input.bookingReference,
-    payment_method: input.paymentMethod,
-    estimated_total: input.totalAmount,
+    ...hotelPaymentMeta({ total: Number(input.totalAmount), amountPaid: proofUploaded ? claimed : 0 }),
+    // Which wallet the guest used (the hotel app's payment_method is "Online").
+    payment_wallet: input.paymentMethod,
     amount_due: amountDue,
-    amount_paid: amountPaid,
-    balance_due: balanceDue,
-    payment_status: paymentStatus,
     online_payment_mode: mode,
-    deposit_percent: depositPercent,
     note,
     valid_id_uploaded: Boolean(input.validIdUploaded),
     valid_id_filename: input.validIdFilename ?? '',

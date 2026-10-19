@@ -562,13 +562,12 @@ async function checkPaymentProof(
       message: 'Enter a valid amount paid greater than ₱0.',
     };
   }
-  // Soft cap — block obvious typos (e.g. an extra zero), not small over/under payments.
-  const maxClaim = Math.max(amountDue * 2, amountDue + 5000);
-  if (claimed > maxClaim) {
+  // Website stays are paid in full: the receipt must show the stay total (±₱1 for rounding).
+  if (Math.abs(claimed - amountDue) > 1) {
     return {
       ok: false,
       status: 400,
-      message: `That amount looks too high for this stay (due ₱${amountDue.toLocaleString()}). Check your receipt and try again.`,
+      message: `Your receipt amount must match the stay total of ₱${amountDue.toLocaleString()}. Pay the full amount by the hotel's QR, then enter it here.`,
     };
   }
   const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
