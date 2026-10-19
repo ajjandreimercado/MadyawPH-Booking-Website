@@ -1,5 +1,5 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
-import { resolveHotelImageUrlFromRecord } from './hotelImageUrl';
+import { resolveHotelImageUrl, resolveHotelImageUrlFromRecord } from './hotelImageUrl';
 import {
   hasAnyPaymentQr,
   mergePaymentAccounts,
@@ -204,8 +204,15 @@ export function serializeBooking(booking: AnyDocument) {
     paymentStatus: booking.payment_status,
     validIdUploaded: Boolean(booking.valid_id_filename || booking.valid_id_stored || booking.valid_id_base64),
     validIdFilename: booking.valid_id_filename ?? '',
+    /** Hotel chat/media or website file URL — always browser-loadable when possible. */
+    guestIdUrl: resolveHotelImageUrl(
+      typeof booking.guest_id_url === 'string' ? booking.guest_id_url : undefined,
+    ),
     paymentProofUploaded: Boolean(booking.payment_proof_filename || booking.payment_proof_stored),
     paymentProofFilename: booking.payment_proof_filename ?? '',
+    paymentProofUrl: resolveHotelImageUrl(
+      typeof booking.payment_proof_url === 'string' ? booking.payment_proof_url : undefined,
+    ),
     paymentTransactionRef: booking.payment_transaction_ref
       ? String(booking.payment_transaction_ref)
       : undefined,

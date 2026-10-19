@@ -24,7 +24,14 @@ import { withRetries } from '../utils/withRetries';
 import { findBookedRoomIds, parseStayQuery, pickRoomForCategory } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
-import { CLIENT_ORIGINS, getHotelWebhookSecret, getMadyawApiPublicUrl } from '../config/env';
+import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
+import {
+  bookingFileHmacSignature,
+  bookingFileUrl,
+  newBookingFileToken,
+  timingSafeEqualString,
+  type BookingFileKind,
+} from '../utils/bookingFileAccess';
 // OWASP A03: schema-based field stripping and input validators
 import {
   pickFields,
@@ -508,23 +515,6 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
 });
 
 const ARRIVAL_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-type BookingFileKind = 'valid-id' | 'payment-proof';
-
-function bookingFileSignature(bookingId: string, kind: BookingFileKind): string {
-  return crypto
-    .createHmac('sha256', process.env.JWT_SECRET ?? '')
-    .update(`booking-file:${bookingId}:${kind}`)
-    .digest('hex');
-}
-
-/**
- * Private, unguessable link to a booking's valid ID or payment screenshot. Written to the
- * hotel app's guest_id_url / payment_proof_url so staff can open the image from MADYAWPH.
- */
-function bookingFileUrl(bookingId: string, kind: BookingFileKind): string {
-  const params = new URLSearchParams({ sig: bookingFileSignature(bookingId, kind) });
-  return `${getMadyawApiPublicUrl()}/bookings/${encodeURIComponent(bookingId)}/files/${kind}?${params.toString()}`;
-}
 
 type PaymentProofCheck =
   | { ok: true; ref: string; amountClaimed: number; sha256: string }
@@ -593,11 +583,13 @@ async function savePaymentProof(
   proof: { ref: string; amountClaimed: number; sha256: string },
   stayTotal: number,
   amountDue: number,
-): Promise<void> {
+): Promise<{ proofUrl: string; accessToken: string }> {
   const bookingId = String(booking._id);
   const now = new Date();
   const base64 = file.buffer.toString('base64');
   const filename = file.originalname.slice(0, 200);
+  const accessToken = newBookingFileToken();
+  const proofUrl = bookingFileUrl(bookingId, 'payment-proof', accessToken);
   // Do NOT mark amount_paid / payment_status as paid — hotel staff verify the screenshot first.
   await BookingModel.updateOne(
     { _id: booking._id },
@@ -614,7 +606,7 @@ async function savePaymentProof(
         payment_proof_sha256: proof.sha256,
         payment_proof_verified: false,
         payment_proof_verified_at: null,
-        payment_proof_url: bookingFileUrl(bookingId, 'payment-proof'),
+        payment_proof_url: proofUrl,
         deposit_amount: amountDue,
         amountPaid: 0,
         amount_paid: 0,
@@ -640,13 +632,15 @@ async function savePaymentProof(
     roomRate: Number(booking.roomRate ?? 0),
     paymentMethod: String(booking.paymentMethod ?? booking.payment_method ?? ''),
     uploadedAt: now,
-    proofUrl: bookingFileUrl(bookingId, 'payment-proof'),
+    proofUrl,
+    accessToken,
   });
+  return { proofUrl, accessToken };
 }
 
 // ─── GET /:bookingId/files/:kind ─────────────────────────────────────────────
-// Valid ID / payment screenshot for hotel staff, opened from the hotel app via the signed
-// link in guest_id_url / payment_proof_url. No signature, no file.
+// Valid ID / payment screenshot for hotel staff via guest_id_url / payment_proof_url.
+// Auth: ?token= (preferred) or legacy ?sig= HMAC.
 
 bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res) => {
   const idResult = validateId(req.params.bookingId, 'Booking ID');
@@ -654,33 +648,66 @@ bookingRoutes.get('/:bookingId/files/:kind', publicReadLimiter, async (req, res)
   if (!idResult.ok || (kind !== 'valid-id' && kind !== 'payment-proof')) {
     return res.status(404).json({ message: 'File not found.' });
   }
-  const sig = typeof req.query.sig === 'string' ? req.query.sig : '';
-  if (!timingSafeEqualString(sig, bookingFileSignature(idResult.value, kind))) {
+
+  const bookingId = idResult.value;
+  const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  const sig = typeof req.query.sig === 'string' ? req.query.sig.trim() : '';
+
+  const validIdDoc = await BookingValidIdModel.findOne({ booking_id: bookingId })
+    .select({ base64: 1, mime: 1, access_token: 1, payment_proof_base64: 1, payment_proof_mime: 1, payment_proof_access_token: 1 })
+    .lean();
+  const proofDoc = await BookingPaymentProofModel.findOne({ booking_id: bookingId })
+    .select({ base64: 1, mime: 1, access_token: 1 })
+    .lean();
+
+  let authorized = false;
+  if (token) {
+    if (kind === 'valid-id') {
+      authorized = Boolean(validIdDoc?.access_token && timingSafeEqualString(token, String(validIdDoc.access_token)));
+    } else {
+      authorized = Boolean(
+        (proofDoc?.access_token && timingSafeEqualString(token, String(proofDoc.access_token)))
+        || (validIdDoc?.payment_proof_access_token
+          && timingSafeEqualString(token, String(validIdDoc.payment_proof_access_token))),
+      );
+    }
+  } else if (sig) {
+    authorized = timingSafeEqualString(sig, bookingFileHmacSignature(bookingId, kind));
+  }
+
+  if (!authorized) {
     return res.status(403).json({ message: 'This link is not valid.' });
   }
-  const stored = kind === 'valid-id'
-    ? await BookingValidIdModel.findOne({ booking_id: idResult.value }).select({ base64: 1, mime: 1 }).lean()
-    : await BookingPaymentProofModel.findOne({ booking_id: idResult.value }).select({ base64: 1, mime: 1 }).lean();
-  if (!stored?.base64) return res.status(404).json({ message: 'File not found.' });
-  res.setHeader('Content-Type', String(stored.mime || 'application/octet-stream'));
+
+  let base64 = '';
+  let mime = 'application/octet-stream';
+  if (kind === 'valid-id') {
+    base64 = String(validIdDoc?.base64 ?? '');
+    mime = String(validIdDoc?.mime || mime);
+  } else {
+    base64 = String(proofDoc?.base64 ?? validIdDoc?.payment_proof_base64 ?? '');
+    mime = String(proofDoc?.mime || validIdDoc?.payment_proof_mime || mime);
+    // Last resort: inline bytes on the booking (hotel list queries keep this select:false).
+    if (!base64) {
+      const booking = await BookingModel.findById(bookingId).select('+payment_proof_base64 payment_proof_mime').lean();
+      base64 = String((booking as { payment_proof_base64?: string } | null)?.payment_proof_base64 ?? '');
+      mime = String((booking as { payment_proof_mime?: string } | null)?.payment_proof_mime || mime);
+    }
+  }
+
+  if (!base64) return res.status(404).json({ message: 'File not found.' });
+  res.setHeader('Content-Type', mime);
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Disposition', 'inline');
-  return res.send(Buffer.from(String(stored.base64), 'base64'));
+  // Allow hotel app (different origin) to embed the image.
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  return res.send(Buffer.from(base64, 'base64'));
 });
 
 // ─── POST /hotel-events ───────────────────────────────────────────────────────
 // Hotel management app callback when an Online Booking is approved/rejected.
 // Auth: Authorization: Bearer <HOTEL_WEBHOOK_SECRET>  (or X-Madyaw-Hotel-Secret)
-
-function timingSafeEqualString(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) {
-    crypto.timingSafeEqual(b, b);
-    return false;
-  }
-  return crypto.timingSafeEqual(a, b);
-}
 
 function isHotelWebhookAuthorized(req: Request): boolean {
   const secret = getHotelWebhookSecret();
@@ -1211,14 +1238,25 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
 
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
+  const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
+  const bookingId = String(booking._id);
+  const roomId = String(booking.room_id ?? property._id);
+  const paymentMethod = paymentMethodResult.value;
+  const syncErrors: string[] = [];
+
+  // Stable token URLs (same fields hotel walk-ins use: guest_id_url / payment_proof_url).
+  const validIdToken = newBookingFileToken();
+  const guestIdUrl = bookingFileUrl(bookingId, 'valid-id', validIdToken);
+  let paymentProofUrl = '';
+
   // Store Valid ID binary off the booking document so hotel list/login queries stay lean.
   try {
     await withRetries(async () => {
       await BookingValidIdModel.findOneAndUpdate(
-        { booking_id: String(booking._id) },
+        { booking_id: bookingId },
         {
           $set: {
-            booking_id: String(booking._id),
+            booking_id: bookingId,
             booking_reference: String(booking.booking_reference),
             hotel_id: String(booking.hotel_id ?? property.hotel_id ?? ''),
             filename: validIdFile.originalname.slice(0, 200),
@@ -1226,6 +1264,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
             size: validIdFile.size,
             base64: validIdFile.buffer.toString('base64'),
             uploaded_at: createdAt,
+            access_token: validIdToken,
           },
         },
         { upsert: true, new: true },
@@ -1235,24 +1274,18 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Failed to store Valid ID in booking_valid_ids:', idStoreError);
   }
 
-  const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
-  const bookingId = String(booking._id);
-  const roomId = String(booking.room_id ?? property._id);
-  const paymentMethod = paymentMethodResult.value;
-  const syncErrors: string[] = [];
-
-  const guestIdUrl = bookingFileUrl(bookingId, 'valid-id');
-  const paymentProofUrl = bookingFileUrl(bookingId, 'payment-proof');
-
   // Payment screenshot first — hotel Online Bookings row must include it at create time.
   try {
     if (paymentProofFile && proofCheck.ok) {
-      await savePaymentProof(booking, paymentProofFile, proofCheck, finalTotalPrice, amountDue);
-      booking.set({
-        payment_proof_stored: true,
-        payment_proof_amount_claimed: proofCheck.amountClaimed,
-        payment_proof_url: paymentProofUrl,
-      });
+      const saved = await savePaymentProof(booking, paymentProofFile, proofCheck, finalTotalPrice, amountDue);
+      paymentProofUrl = saved.proofUrl;
+      if (typeof (booking as { set?: (v: Record<string, unknown>) => void }).set === 'function') {
+        (booking as { set: (v: Record<string, unknown>) => void }).set({
+          payment_proof_stored: true,
+          payment_proof_amount_claimed: proofCheck.amountClaimed,
+          payment_proof_url: paymentProofUrl,
+        });
+      }
     }
   } catch (proofError) {
     const msg = proofError instanceof Error ? proofError.message : String(proofError);
@@ -1271,7 +1304,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       });
       if (existing > 0) return;
 
-      const proofOk = Boolean(paymentProofFile && proofCheck.ok);
+      const proofOk = Boolean(paymentProofFile && proofCheck.ok && paymentProofUrl);
       const externalDoc = buildExternalReservationDoc({
         hotelId,
         bookingId,
@@ -1307,7 +1340,12 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         paymentProofVerified: false,
         paymentProofUrl: proofOk ? paymentProofUrl : undefined,
       });
-      await ExternalReservationModel.create(externalDoc);
+      await ExternalReservationModel.create({
+        ...externalDoc,
+        // Top-level aliases matching hotel booking fields.
+        guest_id_url: guestIdUrl,
+        ...(proofOk ? { payment_proof_url: paymentProofUrl } : {}),
+      });
     }, { attempts: 3, delayMs: 300, label: 'external_reservations Online Bookings row' });
 
     await BookingModel.updateOne(
@@ -1321,13 +1359,13 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     console.error('[Bookings] Failed to create external_reservations Online Bookings row after retries:', externalError);
   }
 
-  // Hotel app opens ID / payment images from these signed URLs.
+  // Hotel walk-ins store guest_id_url on the booking — mirror that for website stays.
   await BookingModel.updateOne(
     { _id: booking._id },
     {
       $set: {
         guest_id_url: guestIdUrl,
-        ...(paymentProofFile && proofCheck.ok ? { payment_proof_url: paymentProofUrl } : {}),
+        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
       },
     },
   ).catch((error) => console.error('[Bookings] Failed to set guest/payment file URLs:', error));
