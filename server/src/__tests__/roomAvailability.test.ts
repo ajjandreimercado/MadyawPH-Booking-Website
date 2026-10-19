@@ -28,7 +28,8 @@ describe('bookingHoldsRoom', () => {
 describe('bookingStayRange', () => {
   it('reads website and hotel-app date fields', () => {
     expect(bookingStayRange({ checkInDate: '2026-10-18', checkOutDate: '2026-10-19' })?.end.toISOString())
-      .toBe('2026-10-19T00:00:00.000Z');
+      // Check-out 11:00 hotel time (UTC+8), like the hotel app.
+      .toBe('2026-10-19T03:00:00.000Z');
     expect(bookingStayRange({ check_in_date: new Date('2026-10-18'), check_out_date: new Date('2026-10-20') }))
       .not.toBeNull();
     expect(bookingStayRange({})).toBeNull();

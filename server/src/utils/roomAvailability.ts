@@ -34,10 +34,39 @@ function toDate(raw: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Hotel app defaults: check-in 14:00, check-out 11:00 (Asia/Manila). */
+export const DEFAULT_CHECK_IN = '14:00';
+export const DEFAULT_CHECK_OUT = '11:00';
+
+/** yyyy-MM-dd of a stay date as the hotel sees it (Asia/Manila), from a string or Date. */
+export function stayDateOf(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const date = toDate(raw);
+  if (!date) return null;
+  return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** Wall-clock time on a stay date in the hotel's timezone (UTC+8). */
+export function hotelTime(date: string, time: string): Date {
+  return new Date(`${date}T${TIME_RE.test(time) ? time : DEFAULT_CHECK_IN}:00+08:00`);
+}
+
+/**
+ * The time a booking actually holds its room: check-in date + check-in time to check-out
+ * date + check-out time (defaults 14:00 / 11:00), like the hotel app. Back-to-back nightly
+ * stays don't collide, and hourly stays only block their hours.
+ */
 export function bookingStayRange(booking: BookingLike): { start: Date; end: Date } | null {
-  const start = toDate(booking.checkInDate ?? booking.check_in_date ?? booking.check_in_at);
-  const end = toDate(booking.checkOutDate ?? booking.check_out_date ?? booking.check_out_at);
-  return start && end ? { start, end } : null;
+  const inDay = stayDateOf(booking.checkInDate ?? booking.check_in_date ?? booking.check_in_at);
+  const outDay = stayDateOf(booking.checkOutDate ?? booking.check_out_date ?? booking.check_out_at);
+  if (!inDay || !outDay) return null;
+  const inTime = String(booking.check_in_time ?? '').trim();
+  const outTime = String(booking.check_out_time ?? '').trim();
+  const start = hotelTime(inDay, TIME_RE.test(inTime) ? inTime : DEFAULT_CHECK_IN);
+  const end = hotelTime(outDay, TIME_RE.test(outTime) ? outTime : DEFAULT_CHECK_OUT);
+  return end > start ? { start, end } : null;
 }
 
 /** True when this booking still blocks its room (expired unreviewed requests do not). */
@@ -53,12 +82,16 @@ export function isRoomOutOfService(room: { status?: unknown }): boolean {
   return OUT_OF_SERVICE_STATUSES.has(String(room.status ?? '').toLowerCase());
 }
 
-/** Parse a yyyy-MM-dd check-in/check-out pair; null when missing or not a forward range. */
+/**
+ * Parse a yyyy-MM-dd check-in/check-out pair into the nightly window it holds
+ * (check-in 14:00 → check-out 11:00, hotel time); null when missing or not a forward range.
+ */
 export function parseStayQuery(checkIn: unknown, checkOut: unknown): { start: Date; end: Date } | null {
   if (typeof checkIn !== 'string' || typeof checkOut !== 'string') return null;
-  const start = toDate(checkIn);
-  const end = toDate(checkOut);
-  return start && end && end > start ? { start, end } : null;
+  const inDay = stayDateOf(checkIn);
+  const outDay = stayDateOf(checkOut);
+  if (!inDay || !outDay || outDay <= inDay) return null;
+  return { start: hotelTime(inDay, DEFAULT_CHECK_IN), end: hotelTime(outDay, DEFAULT_CHECK_OUT) };
 }
 
 /** Room ids (from the given list) that have a holding booking overlapping [start, end). */
@@ -76,7 +109,8 @@ export async function findBookedRoomIds(
     status: { $in: ROOM_HOLD_STATUSES },
   }).select({
     propertyId: 1, room_id: 1, status: 1, checkInDate: 1, checkOutDate: 1, check_in_date: 1,
-    check_out_date: 1, check_in_at: 1, check_out_at: 1, requestedAt: 1, createdAt: 1, created_at: 1,
+    check_out_date: 1, check_in_at: 1, check_out_at: 1, check_in_time: 1, check_out_time: 1,
+    requestedAt: 1, createdAt: 1, created_at: 1,
   });
   if (options.session) query.session(options.session);
   const bookings = (await query.lean()) as BookingLike[];
@@ -130,6 +164,12 @@ export function compareRoomsForAssignment(
   return String(a.roomNumber ?? '').localeCompare(String(b.roomNumber ?? ''), undefined, { numeric: true });
 }
 
+/** The price a room is sold at: block price for hourly rooms, nightly rate otherwise. */
+export function roomListPrice(room: { billing_mode?: unknown; price_per_block?: unknown; price_per_night?: unknown }): number {
+  const hourly = String(room.billing_mode ?? '').toLowerCase() === 'hourly';
+  return Number((hourly ? room.price_per_block : room.price_per_night) ?? 0) || Number(room.price_per_night ?? 0) || 0;
+}
+
 /**
  * Guests book a room type, not a room: pick the room the booking is assigned to (the hotel
  * can reassign it in the hotel app). Null when no room of that type is free for the stay.
@@ -148,8 +188,8 @@ export async function pickRoomForCategory(
   const free = rooms
     .filter((room) => isRoomBookable(room, booked, start))
     .sort((a, b) => compareRoomsForAssignment(
-      { price: Number(a.price_per_night ?? 0), roomNumber: a.room_number },
-      { price: Number(b.price_per_night ?? 0), roomNumber: b.room_number },
+      { price: roomListPrice(a), roomNumber: a.room_number },
+      { price: roomListPrice(b), roomNumber: b.room_number },
     ));
   return free[0] ?? null;
 }

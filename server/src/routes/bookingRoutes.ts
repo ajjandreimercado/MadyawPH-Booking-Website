@@ -5,7 +5,7 @@ import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, Room
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter, publicReadLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
-import { calculateBookingPricing } from '../utils/pricing';
+import { priceRoomStay, resolveStayWindow, type HotelStayCharge } from '../utils/hotelStayPricing';
 import { serializeBooking } from '../utils/serialize';
 import { sendBookingConfirmationNotification, sendBookingRequestReceivedNotification, sendBookingDeclinedNotification, queueGuestNotification } from '../services/notificationService';
 import { createPaymentCheckout } from '../services/paymentService';
@@ -21,7 +21,7 @@ import {
   resolveOnlinePaymentModeFromBooking,
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
-import { findBookedRoomIds, parseStayQuery, pickRoomForCategory } from '../utils/roomAvailability';
+import { DEFAULT_CHECK_IN, DEFAULT_CHECK_OUT, findBookedRoomIds, hotelTime, pickRoomForCategory, stayDateOf } from '../utils/roomAvailability';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
@@ -123,12 +123,16 @@ async function hasBookingOverlap(
   checkOutDate: string,
   excludeBookingId?: string,
   session?: mongoose.ClientSession | null,
+  times: { checkInTime?: string; checkOutTime?: string } = {},
 ) {
-  const requestedStart = new Date(checkInDate);
-  const requestedEnd = new Date(checkOutDate);
-  if (Number.isNaN(requestedStart.getTime()) || Number.isNaN(requestedEnd.getTime())) {
+  // Hotel time window, like the hotel app: check-in 14:00 (or arrival) → check-out 11:00.
+  const inDay = stayDateOf(checkInDate);
+  const outDay = stayDateOf(checkOutDate);
+  if (!inDay || !outDay) {
     throw new Error('Invalid check-in or check-out date.');
   }
+  const requestedStart = hotelTime(inDay, times.checkInTime || DEFAULT_CHECK_IN);
+  const requestedEnd = hotelTime(outDay, times.checkOutTime || DEFAULT_CHECK_OUT);
   // Checks website and hotel-app bookings (room_id), incl. checked-in guests.
   const booked = await findBookedRoomIds([propertyId], requestedStart, requestedEnd, { excludeBookingId, session });
   return booked.size > 0;
@@ -271,13 +275,15 @@ class QuoteError extends Error {
 }
 
 interface StayQuoteInput {
-  roomPrice: number;
+  /** The room being booked (raw rooms doc) — priced with the hotel app's own formula. */
+  room: Record<string, unknown>;
   checkInDate: string;
   checkOutDate: string;
+  /** HH:mm — check-in time for the stay window (hourly stays start here). */
+  arrivalTime?: string;
   adults: number;
   children: number;
   infants: number;
-  roomType: string;
   discountReason?: string;
   discountAmount?: number;
   promoCode?: string;
@@ -292,20 +298,23 @@ type StayQuote = Awaited<ReturnType<typeof priceStay>>;
  * so the price a guest sees at checkout is the price the booking is saved with.
  */
 async function priceStay(input: StayQuoteInput) {
-  let pricing;
+  let charge: HotelStayCharge;
   try {
-    pricing = calculateBookingPricing({
-      propertyPrice: input.roomPrice,
-      checkInDate: input.checkInDate,
-      checkOutDate: input.checkOutDate,
-      adults: input.adults,
-      children: input.children,
-      infants: input.infants,
-      roomType: input.roomType as never,
-    });
+    charge = await priceRoomStay(input.room, input.checkInDate, input.checkOutDate, input.arrivalTime);
   } catch (error) {
     throw new QuoteError(400, error instanceof Error ? error.message : 'Invalid booking dates.');
   }
+  if (!(charge.amount > 0)) {
+    throw new QuoteError(409, 'This room type has no price set yet. Please choose another room or contact the hotel.');
+  }
+  const pricing = {
+    nights: charge.nights,
+    guestCount: Math.max(1, input.adults + input.children + input.infants),
+    // One night (nightly) or one block (hourly), after surge — as the hotel app charges it.
+    roomRate: charge.unitPrice,
+    totalPrice: charge.amount,
+    charge,
+  };
 
   const canonicalDiscountReason = normalizeDiscountReason(input.discountReason);
   const eligibilityDiscount = resolveServerDiscount(
@@ -373,24 +382,6 @@ type ResolvedRoom =
   | { ok: true; roomId: string; byCategory: boolean }
   | { ok: false; status: number; message: string };
 
-/** Nightly rate for pricing: room rate, or the room-type default when the room has no price. */
-async function resolveNightlyRate(property: {
-  price_per_night?: unknown;
-  category_id?: unknown;
-}): Promise<number> {
-  const roomPrice = Number(property.price_per_night ?? 0);
-  if (Number.isFinite(roomPrice) && roomPrice > 0) return roomPrice;
-  const categoryId = property.category_id ? String(property.category_id) : '';
-  if (!categoryId) return 0;
-  try {
-    const category = await RoomCategoryModel.findById(categoryId).select('default_price').lean();
-    const fallback = Number((category as { default_price?: unknown } | null)?.default_price ?? 0);
-    return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
-  } catch {
-    return 0;
-  }
-}
-
 /**
  * Guests book a room type (categoryId) and the server assigns a free room of that type for
  * the stay (the hotel can reassign it in the hotel app). Older callers may still send a
@@ -401,12 +392,18 @@ async function resolveBookingRoom(body: {
   propertyId?: unknown;
   checkInDate?: unknown;
   checkOutDate?: unknown;
+  arrivalTime?: unknown;
 }): Promise<ResolvedRoom> {
   if (body.categoryId !== undefined && body.categoryId !== '') {
     const categoryResult = validateId(body.categoryId, 'Room type');
     if (!categoryResult.ok) return { ok: false, status: 400, message: categoryResult.message };
-    const stay = parseStayQuery(body.checkInDate, body.checkOutDate);
-    if (!stay) return { ok: false, status: 400, message: USER_MESSAGES.invalidDates };
+    const inDay = stayDateOf(body.checkInDate);
+    const outDay = stayDateOf(body.checkOutDate);
+    if (!inDay || !outDay || outDay < inDay) return { ok: false, status: 400, message: USER_MESSAGES.invalidDates };
+    const category = (await RoomCategoryModel.findById(categoryResult.value).lean()) as Record<string, unknown> | null;
+    if (!category) return { ok: false, status: 404, message: 'Room type not found.' };
+    // Same hold window the hotel app uses (hourly categories: blocks from the arrival time).
+    const stay = resolveStayWindow(category, category, inDay, outDay, String(body.arrivalTime ?? ''));
     const room = await pickRoomForCategory(categoryResult.value, stay.start, stay.end);
     if (!room) {
       return {
@@ -428,15 +425,17 @@ async function resolveBookingRoom(body: {
 bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const body = pickFields(req.body ?? {}, [
     'categoryId', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
-    'roomType', 'discountReason', 'promoCode', 'membershipId',
+    'roomType', 'discountReason', 'promoCode', 'membershipId', 'arrivalTime',
   ] as const);
+  const quoteArrival = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime) ? body.arrivalTime : undefined;
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
   const checkOutResult = validateString(body.checkOutDate, 'Check-out date', 1, 30);
   if (!checkOutResult.ok) return res.status(400).json({ message: checkOutResult.message });
   const checkIn = new Date(checkInResult.value);
   const checkOut = new Date(checkOutResult.value);
-  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || checkOut <= checkIn) {
+  // Same-day is allowed: an hourly room booked for one block on the check-in day.
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || checkOut < checkIn) {
     return res.status(400).json({ message: USER_MESSAGES.invalidDates });
   }
   const adultsResult = validateInteger(Number(body.adults ?? 1), 'Adults', 1, 20);
@@ -461,35 +460,37 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const resolved = await resolveBookingRoom(body);
   if (resolved.ok === false) return res.status(resolved.status).json({ message: resolved.message });
 
-  const property = await PropertyModel.findById(resolved.roomId)
-    .select({ price_per_night: 1, category_id: 1, room_type: 1, category_name: 1, hotel_name: 1, hotel_location: 1, free_cancellation: 1 })
-    .lean();
+  const property = await PropertyModel.findById(resolved.roomId).lean();
   if (!property) return res.status(404).json({ message: 'Room not found.' });
-
-  const nightlyRate = await resolveNightlyRate(property);
-  if (!(nightlyRate > 0)) {
-    return res.status(409).json({
-      message: 'This room type has no price set yet. Please choose another room or contact the hotel.',
-    });
-  }
 
   try {
     const quote = await priceStay({
-      roomPrice: nightlyRate,
+      room: property as Record<string, unknown>,
       checkInDate: checkInResult.value,
       checkOutDate: checkOutResult.value,
+      arrivalTime: quoteArrival,
       adults: adultsResult.value,
       children: childrenResult.value,
       infants: infantsResult.value,
-      // A room-type booking is priced from the assigned room, like the hotel page.
-      roomType: resolved.byCategory ? (property.room_type || 'standard-room') : roomTypeResult.value,
       discountReason: discountReasonResult.value ?? undefined,
       promoCode: promoCodeResult.value ?? undefined,
       membershipId: membershipIdResult.value ?? undefined,
     });
-    const available = !(await hasBookingOverlap(resolved.roomId, checkInResult.value, checkOutResult.value));
+    const win = quote.pricing.charge.window;
+    const available = !(await hasBookingOverlap(resolved.roomId, win.checkInDate, win.checkOutDate, undefined, null, {
+      checkInTime: win.checkInTime,
+      checkOutTime: win.checkOutTime,
+    }));
     return res.json({
       available,
+      // Hotel app billing for the stay (hourly rooms are charged per block).
+      billingMode: quote.pricing.charge.billingMode,
+      stayHours: quote.pricing.charge.stayHours,
+      blockHours: quote.pricing.charge.blockHours,
+      blocks: quote.pricing.charge.blocks,
+      checkInTime: win.checkInTime,
+      checkOutTime: win.checkOutTime,
+      checkOutDate: win.checkOutDate,
       // Shown to the guest: the room type, never the room number.
       roomName: property.category_name ?? '',
       hotelName: property.hotel_name ?? '',
@@ -963,7 +964,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Check-out date is not a valid date.' });
   }
 
-  if (new Date(checkOutResult.value) <= new Date(checkInResult.value)) {
+  if (new Date(checkOutResult.value) < new Date(checkInResult.value)) {
     return res.status(400).json({ message: 'Check-out must be after check-in.' });
   }
 
@@ -1060,11 +1061,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     roomTypeResult.value = property.room_type || 'standard-room';
   }
 
-  const nightlyRate = await resolveNightlyRate(property);
-  if (!(nightlyRate > 0)) {
-    return res.status(409).json({
-      message: 'This room type has no price set yet. Please choose another room or contact the hotel.',
-    });
+  if (String(property.billing_mode ?? '').toLowerCase() !== 'hourly'
+    && stayDateOf(checkOutResult.value) === stayDateOf(checkInResult.value)) {
+    return res.status(400).json({ message: 'Check-out must be after check-in.' });
   }
 
   // Website reservations always require full stay payment after hotel confirmation.
@@ -1073,13 +1072,13 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   let quote: StayQuote;
   try {
     quote = await priceStay({
-      roomPrice: nightlyRate,
+      room: property as Record<string, unknown>,
       checkInDate: checkInResult.value,
       checkOutDate: checkOutResult.value,
+      arrivalTime: arrivalTime || undefined,
       adults: adultsResult.value,
       children: childrenResult.value,
       infants: infantsResult.value,
-      roomType: roomTypeResult.value,
       discountReason: discountReasonResult.value ?? undefined,
       discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
       promoCode: promoCodeResult.value ?? undefined,
@@ -1091,8 +1090,10 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     return res.status(status).json({ message });
   }
 
+  const stayWindow = quote.pricing.charge.window;
+  const stayTimes = { checkInTime: stayWindow.checkInTime, checkOutTime: stayWindow.checkOutTime };
   try {
-    if (await hasBookingOverlap(propertyIdResult.value, checkInResult.value, checkOutResult.value)) {
+    if (await hasBookingOverlap(propertyIdResult.value, stayWindow.checkInDate, stayWindow.checkOutDate, undefined, null, stayTimes)) {
       return res.status(409).json({ message: 'The requested dates are not available.' });
     }
   } catch (error) {
@@ -1129,8 +1130,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   });
 
   const stayDatesForQueue = {
-    checkInDate: toStayDate(checkInResult.value),
-    checkOutDate: toStayDate(checkOutResult.value),
+    checkInDate: toStayDate(stayWindow.checkInDate),
+    checkOutDate: toStayDate(stayWindow.checkOutDate),
   };
 
   const { amountDue, balanceDue, depositPercent, mode: onlinePaymentMode } =
@@ -1198,12 +1199,24 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     hotel_ledger_synced: false,
     hotel_queue_synced: false,
     hotel_sync_error: '',
-    checkInDate: checkInResult.value,
-    checkOutDate: checkOutResult.value,
+    checkInDate: stayWindow.checkInDate,
+    checkOutDate: stayWindow.checkOutDate,
     adults: adultsResult.value,
     children: childrenResult.value,
     infants: infantsResult.value,
     roomType: roomTypeResult.value,
+    // Hotel app stay window + billing (CustomerStayPricing::bookingFieldsFromCharge).
+    check_in_time: stayWindow.checkInTime,
+    check_out_time: stayWindow.checkOutTime,
+    billing_mode: pricing.charge.billingMode,
+    ...(pricing.charge.billingMode === 'hourly'
+      ? {
+        stay_hours: pricing.charge.stayHours,
+        booked_stay_hours: pricing.charge.stayHours,
+        block_hours: pricing.charge.blockHours,
+        price_per_block: pricing.charge.unitPrice,
+      }
+      : {}),
     paymentMethod: paymentMethodResult.value,
     source: 'web',
     nights: pricing.nights,
@@ -1223,8 +1236,6 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     // Hotel Online Bookings queue expects "pending" here; hotel approval sets reserved.
     // Do NOT write check_in_date/check_out_date on create (inventory hold).
     status: 'pending',
-    // Guest's estimated arrival → the hotel app's check-in time field.
-    ...(arrivalTime ? { check_in_time: arrivalTime } : {}),
     requestedAt: createdAt.toISOString(),
     confirmationSendStatus: 'none' as const,
     confirmationSentAt: null as null,
@@ -1232,12 +1243,12 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   };
 
   const propertyIdValue = propertyIdResult.value;
-  const checkInValue = checkInResult.value;
-  const checkOutValue = checkOutResult.value;
+  const checkInValue = stayWindow.checkInDate;
+  const checkOutValue = stayWindow.checkOutDate;
 
   async function persistBooking(session: mongoose.ClientSession | null) {
     if (session) {
-      if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, session)) {
+      if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, session, stayTimes)) {
         const conflict = new Error('The requested dates are not available.');
         (conflict as Error & { status: number }).status = 409;
         throw conflict;
@@ -1253,7 +1264,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       return booking;
     }
 
-    if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue)) {
+    if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, null, stayTimes)) {
       const conflict = new Error('The requested dates are not available.');
       (conflict as Error & { status: number }).status = 409;
       throw conflict;
@@ -1406,7 +1417,12 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         validIdUploaded: true,
         validIdFilename: validIdFile.originalname.slice(0, 200),
         guestIdUrl,
-        checkInTime: arrivalTime || undefined,
+        checkInTime: stayWindow.checkInTime,
+        checkOutTime: stayWindow.checkOutTime,
+        billingMode: pricing.charge.billingMode,
+        stayHours: pricing.charge.stayHours ?? undefined,
+        blockHours: pricing.charge.blockHours ?? undefined,
+        pricePerBlock: pricing.charge.billingMode === 'hourly' ? pricing.charge.unitPrice : undefined,
         paymentProofUploaded: proofOk,
         paymentProofFilename: proofOk ? paymentProofFile!.originalname.slice(0, 200) : undefined,
         paymentProofMime: proofOk ? paymentProofFile!.mimetype : undefined,
@@ -1530,6 +1546,11 @@ bookingRoutes.post('/:bookingId/review-availability', requireAuth, async (req, r
       checkInForOverlap,
       checkOutForOverlap,
       String(booking._id),
+      null,
+      {
+        checkInTime: String((booking as { check_in_time?: unknown }).check_in_time ?? '') || undefined,
+        checkOutTime: String((booking as { check_out_time?: unknown }).check_out_time ?? '') || undefined,
+      },
     );
 
     booking.status = overlap ? 'declined' : 'accepted';

@@ -2,9 +2,24 @@ import { useMemo, useState } from 'react';
 import { BedDouble, Check, Coffee, ShieldCheck, Users } from 'lucide-react';
 import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
-import { describeGuests, peso, stayNights, type Stay } from '../../lib/stayParams';
+import { describeGuests, formatStayDate, peso, stayNights, type Stay } from '../../lib/stayParams';
 
 type SortKey = 'price-asc' | 'price-desc';
+/** 'stay' = the selected dates; 'block' = one hourly block on the check-in day (hourly rooms). */
+export type ReserveMode = 'stay' | 'block';
+type Selection = { id: string; mode: ReserveMode };
+
+/** Server price for the chosen option (never recalculated here). */
+function priceFor(category: HotelDetailCategory, mode: ReserveMode): number | null {
+  return mode === 'block' ? category.hourly?.blockPrice ?? null : stayTotal(category);
+}
+
+function optionLabel(category: HotelDetailCategory, mode: ReserveMode, stay: Stay, nights: number): string {
+  if (mode === 'block' && category.hourly) {
+    return `${category.hourly.blockHours}-hour stay on ${formatStayDate(stay.checkIn)}`;
+  }
+  return `${nights} night${nights === 1 ? '' : 's'}`;
+}
 
 /** Price for the stay, always from the server (never recalculated here); null when it sent none. */
 function stayTotal(category: HotelDetailCategory): number | null {
@@ -36,12 +51,12 @@ export default function RoomsAndRates({
 }: {
   categories: HotelDetailCategory[];
   stay: Stay;
-  onReserve: (category: HotelDetailCategory) => void;
+  onReserve: (category: HotelDetailCategory, mode: ReserveMode) => void;
 }) {
   const nights = stayNights(stay);
   // Client rule: fully booked room types are hidden until a room frees up for these dates.
   const categories = useMemo(() => allCategories.filter((c) => c.availableRooms > 0), [allCategories]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
   const [freeCancellationOnly, setFreeCancellationOnly] = useState(false);
   const [breakfastOnly, setBreakfastOnly] = useState(false);
   const [bedType, setBedType] = useState('');
@@ -71,7 +86,8 @@ export default function RoomsAndRates({
     });
   }, [categories, freeCancellationOnly, breakfastOnly, bedType, maxPrice, sort, nights, stay]);
 
-  const selected = categories.find((c) => c.id === selectedId && isBookable(c, stay)) ?? null;
+  const selectedCategory = categories.find((c) => c.id === selection?.id && isBookable(c, stay)) ?? null;
+  const selected = selectedCategory && selection ? { category: selectedCategory, mode: selection.mode } : null;
 
   if (allCategories.length === 0) {
     return <p className="text-sm font-bold text-brand-dark/60">This hotel has no rooms listed yet.</p>;
@@ -132,7 +148,7 @@ export default function RoomsAndRates({
             </div>
             {visible.map((category) => {
               const bookable = isBookable(category, stay);
-              const isSelected = selected?.id === category.id;
+              const isSelected = selected?.category.id === category.id;
               return (
                 <div
                   key={category.id}
@@ -161,6 +177,11 @@ export default function RoomsAndRates({
                     <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
                     <p className="text-[11px] font-bold text-brand-dark/55">{nights} night{nights === 1 ? '' : 's'}, {describeGuests(stay)}</p>
                     <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
+                    {category.hourly && (
+                      <p className="mt-1 text-[11px] font-bold text-brand-primary">
+                        Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
+                      </p>
+                    )}
                   </div>
 
                   {/* Your choices */}
@@ -177,12 +198,15 @@ export default function RoomsAndRates({
                     {bookable ? (
                       <select
                         aria-label={`Rooms of ${category.name}`}
-                        value={isSelected ? 1 : 0}
-                        onChange={(e) => setSelectedId(Number(e.target.value) > 0 ? category.id : null)}
+                        value={isSelected && selection ? selection.mode : ''}
+                        onChange={(e) => setSelection(e.target.value ? { id: category.id, mode: e.target.value as ReserveMode } : null)}
                         className="w-full md:w-auto px-3 py-2 rounded-lg border border-brand-primary/30 text-sm font-bold bg-white"
                       >
-                        <option value={0}>0</option>
-                        <option value={1}>1 ({priceLabel(category)})</option>
+                        <option value="">0</option>
+                        <option value="stay">1 ({priceLabel(category)})</option>
+                        {category.hourly && (
+                          <option value="block">1 × {category.hourly.blockHours} h on {formatStayDate(stay.checkIn)} ({peso(category.hourly.blockPrice)})</option>
+                        )}
                       </select>
                     ) : (
                       <p className="text-xs font-bold text-brand-danger">
@@ -217,14 +241,16 @@ function ReserveSummary({
   onReserve,
   compact = false,
 }: {
-  selected: HotelDetailCategory | null;
+  selected: { category: HotelDetailCategory; mode: ReserveMode } | null;
   nights: number;
   stay: Stay;
-  onReserve: (category: HotelDetailCategory) => void;
+  onReserve: (category: HotelDetailCategory, mode: ReserveMode) => void;
   compact?: boolean;
 }) {
+  const price = selected ? priceFor(selected.category, selected.mode) : null;
+  const label = selected ? optionLabel(selected.category, selected.mode, stay, nights) : '';
   const button = (
-    <button type="button" disabled={!selected} onClick={() => selected && onReserve(selected)}
+    <button type="button" disabled={!selected} onClick={() => selected && onReserve(selected.category, selected.mode)}
       className="btn-primary w-full py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       Reserve
     </button>
@@ -233,8 +259,8 @@ function ReserveSummary({
     return (
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-brand-dark/60 truncate">1 × {selected.name} · {nights} night{nights === 1 ? '' : 's'}</p>
-          <p className="text-lg font-bold text-brand-dark tabular-nums">{priceLabel(selected)}</p>
+          <p className="text-xs font-bold text-brand-dark/60 truncate">1 × {selected.category.name} · {label}</p>
+          <p className="text-lg font-bold text-brand-dark tabular-nums">{price == null ? '—' : peso(price)}</p>
         </div>
         <div className="w-36">{button}</div>
       </div>
@@ -245,8 +271,8 @@ function ReserveSummary({
       {selected ? (
         <>
           <p className="text-sm font-bold text-brand-dark">1 room selected</p>
-          <p className="text-xs font-bold text-brand-dark/60">{selected.name} · {nights} night{nights === 1 ? '' : 's'}, {describeGuests(stay)}</p>
-          <p className="text-2xl font-bold text-brand-dark tabular-nums">{priceLabel(selected)}</p>
+          <p className="text-xs font-bold text-brand-dark/60">{selected.category.name} · {label}, {describeGuests(stay)}</p>
+          <p className="text-2xl font-bold text-brand-dark tabular-nums">{price == null ? '—' : peso(price)}</p>
           <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
         </>
       ) : (
