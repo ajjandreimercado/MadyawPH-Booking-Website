@@ -620,6 +620,8 @@ async function savePaymentProof(
         payment_proof_verified: false,
         payment_proof_verified_at: null,
         payment_proof_url: proofUrl,
+        // MADYAWPH shows the receipt from payment_screenshot_url.
+        payment_screenshot_url: proofUrl,
         payment_proof_access_token: accessToken,
         deposit_amount: amountDue,
         amountPaid: 0,
@@ -1353,6 +1355,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
           payment_proof_stored: true,
           payment_proof_amount_claimed: proofCheck.amountClaimed,
           payment_proof_url: paymentProofUrl,
+          // MADYAWPH shows the receipt from payment_screenshot_url.
+          payment_screenshot_url: paymentProofUrl,
         });
       }
     }
@@ -1419,6 +1423,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         ...(proofOk
           ? {
             payment_proof_url: paymentProofUrl,
+            // MADYAWPH shows the receipt from payment_screenshot_url.
+            payment_screenshot_url: paymentProofUrl,
             amount_paid: proofCheck.amountClaimed,
             payment_proof_amount_claimed: proofCheck.amountClaimed,
           }
@@ -1444,7 +1450,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       $set: {
         guest_id_url: guestIdUrl,
         guest_id_access_token: validIdToken,
-        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
+        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl, payment_screenshot_url: paymentProofUrl } : {}),
       },
     },
   ).catch((error) => console.error('[Bookings] Failed to set guest/payment file URLs:', error));

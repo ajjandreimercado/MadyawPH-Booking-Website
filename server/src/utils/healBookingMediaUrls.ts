@@ -72,6 +72,8 @@ export async function healBookingMediaUrls(): Promise<{ healed: number }> {
           $set: {
             payment_proof_access_token: token,
             payment_proof_url: paymentProofUrl,
+            // MADYAWPH shows the receipt from payment_screenshot_url.
+            payment_screenshot_url: paymentProofUrl,
             payment_proof_stored: true,
             ...(proofDoc ? {} : {
               payment_proof_base64: proofBase64,
@@ -98,7 +100,7 @@ export async function healBookingMediaUrls(): Promise<{ healed: number }> {
         $set: {
           ...(guestIdUrl ? { guest_id_url: guestIdUrl } : {}),
           ...(guestToken ? { guest_id_access_token: guestToken } : {}),
-          ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
+          ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl, payment_screenshot_url: paymentProofUrl } : {}),
           ...(proofToken ? { payment_proof_access_token: proofToken } : {}),
         },
       },
@@ -115,6 +117,8 @@ export async function healBookingMediaUrls(): Promise<{ healed: number }> {
         ...(paymentProofUrl
           ? {
             payment_proof_url: paymentProofUrl,
+            // MADYAWPH shows the receipt from payment_screenshot_url.
+            payment_screenshot_url: paymentProofUrl,
             payment_proof_uploaded: true,
             payment_proof_collection: 'booking_payment_proofs',
           }
@@ -123,7 +127,7 @@ export async function healBookingMediaUrls(): Promise<{ healed: number }> {
       row.set({
         metadata: JSON.stringify(nextMeta),
         ...(guestIdUrl ? { guest_id_url: guestIdUrl } : {}),
-        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl } : {}),
+        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl, payment_screenshot_url: paymentProofUrl } : {}),
         updated_at: new Date(),
       });
       await row.save();

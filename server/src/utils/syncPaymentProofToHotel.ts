@@ -92,7 +92,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
           payment_proof_mime: input.mime,
           payment_proof_filename: filename,
           ...(accessToken ? { access_token: accessToken } : {}),
-          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+          ...(proofUrl ? { payment_proof_url: proofUrl, payment_screenshot_url: proofUrl } : {}),
           payment_transaction_ref: input.transactionRef,
           payment_proof_amount_claimed: input.amountClaimed,
           expected_deposit_amount: amountDue,
@@ -119,7 +119,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
           payment_proof_uploaded_at: now,
           payment_proof_stored: true,
           ...(accessToken ? { payment_proof_access_token: accessToken } : {}),
-          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+          ...(proofUrl ? { payment_proof_url: proofUrl, payment_screenshot_url: proofUrl } : {}),
           payment_transaction_ref: input.transactionRef,
           payment_proof_amount_claimed: input.amountClaimed,
           payment_proof_verified: false,
@@ -137,6 +137,8 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       {
         $set: {
           payment_proof_url: proofUrl,
+          // MADYAWPH shows the receipt from payment_screenshot_url.
+          payment_screenshot_url: proofUrl,
           ...(accessToken ? { payment_proof_access_token: accessToken } : {}),
           payment_proof_stored: true,
           payment_proof_filename: filename,
@@ -170,7 +172,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
       payment_transaction_ref: input.transactionRef,
       // The hotel app's own field for the wallet reference.
       payment_reference: input.transactionRef,
-      ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+      ...(proofUrl ? { payment_proof_url: proofUrl, payment_screenshot_url: proofUrl } : {}),
       payment_proof_amount_claimed: input.amountClaimed,
       payment_proof_expected_amount: amountDue,
       payment_proof_verified: false,
@@ -191,7 +193,7 @@ export async function syncPaymentProofToHotelApp(input: PaymentProofHotelSyncInp
         $set: {
           metadata: JSON.stringify(nextMeta),
           // Top-level aliases — some hotel screens read these off the reservation row.
-          ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+          ...(proofUrl ? { payment_proof_url: proofUrl, payment_screenshot_url: proofUrl } : {}),
           amount_paid: input.amountClaimed,
           payment_proof_amount_claimed: input.amountClaimed,
           updated_at: now,

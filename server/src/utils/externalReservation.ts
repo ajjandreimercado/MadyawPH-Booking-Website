@@ -166,7 +166,7 @@ export function buildExternalReservationDoc(input: {
     children: input.children ?? 0,
     ...(input.checkInTime ? { check_in_time: input.checkInTime } : {}),
     ...(input.guestIdUrl ? { guest_id_url: input.guestIdUrl } : {}),
-    ...(input.paymentProofUrl ? { payment_proof_url: input.paymentProofUrl } : {}),
+    ...(input.paymentProofUrl ? { payment_proof_url: input.paymentProofUrl, payment_screenshot_url: input.paymentProofUrl } : {}),
   };
 
   return {
