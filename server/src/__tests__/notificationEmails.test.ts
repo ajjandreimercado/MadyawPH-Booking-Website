@@ -9,7 +9,7 @@ import {
   buildHotelWelcomeHtml,
   resolveRoomStayDetails,
 } from '../services/notificationService';
-import { PropertyModel } from '../data/mongoModels';
+import { ExternalReservationModel, PropertyModel } from '../data/mongoModels';
 
 describe('buildRebookUrl', () => {
   it('prefers the hotel detail page when hotel_id is present', () => {
@@ -109,11 +109,24 @@ describe('approval welcome email', () => {
   it("never uses the door code of another guest currently in the room", async () => {
     const room = { room_number: '1', category_name: 'Single', current_access_code: 'W4YX', current_guest_name: 'Someone Else', current_check_in: new Date('2026-10-19T06:00:00Z') };
     const spy = jest.spyOn(PropertyModel, 'findById').mockReturnValue({ select: () => ({ lean: async () => room }) } as never);
+    const noReservation = jest.spyOn(ExternalReservationModel, 'findOne').mockReturnValue({ select: () => ({ lean: async () => null }) } as never);
     const other = await resolveRoomStayDetails({ room_id: 'r1', guestName: 'AJ Jandrei', checkInDate: '2026-10-19' });
     expect(other.accessPassword).toBe('');
     expect(other.roomNumber).toBe('1');
     const mine = await resolveRoomStayDetails({ room_id: 'r1', guestName: 'someone else', checkInDate: '2026-10-19' });
     expect(mine.accessPassword).toBe('W4YX');
     spy.mockRestore();
+    noReservation.mockRestore();
+  });
+
+  it('uses the door code MADYAWPH saved on the approved reservation', async () => {
+    const room = { room_number: '1', category_name: 'Single', current_access_code: 'W4YX', current_guest_name: 'Someone Else' };
+    const spy = jest.spyOn(PropertyModel, 'findById').mockReturnValue({ select: () => ({ lean: async () => room }) } as never);
+    const reservation = jest.spyOn(ExternalReservationModel, 'findOne')
+      .mockReturnValue({ select: () => ({ lean: async () => ({ metadata: JSON.stringify({ guest_access_code: 'K7PQ' }) }) }) } as never);
+    const details = await resolveRoomStayDetails({ _id: 'b1', room_id: 'r1', guestName: 'AJ Jandrei', checkInDate: '2026-10-25' });
+    expect(details.accessPassword).toBe('K7PQ');
+    spy.mockRestore();
+    reservation.mockRestore();
   });
 });
