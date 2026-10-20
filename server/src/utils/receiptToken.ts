@@ -15,11 +15,11 @@ export function signReceiptToken(bookingId: string, email: string) {
     bookingId: String(bookingId),
     email: email.trim().toLowerCase(),
   };
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: RECEIPT_TOKEN_EXPIRES_IN });
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: RECEIPT_TOKEN_EXPIRES_IN });
 }
 
 export function verifyReceiptToken(token: string): ReceiptTokenPayload {
-  const payload = jwt.verify(token, JWT_SECRET) as Partial<ReceiptTokenPayload>;
+  const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as Partial<ReceiptTokenPayload>;
   if (payload.typ !== 'receipt' || !payload.bookingId || !payload.email) {
     throw new Error('Invalid receipt token.');
   }

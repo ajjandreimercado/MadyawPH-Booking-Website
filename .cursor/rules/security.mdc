@@ -1,0 +1,50 @@
+---
+description: Security requirements (OWASP Top 10) for every new implementation
+alwaysApply: true
+---
+
+# Security — mandatory for every change
+
+Enforcement is on the API (`server/`); the frontend only mirrors it. Before finishing
+any new feature, endpoint, or data flow, check it against this list and update
+`SECURITY.md` if the security posture changed.
+
+## Secrets & config (A02, A07)
+- Secrets only in `server/.env` / Render dashboard. Never commit `.env*` (except
+  `.env.example`), data dumps, or `server/data/*.json`. Never use a `VITE_` prefix
+  for a secret — `VITE_*` ships in the public browser bundle.
+- Never log secrets, tokens, signatures (`token=`, `sig=`), passwords, or full emails
+  with credentials. Use timing-safe comparison for secrets/signatures.
+
+## Auth & access control (A01, A07)
+- New write endpoints default to `requireAuth` (+ `requireRole` for admin actions).
+  Public endpoints need a documented reason, a rate limiter, and no PII in responses.
+- Every `:id` handler must verify ownership (booking/email/token) before reading or
+  mutating another user's data. Prices and totals are computed server-side only.
+
+## Input & injection (A03)
+- Allowlist request fields with `pickFields`; validate with `utils/validators.ts`.
+  Never spread `req.body`/`req.query` into Mongoose queries or updates.
+- Uploads: keep magic-byte + size checks (`middleware/validIdUpload.ts`).
+- React renders escaped by default; no `dangerouslySetInnerHTML` without DOMPurify.
+
+## Webhooks & integrity (A08)
+- Server-to-server endpoints require a shared secret (`HOTEL_WEBHOOK_SECRET`) or a
+  verified platform signature (Meta `X-Hub-Signature-256` via `MESSENGER_APP_SECRET`).
+
+## Tokens, headers, limits (A02, A04, A05)
+- JWTs: pin `algorithms: ['HS256']` on sign and verify; keep expiry short.
+- Keep helmet headers, CORS allowlist (`CLIENT_ORIGIN`), CSRF origin guard, JSON
+  body caps, and a rate limiter from `middleware/rateLimiters.ts` on new routes.
+- Errors return generic messages; no stack traces, DB names, or counts in responses
+  (including `/api/health` — liveness only).
+
+## Dependencies (A06)
+- After adding/updating any dependency, run `npm audit` (root + `server/`) and fix
+  high/critical findings. CI (`security.yml`) + Dependabot enforce this on push.
+
+## Finish checklist (run before commit)
+1. `npm audit --omit=dev` clean of high/critical (root + `server/`).
+2. Server tests + frontend build pass.
+3. No new secret/PII in git (`git status`, staged diff).
+4. `SECURITY.md` updated if behaviour above changed.

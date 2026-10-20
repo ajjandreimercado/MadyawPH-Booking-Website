@@ -19,11 +19,15 @@ export function normalizeAuthRole(role: unknown): AuthRole {
 }
 
 export function signAuthToken(payload: AuthTokenPayload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN as SignOptions['expiresIn'] });
+  return jwt.sign(payload, JWT_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: JWT_EXPIRES_IN as SignOptions['expiresIn'],
+  });
 }
 
 export function verifyAuthToken(token: string) {
-  const payload = jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
+  // Pin the algorithm so tokens signed with another alg (e.g. "none"/RS256 confusion) are rejected.
+  const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as AuthTokenPayload;
   return {
     ...payload,
     role: normalizeAuthRole(payload.role),
