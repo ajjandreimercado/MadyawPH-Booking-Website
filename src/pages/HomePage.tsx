@@ -153,7 +153,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
         )}
       </div>
       <div className="p-4 sm:p-5">
-        <h3 className="font-serif font-bold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
+        <h3 className="font-serif font-extrabold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
         <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50 mb-3 min-w-0">
           <MapPin className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate" title={hotel.location}>{locationLabel}</span>

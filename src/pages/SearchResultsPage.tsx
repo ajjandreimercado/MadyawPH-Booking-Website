@@ -120,7 +120,7 @@ function HotelCard({
       <div className={`p-5 flex flex-col justify-between flex-1 ${view === 'list' ? 'min-h-[200px]' : ''}`}>
         <div>
           <div className="flex items-start justify-between gap-3 mb-2">
-            <h3 className="font-serif font-bold text-lg text-brand-dark leading-snug line-clamp-2">{hotel.name}</h3>
+            <h3 className="font-serif font-extrabold text-lg text-brand-dark leading-snug line-clamp-2">{hotel.name}</h3>
           </div>
           <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/60 mb-1 min-w-0">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
