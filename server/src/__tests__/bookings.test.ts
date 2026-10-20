@@ -441,6 +441,8 @@ describe('POST /api/bookings', () => {
       expect(created.serviceFee).toBe(0);
       expect(created.valid_id_filename).toBe('id.png');
       expect(created.valid_id_stored).toBe(true);
+      // Policy acknowledgement is stored with the booking (false when not sent).
+      expect(created.policy_acknowledged).toBe(false);
       expect(created.valid_id_base64).toBeUndefined();
 
       const { ExternalReservationModel, BillingChargeModel, BookingValidIdModel } = jest.requireMock('../data/mongoModels') as {

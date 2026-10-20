@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BedDouble, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
+import { BedDouble, ChevronLeft, ChevronRight, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
 import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
 import { describeGuests, formatStayDate, peso, stayNights, type Stay } from '../../lib/stayParams';
@@ -24,6 +24,12 @@ function optionLabel(category: HotelDetailCategory, mode: ReserveMode, stay: Sta
 /** Price for the stay, always from the server (never recalculated here); null when it sent none. */
 function stayTotal(category: HotelDetailCategory): number | null {
   return category.stayPrice?.total ?? null;
+}
+
+/** All photos the hotel uploaded for this room type (its own gallery, deduped). */
+function photosOf(category: HotelDetailCategory): string[] {
+  const photos = [...new Set([category.imageUrl, ...(category.images ?? [])].filter(Boolean) as string[])];
+  return photos.length > 0 ? photos : [NO_PHOTO_SRC];
 }
 
 function priceLabel(category: HotelDetailCategory): string {
@@ -79,11 +85,16 @@ export default function RoomsAndRates({
   const [bedType, setBedType] = useState('');
   const [maxPrice, setMaxPrice] = useState(0);
   const [sort, setSort] = useState<SortKey>('price-asc');
-  const [viewing, setViewing] = useState<HotelDetailCategory | null>(null);
+  const [viewing, setViewing] = useState<{ category: HotelDetailCategory; index: number } | null>(null);
 
   useEffect(() => {
     if (!viewing) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setViewing(null);
+    const count = photosOf(viewing.category).length;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setViewing(null);
+      if (e.key === 'ArrowRight') setViewing((v) => (v ? { ...v, index: (v.index + 1) % count } : v));
+      if (e.key === 'ArrowLeft') setViewing((v) => (v ? { ...v, index: (v.index - 1 + count) % count } : v));
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [viewing]);
@@ -190,8 +201,8 @@ export default function RoomsAndRates({
                     {category.imageUrl ? (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setViewing(category); }}
-                        aria-label={`View photo of ${category.name}`}
+                        onClick={(e) => { e.stopPropagation(); setViewing({ category, index: 0 }); }}
+                        aria-label={`View photos of ${category.name}`}
                         title="Click to view photo"
                         className="group relative block w-full h-56 sm:h-72 rounded-xl overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                       >
@@ -204,6 +215,24 @@ export default function RoomsAndRates({
                     ) : (
                       <img src={NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
                         className="block w-full h-56 sm:h-72 rounded-xl object-cover" loading="lazy" />
+                    )}
+                    {photosOf(category).length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-1" aria-label={`More photos of ${category.name}`}>
+                        {photosOf(category).slice(0, 6).map((src, photoIndex) => (
+                          <button
+                            key={`${src}-${photoIndex}`}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setViewing({ category, index: photoIndex }); }}
+                            aria-label={`View photo ${photoIndex + 1} of ${category.name}`}
+                            className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                          >
+                            <img src={src} alt="" onError={showNoPhoto} className="h-full w-full object-cover" loading="lazy" />
+                          </button>
+                        ))}
+                        <span className="self-center text-[11px] font-bold text-brand-dark/50 shrink-0">
+                          {photosOf(category).length} photos
+                        </span>
+                      </div>
                     )}
                     <div className="min-w-0">
                       <h3 className="font-bold text-brand-primary underline-offset-2">{category.name}</h3>
@@ -231,6 +260,16 @@ export default function RoomsAndRates({
                       {category.amenities && category.amenities.length > 0 && (
                         <p className="mt-1.5 text-[11px] text-brand-dark/55 line-clamp-2 capitalize">
                           {category.amenities.slice(0, 6).map((a) => a.replace(/-/g, ' ')).join(' · ')}
+                        </p>
+                      )}
+                      <p className="mt-1.5 text-[11px] font-bold text-brand-success">
+                        {category.availableRooms} room{category.availableRooms === 1 ? '' : 's'} available for your dates
+                      </p>
+                      {(category.extraPersonCharge || category.extraBedCharge) && (
+                        <p className="mt-0.5 text-[11px] font-bold text-brand-dark/55">
+                          {category.extraPersonCharge ? `Extra person ${peso(category.extraPersonCharge)}` : ''}
+                          {category.extraPersonCharge && category.extraBedCharge ? ' · ' : ''}
+                          {category.extraBedCharge ? `Extra bed ${peso(category.extraBedCharge)}` : ''}
                         </p>
                       )}
                     </div>
@@ -301,37 +340,75 @@ export default function RoomsAndRates({
         </div>
       )}
 
-      {/* Room photo viewer */}
-      {viewing && (
-        <div
-          className="fixed inset-0 z-[100] bg-brand-dark/95 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Photo of ${viewing.name}`}
-          onClick={() => setViewing(null)}
-        >
-          <button
-            type="button"
-            className="absolute top-4 right-4 text-brand-cream hover:text-white p-1"
+      {/* Room photo gallery — every photo the hotel uploaded for this room type */}
+      {viewing && (() => {
+        const photos = photosOf(viewing.category);
+        const index = Math.min(viewing.index, photos.length - 1);
+        const go = (next: number) => setViewing({ category: viewing.category, index: ((next % photos.length) + photos.length) % photos.length });
+        return (
+          <div
+            className="fixed inset-0 z-[100] bg-brand-dark/95 flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Photos of ${viewing.category.name}`}
             onClick={() => setViewing(null)}
-            aria-label="Close photo"
           >
-            <X className="w-8 h-8" />
-          </button>
-          <figure className="max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={viewing.imageUrl || NO_PHOTO_SRC}
-              alt={viewing.name}
-              onError={showNoPhoto}
-              className="max-h-[80vh] w-full object-contain rounded-xl"
-            />
-            <figcaption className="mt-3 text-center text-sm font-bold text-brand-cream">
-              {viewing.name}
-              {viewing.bedConfiguration ? <span className="block mt-0.5 text-xs font-bold text-brand-cream/60">{viewing.bedConfiguration}</span> : null}
-            </figcaption>
-          </figure>
-        </div>
-      )}
+            <button
+              type="button"
+              className="absolute top-4 right-4 text-brand-cream hover:text-white p-1"
+              onClick={() => setViewing(null)}
+              aria-label="Close photos"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <figure className="max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+              <div className="relative">
+                <img
+                  src={photos[index]}
+                  alt={viewing.category.name}
+                  onError={showNoPhoto}
+                  className="max-h-[72vh] w-full object-contain rounded-xl"
+                />
+                {photos.length > 1 && (
+                  <>
+                    <button type="button" aria-label="Previous photo" onClick={() => go(index - 1)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-brand-dark/60 text-white flex items-center justify-center hover:bg-brand-dark/85">
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button type="button" aria-label="Next photo" onClick={() => go(index + 1)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-brand-dark/60 text-white flex items-center justify-center hover:bg-brand-dark/85">
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                    <span className="absolute bottom-2 right-2 rounded-full bg-brand-dark/70 px-2.5 py-1 text-[11px] font-bold text-white">
+                      {index + 1} / {photos.length}
+                    </span>
+                  </>
+                )}
+              </div>
+              <figcaption className="mt-3 text-center text-sm font-bold text-brand-cream">
+                {viewing.category.name}
+                {viewing.category.bedConfiguration ? <span className="block mt-0.5 text-xs font-bold text-brand-cream/60">{viewing.category.bedConfiguration}</span> : null}
+              </figcaption>
+              {photos.length > 1 && (
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1 justify-start sm:justify-center">
+                  {photos.map((src, photoIndex) => (
+                    <button
+                      key={`${src}-${photoIndex}`}
+                      type="button"
+                      onClick={() => go(photoIndex)}
+                      aria-label={`Photo ${photoIndex + 1}`}
+                      aria-current={photoIndex === index}
+                      className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg focus:outline-none ${photoIndex === index ? 'ring-2 ring-brand-cream' : 'opacity-60 hover:opacity-100'}`}
+                    >
+                      <img src={src} alt="" onError={showNoPhoto} className="h-full w-full object-cover" loading="lazy" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </figure>
+          </div>
+        );
+      })()}
     </div>
   );
 }

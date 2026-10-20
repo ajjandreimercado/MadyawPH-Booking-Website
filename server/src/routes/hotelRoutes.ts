@@ -950,8 +950,33 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
       .sort((a, b) => a.promoPrice - b.promoPrice);
     const categoryPromo = promoCandidates[0]
       ?? resolvePromoPricing(rawCategory, Number(category.defaultPrice ?? 0));
+    // Gallery for this room type: its own uploaded photos first, then photos of the
+    // actual rooms in this type — never another type's or stock photos.
+    const categoryImages = [...new Set([
+      ...(category.images ?? []),
+      category.imageUrl,
+      ...roomsInCategory.map((room) => room.image),
+    ].filter(Boolean) as string[])].slice(0, 8);
+    // Extra-person / extra-bed charges, only when the hotel actually set them.
+    const chargeOf = (...keys: string[]) => {
+      for (const room of roomsInCategory) {
+        const raw = rawRoomById.get(room.id) ?? {};
+        for (const key of keys) {
+          const value = Number(raw[key]);
+          if (Number.isFinite(value) && value > 0) return value;
+        }
+      }
+      for (const key of keys) {
+        const value = Number((rawCategory ?? {})[key]);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+      return undefined;
+    };
     return {
       ...category,
+      images: categoryImages,
+      extraPersonCharge: chargeOf('extra_person_fee', 'extra_person_charge', 'extra_guest_fee', 'additional_person_fee'),
+      extraBedCharge: chargeOf('extra_bed_fee', 'extra_bed_charge', 'additional_bed_fee'),
       stayPrice,
       // Hotel-app promo pricing for display ("Starts from ₱…" / PROMO badge).
       hasPromo: categoryPromo.hasPromo,

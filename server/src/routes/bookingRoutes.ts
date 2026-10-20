@@ -1098,6 +1098,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     'paymentProofAmountClaimed',
     'arrivalTime',
     'groupBooking',
+    'policyAcknowledged',
   ] as const);
   const rawGroupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
 
@@ -1463,6 +1464,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       }
       : {}),
     paymentMethod: paymentMethodResult.value,
+    // Guest ticked the non-refundable policy acknowledgement at checkout (starts unchecked).
+    policy_acknowledged: body.policyAcknowledged === true || body.policyAcknowledged === 'true',
+    policy_acknowledged_at: (body.policyAcknowledged === true || body.policyAcknowledged === 'true') ? createdAt : null,
     source: 'web',
     // Group booking: 50% down payment (online_payment_mode/deposit_percent carry the split).
     group_booking: groupBooking,

@@ -1,6 +1,27 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
 import { resolvePromoPricing } from './promoPricing';
-import { resolveHotelImageUrl, resolveHotelImageUrlFromRecord } from './hotelImageUrl';
+import { imageRevisionToken, resolveHotelImageUrl, resolveHotelImageUrlFromRecord } from './hotelImageUrl';
+
+/**
+ * Every photo attached to a record: the `images` array (hotel app uploads) plus the
+ * single image fields, resolved to browser-loadable URLs and deduped.
+ */
+export function resolveRecordImages(record: unknown, limit = 8): string[] {
+  if (!record || typeof record !== 'object') return [];
+  const source = record as Record<string, unknown>;
+  const version = imageRevisionToken(record);
+  const urls: string[] = [];
+  const push = (raw: unknown) => {
+    if (typeof raw !== 'string' || !raw.trim()) return;
+    const url = resolveHotelImageUrl(raw, { version });
+    if (url && !urls.includes(url)) urls.push(url);
+  };
+  if (Array.isArray(source.images)) source.images.forEach(push);
+  push(source.image_url);
+  push(source.imageUrl);
+  push(source.image);
+  return urls.slice(0, limit);
+}
 import {
   hasAnyPaymentQr,
   mergePaymentAccounts,
@@ -136,6 +157,8 @@ export function serializeRoomCategory(category: AnyDocument) {
     promoPrice: promo.hasPromo ? promo.promoPrice : undefined,
     promoRegularPrice: promo.hasPromo ? promo.regularPrice : undefined,
     imageUrl: resolveHotelImageUrlFromRecord(category) ?? '',
+    // All photos the hotel attached to this room type (never stock/shared images).
+    images: resolveRecordImages(category),
   };
 }
 
