@@ -1582,7 +1582,10 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     }
   } catch (error) {
     const status = (error as { status?: number }).status ?? 400;
-    const message = error instanceof Error ? error.message : 'Unable to create booking.';
+    // Never leak raw Mongoose/DB error text to guests.
+    const message = (error as { name?: string })?.name === 'ValidationError'
+      ? 'Please check your booking details and try again.'
+      : error instanceof Error ? error.message : 'Unable to create booking.';
     return res.status(status).json({ message });
   } finally {
     if (session) {

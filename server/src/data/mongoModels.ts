@@ -126,10 +126,12 @@ const bookingSchema = new Schema(
     guestName: { type: String, required: true },
     // Hotel management app (shared Mongo) also reads snake_case aliases below.
     guest_name: { type: String },
+    // Guests book with an email OR a mobile number (guest checkout, no account) —
+    // the API enforces "at least one contact"; neither field alone is required here.
     // index allows fast lookup of a guest's own bookings
-    guestEmail: { type: String, required: true, index: true },
+    guestEmail: { type: String, default: '', index: true },
     guest_email: { type: String },
-    guest_phone: { type: String, required: true },
+    guest_phone: { type: String, default: '' },
     // Website API uses camelCase string dates (yyyy-MM-dd).
     checkInDate: { type: String, required: true },
     checkOutDate: { type: String, required: true },
@@ -334,8 +336,9 @@ const externalReservationSchema = new Schema(
     source: { type: String, required: true, index: true },
     external_reference: { type: String, required: true, index: true },
     guest_name: { type: String, required: true },
-    guest_email: { type: String, required: true },
-    guest_phone: { type: String, required: true },
+    // Guest checkout gives an email OR a mobile number; the API enforces at least one.
+    guest_email: { type: String, default: '' },
+    guest_phone: { type: String, default: '' },
     check_in_date: { type: Date, required: true },
     check_out_date: { type: Date, required: true },
     status: { type: String, required: true, index: true },
