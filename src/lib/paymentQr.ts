@@ -155,7 +155,7 @@ export function walletPayFromGallerySteps(method: WalletPaymentMethod, amount?: 
     saveHint,
     `Open ${app} → Pay QR → Upload from gallery (or Scan from photos).`,
     amountLine,
-    'Return here to upload your receipt and reference number.',
+    'Return here to upload your receipt screenshot.',
   ];
 }
 

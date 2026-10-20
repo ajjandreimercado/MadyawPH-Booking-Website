@@ -55,7 +55,7 @@ export function HelpCenterPage() {
         },
         {
           heading: 'Online payment',
-          body: 'You pay the full stay total when you book, using the hotel’s own GCash or Maya QR shown at the last step. Upload the receipt screenshot and reference number; the hotel verifies it in their system.',
+          body: 'You pay the full stay total when you book, using the hotel’s own GCash or Maya QR shown at the last step. Upload the receipt screenshot; the hotel verifies it in their system.',
         },
         {
           heading: 'Valid ID',

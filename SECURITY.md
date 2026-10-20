@@ -25,7 +25,7 @@ What protects the site today, and where it lives. Enforcement is on the API; the
 - **Receipts and payment links** use signed, expiring receipt tokens (`utils/receiptToken.ts`).
 - **Guest checkout** (`POST /api/bookings`) is public by design — no account needed to book:
   guarded by `bookingCreateLimiter`, field allowlists, server-side pricing, and one-time
-  payment-proof reference/screenshot uniqueness. Guests give a name plus an email **or** a
+  payment-proof screenshot uniqueness (screenshot only — no reference number or typed amount is collected). Guests give a name plus an email **or** a
   mobile number (any email provider — a Gmail/account sign-in is never required; a
   signed-in account email is only a prefill/fallback). Reading/managing a booking still
   requires the owning account or the signed receipt token.

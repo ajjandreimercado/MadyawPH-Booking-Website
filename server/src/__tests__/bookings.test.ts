@@ -230,12 +230,6 @@ describe('POST /api/bookings', () => {
     withProof = true,
     authenticated = true,
   ) {
-    // The receipt amount must equal the stay total, so ask the quote for it like the checkout does.
-    let claimed = fields.paymentProofAmountClaimed;
-    if (withProof && claimed == null) {
-      const quote = await request(app).post('/api/bookings/quote').send(fields);
-      claimed = quote.body.totalPrice ?? 1;
-    }
     let req = request(app).post('/api/bookings');
     if (authenticated) {
       req = req.set('Cookie', guestCookie());
@@ -244,11 +238,7 @@ describe('POST /api/bookings', () => {
       req = req.field(key, String(value));
     });
     if (withProof) {
-      req = req.field('paymentTransactionRef', 'GCASH-ABC12345');
-      // Guest-entered receipt amount (hotel Payments UI shows this as amount_paid).
-      if (fields.paymentProofAmountClaimed == null) {
-        req = req.field('paymentProofAmountClaimed', String(claimed));
-      }
+      // Screenshot only — no payment reference number or typed amount is collected.
       req = req.attach('paymentProof', TINY_PNG, { filename: 'gcash-proof.png', contentType: 'image/png' });
     }
     if (withId) {
@@ -399,7 +389,7 @@ describe('POST /api/bookings', () => {
       expect(quote.body.dueAfterConfirmation).toBe(13000);
       expect(quote.body.items).toHaveLength(2);
 
-      const res = await postBooking({ ...fields, groupBooking: 'true', paymentProofAmountClaimed: 13000 });
+      const res = await postBooking({ ...fields, groupBooking: 'true' });
       expect(res.status).toBe(201);
       expect(res.body.categoryCount).toBe(2);
       expect(res.body.bookingIds).toHaveLength(2);
@@ -537,7 +527,6 @@ describe('POST /api/bookings', () => {
     const res = await postBooking({
       ...VALID_PAYLOAD,
       groupBooking: 'true',
-      paymentProofAmountClaimed: quote.body.dueNow,
     });
     expect(res.status).toBe(201);
 
@@ -571,13 +560,14 @@ describe('POST /api/bookings', () => {
     expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
     // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
     expect(meta.payment_screenshot_url).toBe(meta.payment_proof_url);
-    expect(meta.payment_transaction_ref).toBe('GCASH-ABC12345');
+    // Screenshot-only proof: no reference number is stored or synced.
+    expect(meta.payment_transaction_ref).toBe('');
 
     const proofUpdate = (MockBookingModel.updateOne as jest.Mock).mock.calls
       .map((call) => call[1]?.$set)
       .find((set) => set?.payment_proof_stored);
     expect(proofUpdate).toMatchObject({
-      payment_transaction_ref: 'GCASH-ABC12345',
+      payment_transaction_ref: '',
       payment_proof_verified: false,
       payment_proof_url: expect.stringMatching(/payment-proof\?token=/),
     });
@@ -590,11 +580,19 @@ describe('POST /api/bookings', () => {
     expect(MockBookingModel.create).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when the receipt amount is not the stay total', async () => {
+  it('records the server amount due for screenshot-only proof (no typed amount)', async () => {
     const res = await postBooking({ ...VALID_PAYLOAD, paymentProofAmountClaimed: 2500 });
-    expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/must match the amount due/i);
-    expect(MockBookingModel.create).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    const mocks = jest.requireMock('../data/mongoModels') as {
+      ExternalReservationModel: { create: jest.Mock };
+    };
+    const meta = JSON.parse(mocks.ExternalReservationModel.create.mock.calls[0][0].metadata);
+    // Any typed amount is ignored — the screenshot is the proof and the hotel
+    // app is synced the server-computed amount due.
+    expect(meta.payment_proof_amount_claimed).toBe(created.totalPrice);
+    expect(meta.amount_paid).toBe(created.totalPrice);
   });
 
   it('serves the ID only with a valid signed link', async () => {

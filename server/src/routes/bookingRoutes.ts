@@ -663,23 +663,18 @@ type PaymentProofCheck =
   | { ok: true; ref: string; amountClaimed: number; sha256: string }
   | { ok: false; status: number; message: string };
 
-/** Validate a payment screenshot + wallet reference before anything is saved. */
+/**
+ * Validate a payment screenshot before anything is saved — screenshot only:
+ * no reference number and no typed amount. The guest is instructed to pay the
+ * exact server-computed amount due, so that amount is recorded as the claimed
+ * amount for the hotel app; staff verify it against the screenshot in MADYAWPH.
+ */
 async function checkPaymentProof(
   file: UploadedBookingFile | undefined,
-  rawRef: unknown,
-  rawAmount: unknown,
   amountDue: number,
 ): Promise<PaymentProofCheck> {
   if (!file) {
     return { ok: false, status: 400, message: 'Please upload the screenshot of your GCash/Maya payment.' };
-  }
-  const refRaw = validateString(rawRef, 'Payment transaction reference', 6, 64);
-  if (!refRaw.ok) {
-    return { ok: false, status: 400, message: 'Enter the reference number from your GCash/Maya receipt (at least 6 characters).' };
-  }
-  const ref = refRaw.value.replace(/\s+/g, '').toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9\-_/]{5,63}$/i.test(ref)) {
-    return { ok: false, status: 400, message: 'The reference number looks invalid. Copy it exactly from your receipt.' };
   }
   if (!(amountDue > 0)) {
     return {
@@ -688,39 +683,11 @@ async function checkPaymentProof(
       message: 'This stay could not be priced. Please go back and choose the room again.',
     };
   }
-  // Guest types the amount from their receipt — hotel staff verify it in MADYAWPH.
-  if (rawAmount === undefined || rawAmount === '' || rawAmount === null) {
-    return {
-      ok: false,
-      status: 400,
-      message: 'Enter the amount you paid (from your GCash/Maya receipt).',
-    };
-  }
-  const claimed = Number(rawAmount);
-  if (!Number.isFinite(claimed) || claimed <= 0) {
-    return {
-      ok: false,
-      status: 400,
-      message: 'Enter a valid amount paid greater than ₱0.',
-    };
-  }
-  // The receipt must show the amount due now (full stay, or 50% down payment for
-  // group bookings) — ±₱1 for rounding.
-  if (Math.abs(claimed - amountDue) > 1) {
-    return {
-      ok: false,
-      status: 400,
-      message: `Your receipt amount must match the amount due of ₱${amountDue.toLocaleString()}. Pay that amount by the hotel's QR, then enter it here.`,
-    };
-  }
   const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
   if (await BookingModel.findOne({ payment_proof_sha256: sha256 }).select('_id').lean()) {
     return { ok: false, status: 409, message: 'This payment screenshot was already used on another booking. Upload the receipt for this stay.' };
   }
-  if (await BookingModel.findOne({ payment_transaction_ref: ref }).select('_id').lean()) {
-    return { ok: false, status: 409, message: 'This reference number was already used on another booking.' };
-  }
-  return { ok: true, ref, amountClaimed: Math.round(claimed * 100) / 100, sha256 };
+  return { ok: true, ref: '', amountClaimed: Math.round(amountDue * 100) / 100, sha256 };
 }
 
 /** Save the screenshot on the booking (unverified) and push it everywhere the hotel app reads. */
@@ -1094,8 +1061,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     'promoCode',
     'membershipId',
     'memberShidId',
-    'paymentTransactionRef',
-    'paymentProofAmountClaimed',
     'arrivalTime',
     'groupBooking',
     'policyAcknowledged',
@@ -1420,12 +1385,7 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     console.error('[Bookings] Full payment must equal stay total', { totalFinalPrice, totalAmountDue });
   }
 
-  const proofCheck = await checkPaymentProof(
-    paymentProofFile,
-    body.paymentTransactionRef,
-    body.paymentProofAmountClaimed,
-    totalAmountDue,
-  );
+  const proofCheck = await checkPaymentProof(paymentProofFile, totalAmountDue);
   if (proofCheck.ok === false) {
     return res.status(proofCheck.status).json({ message: proofCheck.message });
   }
@@ -1697,7 +1657,7 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
         paymentMethod,
         totalAmount: finalTotalPrice,
         amountDue,
-        // Guest-claimed receipt amount — hotel Payments UI reads amount_paid / payment_proof_amount_claimed.
+        // Amount due for this room's share — hotel Payments UI reads amount_paid / payment_proof_amount_claimed.
         amountPaid: proofOk ? unitProof.amountClaimed : 0,
         balanceDue: proofOk
           ? Math.max(0, finalTotalPrice - unitProof.amountClaimed)
@@ -2129,12 +2089,7 @@ bookingRoutes.post('/:bookingId/payment-proof', optionalAuth, bookingCreateLimit
   const due = computeOnlinePaymentDue(stayTotal, mode);
   const amountDue = Number(booking.deposit_amount ?? due.amountDue);
 
-  const proofCheck = await checkPaymentProof(
-    paymentProofFile,
-    req.body?.paymentTransactionRef,
-    req.body?.paymentProofAmountClaimed,
-    amountDue,
-  );
+  const proofCheck = await checkPaymentProof(paymentProofFile, amountDue);
   if (proofCheck.ok === false) {
     return res.status(proofCheck.status).json({ message: proofCheck.message });
   }
