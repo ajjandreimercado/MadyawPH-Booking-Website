@@ -47,7 +47,7 @@ roomCategoryRoutes.get('/:categoryId', publicReadLimiter, async (req, res) => {
   console.log(`[MongoDB Results] Collection: roomcategories, Action: findById, Found: ${category ? 1 : 0}`);
 
   if (!category) {
-    return res.status(404).json({ message: 'Room category not found.' });
+    return res.status(404).json({ message: 'Room type not found.' });
   }
 
   return res.json(serializeRoomCategory(category as never));
