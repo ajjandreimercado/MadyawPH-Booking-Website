@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BedDouble, Check, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
+import { BedDouble, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
 import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
 import { describeGuests, formatStayDate, peso, stayNights, type Stay } from '../../lib/stayParams';
@@ -150,7 +150,7 @@ export default function RoomsAndRates({
             {/* Column headings (desktop) */}
             <div className="hidden md:grid grid-cols-[1.6fr_1fr_1.2fr_0.7fr] bg-brand-primary text-white text-[11px] font-bold uppercase tracking-wider">
               <div className="px-4 py-2.5">Room type</div>
-              <div className="px-4 py-2.5">Price for {nights} night{nights === 1 ? '' : 's'}</div>
+              <div className="px-4 py-2.5">Price</div>
               <div className="px-4 py-2.5">Your choices</div>
               <div className="px-4 py-2.5">Select rooms</div>
             </div>
@@ -160,14 +160,16 @@ export default function RoomsAndRates({
               return (
                 <div
                   key={category.id}
-                  className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? '' : 'opacity-70'}`}
+                  onClick={() => { if (bookable && !isSelected) setSelection({ id: category.id, mode: 'stay' }); }}
+                  title={bookable && !isSelected ? 'Click to select this room and see its price' : undefined}
+                  className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
                 >
                   {/* Room type */}
                   <div className="p-4 flex gap-3">
                     {category.imageUrl ? (
                       <button
                         type="button"
-                        onClick={() => setViewing(category)}
+                        onClick={(e) => { e.stopPropagation(); setViewing(category); }}
                         aria-label={`View photo of ${category.name}`}
                         title="Click to view photo"
                         className="group relative w-24 h-20 rounded-lg overflow-hidden shrink-0 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
@@ -187,12 +189,18 @@ export default function RoomsAndRates({
                       {category.description && (
                         <p className="mt-0.5 text-xs font-bold text-brand-dark/60 line-clamp-2">{category.description}</p>
                       )}
-                      {category.hasPromo && category.promoPrice ? (
+                      {category.hasPromo ? (
                         <p className="mt-1 text-xs font-bold text-brand-danger">
-                          <span className="uppercase tracking-wider">Promo</span> · Starts from {peso(category.promoPrice)}
-                          {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
-                            ? <span className="ml-1.5 text-brand-dark/45 line-through">{peso(category.promoRegularPrice)}</span>
-                            : null}
+                          <span className="uppercase tracking-wider">Promo</span>
+                          {/* Price stays hidden until the guest picks this room type. */}
+                          {isSelected && category.promoPrice ? (
+                            <>
+                              {' '}· Starts from {peso(category.promoPrice)}
+                              {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
+                                ? <span className="ml-1.5 text-brand-dark/45 line-through">{peso(category.promoRegularPrice)}</span>
+                                : null}
+                            </>
+                          ) : null}
                         </p>
                       ) : null}
                       <ul className="mt-1 space-y-0.5 text-xs font-bold text-brand-dark/65">
@@ -207,26 +215,30 @@ export default function RoomsAndRates({
                     </div>
                   </div>
 
-                  {/* Price */}
+                  {/* Price — revealed only after the guest picks this room type */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10">
-                    <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
-                    {/* Room facts come from the category itself, not the searched dates/guests. */}
-                    {category.description
-                      ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
-                      : null}
-                    <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
-                    {category.hourly && (
-                      <p className="mt-1 text-[11px] font-bold text-brand-primary">
-                        Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
-                      </p>
+                    {isSelected ? (
+                      <>
+                        <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
+                        {/* Room facts come from the category itself, not the searched dates/guests. */}
+                        {category.description
+                          ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
+                          : null}
+                        <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
+                        {category.hourly && (
+                          <p className="mt-1 text-[11px] font-bold text-brand-primary">
+                            Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm font-bold text-brand-primary">Select this room to see its price</p>
                     )}
                   </div>
 
                   {/* Your choices */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
-                    <p className="text-brand-danger">Non-refundable</p>
-                    <p className="flex items-center gap-1.5 text-brand-success"><Check className="w-3.5 h-3.5" aria-hidden />Pay by GCash or Maya QR</p>
                     {/* Client rule: always this wording, whatever the real count. */}
                     <p className="text-brand-danger">Only 1 room available</p>
                   </div>
@@ -237,13 +249,14 @@ export default function RoomsAndRates({
                       <select
                         aria-label={`Rooms of ${category.name}`}
                         value={isSelected && selection ? selection.mode : ''}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setSelection(e.target.value ? { id: category.id, mode: e.target.value as ReserveMode } : null)}
                         className="w-full md:w-auto px-3 py-2 rounded-lg border border-brand-primary/30 text-sm font-bold bg-white"
                       >
                         <option value="">0</option>
-                        <option value="stay">1 ({priceLabel(category)})</option>
+                        <option value="stay">1</option>
                         {category.hourly && (
-                          <option value="block">1 × {category.hourly.blockHours} h on {formatStayDate(stay.checkIn)} ({peso(category.hourly.blockPrice)})</option>
+                          <option value="block">1 × {category.hourly.blockHours} h on {formatStayDate(stay.checkIn)}</option>
                         )}
                       </select>
                     ) : (

@@ -398,6 +398,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               quoteLoading={quoteLoading}
               quoteError={quoteError}
               freeCancellation={quote?.freeCancellation}
+              showCancellation={step === 'finish'}
             />
           </div>
 

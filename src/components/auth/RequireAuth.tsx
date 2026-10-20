@@ -2,7 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth, type UserRole } from '../../contexts/AuthContext';
 import { rememberAuthReturn } from '../../lib/authReturn';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 interface RequireAuthProps {
   children: ReactNode;
@@ -18,15 +18,19 @@ export default function RequireAuth({ children, roles }: RequireAuthProps) {
   const location = useLocation();
   const [checking, setChecking] = useState(!user);
   const returnTo = `${location.pathname}${location.search}`;
+  const verifiedOnceRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-
+    // A signed-in user (e.g. just completed the modal/Google flow) never needs
+    // a re-check — and a stale re-check must not wipe that fresh session.
     if (user) {
       setChecking(false);
       return;
     }
+    if (verifiedOnceRef.current) return;
+    verifiedOnceRef.current = true;
 
+    let cancelled = false;
     void (async () => {
       await verifyToken();
       if (!cancelled) setChecking(false);
@@ -35,9 +39,7 @@ export default function RequireAuth({ children, roles }: RequireAuthProps) {
     return () => {
       cancelled = true;
     };
-    // Intentionally run once on mount when session is unknown.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user, verifyToken]);
 
   if (checking) {
     return (

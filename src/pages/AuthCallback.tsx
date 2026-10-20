@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
@@ -38,7 +38,12 @@ export default function AuthCallback() {
   const { showToast } = useToast();
   const { loginWithGoogle } = useAuth();
 
+  // Run exactly once: re-running after the user is set would re-read the (now
+  // cleared) hash, find no token, and bounce back to the "Sign in to book" modal.
+  const startedRef = useRef(false);
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
     (async () => {
       const { id_token } = parseHash(window.location.hash || window.location.search);
       const tokenPayload = id_token ? decodeJwtPayload(id_token) : null;
