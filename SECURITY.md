@@ -26,8 +26,9 @@ What protects the site today, and where it lives. Enforcement is on the API; the
 - **Guest checkout** (`POST /api/bookings`) is public by design — no account needed to book:
   guarded by `bookingCreateLimiter`, field allowlists, server-side pricing, and one-time
   payment-proof reference/screenshot uniqueness. Guests give a name plus an email **or** a
-  mobile number; signed-in guests still have their booking locked to the account email,
-  and reading/managing a booking still requires the account or the signed receipt token.
+  mobile number (any email provider — a Gmail/account sign-in is never required; a
+  signed-in account email is only a prefill/fallback). Reading/managing a booking still
+  requires the owning account or the signed receipt token.
 - **Reviews** need a signed-in account with a completed, uncancelled stay at that room; one per stay, and
   the public name comes from the booking.
 - Errors never return stack traces to clients. `/api/health` returns liveness only (no DB name/counts).
