@@ -79,6 +79,8 @@ export interface HotelDetailResponse {
 export interface BookingCreatePayload {
   /** Room type the guest books; the server assigns a free room of that type. */
   categoryId?: string;
+  /** Extra room types booked together (2+ total = multi-category booking). */
+  categoryIds?: string[];
   /** Legacy: book one specific room. */
   propertyId?: string;
   propertyName: string;
@@ -321,6 +323,7 @@ export async function getCurrentUser() {
 export async function createBookingRequest(payload: BookingCreatePayload) {
   const form = new FormData();
   if (payload.categoryId) form.append('categoryId', payload.categoryId);
+  if (payload.categoryIds?.length) form.append('categoryIds', payload.categoryIds.join(','));
   if (payload.propertyId) form.append('propertyId', payload.propertyId);
   form.append('propertyName', payload.propertyName);
   form.append('guestName', payload.guestName);
@@ -703,6 +706,9 @@ export interface StayQuote {
   dueNow: number;
   dueAfterConfirmation: number;
   taxesIncluded: boolean;
+  /** Multi-category bookings: one entry per room type in the combined quote. */
+  categoryCount?: number;
+  items?: Array<{ categoryId: string; roomName: string; stayPrice: number; totalPrice: number; available: boolean }>;
 }
 
 /** A room type (what guests book). */
@@ -714,6 +720,8 @@ export async function fetchRoomCategory(categoryId: string): Promise<RoomCategor
 /** Server price for a stay, with the same pricing as booking creation. Creates nothing. */
 export async function quoteStay(payload: {
   categoryId: string;
+  /** All room types of a multi-category booking (includes categoryId). */
+  categoryIds?: string[];
   /** HH:mm arrival — hourly rooms are priced from this time. */
   arrivalTime?: string;
   checkInDate: string;

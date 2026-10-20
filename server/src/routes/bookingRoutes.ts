@@ -317,17 +317,27 @@ async function priceStay(input: StayQuoteInput) {
     charge,
   };
 
+  const discount = await resolveStayDiscount(pricing.totalPrice, input);
+  return { pricing, ...discount };
+}
+
+/**
+ * The largest single discount (PWD/senior, promo code, Madyaw member) on a stay total.
+ * Split out of priceStay so a multi-category booking is discounted once on its combined
+ * total, never once per room type.
+ */
+async function resolveStayDiscount(totalPrice: number, input: StayQuoteInput) {
   const canonicalDiscountReason = normalizeDiscountReason(input.discountReason);
   const eligibilityDiscount = resolveServerDiscount(
     canonicalDiscountReason,
-    pricing.totalPrice,
+    totalPrice,
     input.discountAmount,
   );
 
   let promoDiscount = 0;
   let promoCode = '';
   try {
-    const promo = await resolvePromoDiscount(input.promoCode, pricing.totalPrice);
+    const promo = await resolvePromoDiscount(input.promoCode, totalPrice);
     promoDiscount = promo.discountAmount;
     promoCode = promo.code;
   } catch (error) {
@@ -339,7 +349,7 @@ async function priceStay(input: StayQuoteInput) {
   let memberDiscountPercent = 0;
   const rawMembershipId = input.membershipId?.trim() ?? '';
   if (rawMembershipId) {
-    const member = await resolveMemberDiscount(rawMembershipId, pricing.totalPrice);
+    const member = await resolveMemberDiscount(rawMembershipId, totalPrice);
     if (!member.valid) {
       throw new QuoteError(400, member.message || 'Invalid membership ID.');
     }
@@ -350,7 +360,7 @@ async function priceStay(input: StayQuoteInput) {
 
   // Apply the largest single discount among PWD/senior, promo, and Madyaw member.
   const resolvedDiscount = Math.min(
-    pricing.totalPrice,
+    totalPrice,
     Math.max(eligibilityDiscount, promoDiscount, memberDiscount),
   );
   let finalDiscountReason = canonicalDiscountReason ?? '';
@@ -365,10 +375,9 @@ async function priceStay(input: StayQuoteInput) {
     finalDiscountType = 'promo';
     finalDiscountValue = 0;
   }
-  const finalTotalPrice = Math.max(0, pricing.totalPrice - resolvedDiscount);
+  const finalTotalPrice = Math.max(0, totalPrice - resolvedDiscount);
 
   return {
-    pricing,
     resolvedDiscount,
     promoCode,
     membershipId,
@@ -382,6 +391,40 @@ async function priceStay(input: StayQuoteInput) {
 type ResolvedRoom =
   | { ok: true; roomId: string; byCategory: boolean }
   | { ok: false; status: number; message: string };
+
+/** Max room types in one booking (keeps one payment + one hotel queue batch sane). */
+export const MAX_BOOKING_CATEGORIES = 5;
+
+/**
+ * Room types of a (possibly multi-category) booking: the primary categoryId plus the
+ * optional categoryIds list (array, or comma string from multipart forms). Deduped,
+ * primary first, capped. Booking type (group/individual) only applies at 2+.
+ */
+function parseCategoryIds(body: { categoryId?: unknown; categoryIds?: unknown }): string[] {
+  const raw: unknown[] = [];
+  if (Array.isArray(body.categoryIds)) raw.push(...body.categoryIds);
+  else if (typeof body.categoryIds === 'string') raw.push(...body.categoryIds.split(','));
+  const ids: string[] = [];
+  for (const candidate of [body.categoryId, ...raw]) {
+    if (typeof candidate !== 'string') continue;
+    const id = candidate.trim();
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids.slice(0, MAX_BOOKING_CATEGORIES);
+}
+
+/** Split a combined amount across items pro-rata; the last item absorbs rounding. */
+function allocateByShare(total: number, shares: number[]): number[] {
+  const sum = shares.reduce((acc, n) => acc + n, 0);
+  if (!(sum > 0) || !(total > 0)) return shares.map(() => 0);
+  let allocated = 0;
+  return shares.map((share, index) => {
+    if (index === shares.length - 1) return total - allocated;
+    const part = Math.round((share / sum) * total);
+    allocated += part;
+    return part;
+  });
+}
 
 /**
  * Guests book a room type (categoryId) and the server assigns a free room of that type for
@@ -425,11 +468,14 @@ async function resolveBookingRoom(body: {
 
 bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const body = pickFields(req.body ?? {}, [
-    'categoryId', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
+    'categoryId', 'categoryIds', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
     'roomType', 'discountReason', 'promoCode', 'membershipId', 'arrivalTime', 'groupBooking',
   ] as const);
-  // Group bookings (any room type) pay a 50% down payment; individual bookings pay in full.
-  const groupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
+  // Booking type (group = 50% down payment) only exists when booking 2+ room types;
+  // a single room type is always an individual booking paying in full.
+  const categoryIds = parseCategoryIds(body);
+  const groupBooking = (body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1')
+    && categoryIds.length >= 2;
   const quoteArrival = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime) ? body.arrivalTime : undefined;
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
@@ -459,6 +505,98 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   if (!promoCodeResult.ok) return res.status(400).json({ message: promoCodeResult.message });
   const membershipIdResult = validateOptionalString(body.membershipId, 'Membership ID', 40);
   if (!membershipIdResult.ok) return res.status(400).json({ message: membershipIdResult.message });
+
+  // Multi-category booking: price every room type, discount once on the combined total.
+  if (categoryIds.length >= 2) {
+    try {
+      const items: Array<{
+        categoryId: string; roomName: string; stayPrice: number; totalPrice: number;
+        available: boolean; nights: number;
+      }> = [];
+      let firstProperty: Record<string, unknown> | null = null;
+      let firstQuote: StayQuote | null = null;
+      for (const categoryId of categoryIds) {
+        const resolvedItem = await resolveBookingRoom({ ...body, categoryId });
+        if (resolvedItem.ok === false) return res.status(resolvedItem.status).json({ message: resolvedItem.message });
+        const itemProperty = await PropertyModel.findById(resolvedItem.roomId).lean();
+        if (!itemProperty) return res.status(404).json({ message: 'Room not found.' });
+        if (firstProperty && String(itemProperty.hotel_id ?? '') !== String(firstProperty.hotel_id ?? '')) {
+          return res.status(400).json({ message: 'All room types in one booking must belong to the same hotel.' });
+        }
+        const itemQuote = await priceStay({
+          room: itemProperty as Record<string, unknown>,
+          checkInDate: checkInResult.value,
+          checkOutDate: checkOutResult.value,
+          arrivalTime: quoteArrival,
+          adults: adultsResult.value,
+          children: childrenResult.value,
+          infants: infantsResult.value,
+        });
+        const win = itemQuote.pricing.charge.window;
+        const itemAvailable = !(await hasBookingOverlap(resolvedItem.roomId, win.checkInDate, win.checkOutDate, undefined, null, {
+          checkInTime: win.checkInTime,
+          checkOutTime: win.checkOutTime,
+        }));
+        items.push({
+          categoryId,
+          roomName: String(itemProperty.category_name ?? ''),
+          stayPrice: itemQuote.pricing.totalPrice,
+          totalPrice: itemQuote.pricing.totalPrice,
+          available: itemAvailable,
+          nights: itemQuote.pricing.nights,
+        });
+        firstProperty ??= itemProperty as Record<string, unknown>;
+        firstQuote ??= itemQuote;
+      }
+      const grossTotal = items.reduce((sum, item) => sum + item.stayPrice, 0);
+      const discount = await resolveStayDiscount(grossTotal, {
+        room: firstProperty ?? {},
+        checkInDate: checkInResult.value,
+        checkOutDate: checkOutResult.value,
+        adults: adultsResult.value,
+        children: childrenResult.value,
+        infants: infantsResult.value,
+        discountReason: discountReasonResult.value ?? undefined,
+        promoCode: promoCodeResult.value ?? undefined,
+        membershipId: membershipIdResult.value ?? undefined,
+      });
+      const itemTotals = allocateByShare(discount.finalTotalPrice, items.map((item) => item.stayPrice));
+      items.forEach((item, index) => { item.totalPrice = itemTotals[index]; });
+      const win = firstQuote!.pricing.charge.window;
+      const due = computeOnlinePaymentDue(discount.finalTotalPrice, groupBooking ? 'half' : 'full');
+      return res.json({
+        available: items.every((item) => item.available),
+        billingMode: firstQuote!.pricing.charge.billingMode,
+        stayHours: firstQuote!.pricing.charge.stayHours,
+        blockHours: firstQuote!.pricing.charge.blockHours,
+        blocks: firstQuote!.pricing.charge.blocks,
+        checkInTime: win.checkInTime,
+        checkOutTime: win.checkOutTime,
+        checkOutDate: win.checkOutDate,
+        roomName: items[0]?.roomName ?? '',
+        hotelName: await hotelNameOf(firstProperty as never),
+        hotelLocation: String(firstProperty?.hotel_location ?? ''),
+        freeCancellation: firstProperty?.free_cancellation === true,
+        nights: items[0]?.nights ?? firstQuote!.pricing.nights,
+        roomRate: firstQuote!.pricing.roomRate,
+        stayPrice: grossTotal,
+        discountAmount: discount.resolvedDiscount,
+        discountType: discount.finalDiscountType,
+        discountReason: discount.finalDiscountReason,
+        totalPrice: discount.finalTotalPrice,
+        groupBooking,
+        dueNow: due.amountDue,
+        dueAfterConfirmation: due.balanceDue,
+        taxesIncluded: true,
+        categoryCount: items.length,
+        items,
+      });
+    } catch (error) {
+      const status = error instanceof QuoteError ? error.status : 400;
+      const message = error instanceof Error ? error.message : 'Unable to price this stay.';
+      return res.status(status).json({ message });
+    }
+  }
 
   const resolved = await resolveBookingRoom(body);
   if (resolved.ok === false) return res.status(resolved.status).json({ message: resolved.message });
@@ -937,6 +1075,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   // multipart fields arrive as strings; coerce occupancy numbers below.
   const body = pickFields(req.body, [
     'categoryId',
+    'categoryIds',
     'propertyId',
     'propertyName',
     'guestName',
@@ -960,8 +1099,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     'arrivalTime',
     'groupBooking',
   ] as const);
-  // Group bookings (any room type) pay a 50% down payment; individual bookings pay in full.
-  const groupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
+  const rawGroupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
 
   const arrivalTime = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime)
     ? body.arrivalTime
@@ -969,11 +1107,30 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
 
   // ── Required field validation ─────────────────────────────────────────────
 
-  const resolvedRoom = await resolveBookingRoom(body);
-  if (resolvedRoom.ok === false) {
-    return res.status(resolvedRoom.status).json({ message: resolvedRoom.message });
+  // One booking may cover 2+ room types of the same hotel (one reservation per type,
+  // one shared payment). Booking type (group = 50% down payment) only applies then;
+  // a single room type is always an individual booking paying in full.
+  const categoryIds = parseCategoryIds(body);
+  const isMultiCategory = categoryIds.length >= 2;
+  const groupBooking = rawGroupBooking && isMultiCategory;
+  type ResolvedUnitRoom = { roomId: string; byCategory: boolean; categoryId?: string };
+  const resolvedList: ResolvedUnitRoom[] = [];
+  if (categoryIds.length > 0) {
+    for (const categoryId of categoryIds) {
+      const resolvedItem = await resolveBookingRoom({ ...body, categoryId });
+      if (resolvedItem.ok === false) {
+        return res.status(resolvedItem.status).json({ message: resolvedItem.message });
+      }
+      resolvedList.push({ roomId: resolvedItem.roomId, byCategory: resolvedItem.byCategory, categoryId });
+    }
+  } else {
+    const resolvedRoom = await resolveBookingRoom(body);
+    if (resolvedRoom.ok === false) {
+      return res.status(resolvedRoom.status).json({ message: resolvedRoom.message });
+    }
+    resolvedList.push({ roomId: resolvedRoom.roomId, byCategory: resolvedRoom.byCategory });
   }
-  const propertyIdResult = { ok: true as const, value: resolvedRoom.roomId };
+  const resolvedRoom = resolvedList[0];
 
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
@@ -1075,52 +1232,135 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
 
   // ── Database operations ───────────────────────────────────────────────────
 
-  console.log(`[MongoDB Query] Collection: rooms, Action: findById, ID: ${propertyIdResult.value}`);
-  const property = await PropertyModel.findById(propertyIdResult.value).lean();
-  console.log(`[MongoDB Results] Collection: rooms, Action: findById, Found: ${property ? 1 : 0}`);
-
-  if (!property) {
-    return res.status(404).json({ message: 'Room not found.' });
+  // Load every booked room (one per room type), all at the same hotel.
+  type BookingUnit = {
+    roomId: string;
+    byCategory: boolean;
+    categoryId?: string;
+    property: Record<string, unknown> & { _id: unknown; hotel_id?: unknown; room_type?: string; category_name?: string; display_name?: string; billing_mode?: unknown; hotel_location?: unknown; free_cancellation?: unknown };
+    roomType: string;
+    pricing: StayQuote['pricing'];
+    finalTotalPrice: number;
+    resolvedDiscount: number;
+    amountDue: number;
+  };
+  const units: BookingUnit[] = [];
+  for (const resolvedUnit of resolvedList) {
+    console.log(`[MongoDB Query] Collection: rooms, Action: findById, ID: ${resolvedUnit.roomId}`);
+    const unitProperty = await PropertyModel.findById(resolvedUnit.roomId).lean();
+    console.log(`[MongoDB Results] Collection: rooms, Action: findById, Found: ${unitProperty ? 1 : 0}`);
+    if (!unitProperty) {
+      return res.status(404).json({ message: 'Room not found.' });
+    }
+    if (units.length > 0 && String(unitProperty.hotel_id ?? '') !== String(units[0].property.hotel_id ?? '')) {
+      return res.status(400).json({ message: 'All room types in one booking must belong to the same hotel.' });
+    }
+    if (String(unitProperty.billing_mode ?? '').toLowerCase() !== 'hourly'
+      && stayDateOf(checkOutResult.value) === stayDateOf(checkInResult.value)) {
+      return res.status(400).json({ message: 'Check-out must be after check-in.' });
+    }
+    units.push({
+      ...resolvedUnit,
+      property: unitProperty as BookingUnit['property'],
+      roomType: resolvedUnit.byCategory ? (unitProperty.room_type || 'standard-room') : roomTypeResult.value,
+      pricing: undefined as unknown as StayQuote['pricing'],
+      finalTotalPrice: 0,
+      resolvedDiscount: 0,
+      amountDue: 0,
+    });
   }
-  if (resolvedRoom.byCategory) {
-    roomTypeResult.value = property.room_type || 'standard-room';
-  }
+  const property = units[0].property;
 
-  if (String(property.billing_mode ?? '').toLowerCase() !== 'hourly'
-    && stayDateOf(checkOutResult.value) === stayDateOf(checkInResult.value)) {
-    return res.status(400).json({ message: 'Check-out must be after check-in.' });
-  }
-
-  // Individual bookings pay the full stay; group bookings pay a 50% down payment
-  // (balance at the hotel) — available for every room type.
+  // Individual bookings pay the full stay; group bookings (2+ room types) pay a 50%
+  // down payment, balance at the hotel.
   const paymentMode = groupBooking ? ('half' as const) : ('full' as const);
 
-  let quote: StayQuote;
+  // Price every room type. A multi-category booking is discounted once on the combined
+  // total (allocated back per room type), so promo/member discounts never multiply.
+  let promoCode = '';
+  let membershipId = '';
+  let finalDiscountReason = '';
+  let finalDiscountType = '';
+  let finalDiscountValue = 0;
+  let totalFinalPrice = 0;
   try {
-    quote = await priceStay({
-      room: property as Record<string, unknown>,
-      checkInDate: checkInResult.value,
-      checkOutDate: checkOutResult.value,
-      arrivalTime: arrivalTime || undefined,
-      adults: adultsResult.value,
-      children: childrenResult.value,
-      infants: infantsResult.value,
-      discountReason: discountReasonResult.value ?? undefined,
-      discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
-      promoCode: promoCodeResult.value ?? undefined,
-      membershipId: membershipIdResult.value ?? undefined,
-    });
+    if (!isMultiCategory) {
+      const quote = await priceStay({
+        room: units[0].property as Record<string, unknown>,
+        checkInDate: checkInResult.value,
+        checkOutDate: checkOutResult.value,
+        arrivalTime: arrivalTime || undefined,
+        adults: adultsResult.value,
+        children: childrenResult.value,
+        infants: infantsResult.value,
+        discountReason: discountReasonResult.value ?? undefined,
+        discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
+        promoCode: promoCodeResult.value ?? undefined,
+        membershipId: membershipIdResult.value ?? undefined,
+      });
+      units[0].pricing = quote.pricing;
+      units[0].finalTotalPrice = quote.finalTotalPrice;
+      units[0].resolvedDiscount = quote.resolvedDiscount;
+      promoCode = quote.promoCode;
+      membershipId = quote.membershipId;
+      finalDiscountReason = quote.finalDiscountReason;
+      finalDiscountType = quote.finalDiscountType;
+      finalDiscountValue = quote.finalDiscountValue;
+    } else {
+      for (const unit of units) {
+        const quote = await priceStay({
+          room: unit.property as Record<string, unknown>,
+          checkInDate: checkInResult.value,
+          checkOutDate: checkOutResult.value,
+          arrivalTime: arrivalTime || undefined,
+          adults: adultsResult.value,
+          children: childrenResult.value,
+          infants: infantsResult.value,
+        });
+        unit.pricing = quote.pricing;
+        unit.finalTotalPrice = quote.pricing.totalPrice;
+      }
+      const grossTotal = units.reduce((sum, unit) => sum + unit.pricing.totalPrice, 0);
+      const discount = await resolveStayDiscount(grossTotal, {
+        room: units[0].property as Record<string, unknown>,
+        checkInDate: checkInResult.value,
+        checkOutDate: checkOutResult.value,
+        adults: adultsResult.value,
+        children: childrenResult.value,
+        infants: infantsResult.value,
+        discountReason: discountReasonResult.value ?? undefined,
+        discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
+        promoCode: promoCodeResult.value ?? undefined,
+        membershipId: membershipIdResult.value ?? undefined,
+      });
+      const finalShares = allocateByShare(discount.finalTotalPrice, units.map((unit) => unit.pricing.totalPrice));
+      const discountShares = allocateByShare(discount.resolvedDiscount, units.map((unit) => unit.pricing.totalPrice));
+      units.forEach((unit, index) => {
+        unit.finalTotalPrice = finalShares[index];
+        unit.resolvedDiscount = discountShares[index];
+      });
+      promoCode = discount.promoCode;
+      membershipId = discount.membershipId;
+      finalDiscountReason = discount.finalDiscountReason;
+      finalDiscountType = discount.finalDiscountType;
+      finalDiscountValue = discount.finalDiscountValue;
+    }
   } catch (error) {
     const status = error instanceof QuoteError ? error.status : 400;
     const message = error instanceof Error ? error.message : 'Invalid booking details.';
     return res.status(status).json({ message });
   }
+  totalFinalPrice = units.reduce((sum, unit) => sum + unit.finalTotalPrice, 0);
 
-  const stayWindow = quote.pricing.charge.window;
-  const stayTimes = { checkInTime: stayWindow.checkInTime, checkOutTime: stayWindow.checkOutTime };
   try {
-    if (await hasBookingOverlap(propertyIdResult.value, stayWindow.checkInDate, stayWindow.checkOutDate, undefined, null, stayTimes)) {
-      return res.status(409).json({ message: 'The requested dates are not available.' });
+    for (const unit of units) {
+      const win = unit.pricing.charge.window;
+      if (await hasBookingOverlap(unit.roomId, win.checkInDate, win.checkOutDate, undefined, null, {
+        checkInTime: win.checkInTime,
+        checkOutTime: win.checkOutTime,
+      })) {
+        return res.status(409).json({ message: 'The requested dates are not available.' });
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to verify availability.';
@@ -1128,16 +1368,6 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   }
 
   const createdAt = new Date();
-  const {
-    pricing,
-    resolvedDiscount,
-    promoCode,
-    membershipId,
-    finalDiscountReason,
-    finalDiscountType,
-    finalDiscountValue,
-    finalTotalPrice,
-  } = quote;
 
   // Shared MongoDB with the hotel management app:
   // - This website only INSERTS a reservation request (never deletes hotel/ops data).
@@ -1155,43 +1385,44 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     includeStayDates: true,
   });
 
-  const stayDatesForQueue = {
-    checkInDate: toStayDate(stayWindow.checkInDate),
-    checkOutDate: toStayDate(stayWindow.checkOutDate),
-  };
-
-  const { amountDue, balanceDue, depositPercent, mode: onlinePaymentMode } =
-    computeOnlinePaymentDue(finalTotalPrice, paymentMode);
+  const { amountDue: totalAmountDue, depositPercent, mode: onlinePaymentMode } =
+    computeOnlinePaymentDue(totalFinalPrice, paymentMode);
+  // Per-room-type share of the one payment (full stay, or 50% group down payment).
+  const dueShares = allocateByShare(totalAmountDue, units.map((unit) => unit.finalTotalPrice));
+  units.forEach((unit, index) => { unit.amountDue = dueShares[index]; });
   // Deposit / full stay amount is collected after hotel confirmation — create as unpaid.
   const paymentStatus = 'unpaid' as const;
-  if (onlinePaymentMode === 'full' && finalTotalPrice > 0 && amountDue !== finalTotalPrice) {
-    console.error('[Bookings] Full payment must equal stay total', { finalTotalPrice, amountDue });
+  if (onlinePaymentMode === 'full' && totalFinalPrice > 0 && totalAmountDue !== totalFinalPrice) {
+    console.error('[Bookings] Full payment must equal stay total', { totalFinalPrice, totalAmountDue });
   }
 
   const proofCheck = await checkPaymentProof(
     paymentProofFile,
     body.paymentTransactionRef,
     body.paymentProofAmountClaimed,
-    amountDue,
+    totalAmountDue,
   );
   if (proofCheck.ok === false) {
     return res.status(proofCheck.status).json({ message: proofCheck.message });
   }
 
   const hotelIdForBooking = String(property.hotel_id ?? '');
-  const hotelNameForEmail = await hotelNameOf(property);
+  const hotelNameForEmail = await hotelNameOf(property as never);
 
-  const bookingDoc = {
-    booking_reference: `BR-${Date.now()}`,
+  const buildBookingDoc = (unit: BookingUnit, unitIndex: number) => {
+    const pricing = unit.pricing;
+    const stayWindow = pricing.charge.window;
+    return {
+    booking_reference: isMultiCategory ? `BR-${Date.now()}-${unitIndex + 1}` : `BR-${Date.now()}`,
     hotel_id: hotelIdForBooking,
     // Used so guest emails say "Welcome to {hotel}" even if HotelModel lookup fails.
     ...(hotelNameForEmail ? { hotel_name: hotelNameForEmail } : {}),
-    room_id: toHotelRoomId(property._id),
-    propertyId: propertyIdResult.value,
+    room_id: toHotelRoomId(unit.property._id),
+    propertyId: unit.roomId,
     // Room-type bookings are named after the type; the guest never sees the room number.
-    propertyName: resolvedRoom.byCategory
-      ? (property.category_name || property.display_name)
-      : (propertyNameResult.value ?? property.display_name),
+    propertyName: unit.byCategory
+      ? (unit.property.category_name || unit.property.display_name)
+      : (propertyNameResult.value ?? unit.property.display_name),
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
     guest_phone: guestPhoneResult.value,
@@ -1199,7 +1430,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     discount_reason: finalDiscountReason,
     discount_type: finalDiscountType,
     discount_value: finalDiscountValue,
-    discount_amount: resolvedDiscount,
+    discount_amount: unit.resolvedDiscount,
     member_shid_id: membershipId,
     special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
     promo_code: promoCode,
@@ -1218,7 +1449,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     adults: adultsResult.value,
     children: childrenResult.value,
     infants: infantsResult.value,
-    roomType: roomTypeResult.value,
+    roomType: unit.roomType,
     // Hotel app stay window + billing (CustomerStayPricing::bookingFieldsFromCharge).
     check_in_time: stayWindow.checkInTime,
     check_out_time: stayWindow.checkOutTime,
@@ -1239,13 +1470,13 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     guestCount: pricing.guestCount,
     roomRate: pricing.roomRate,
     serviceFee: 0,
-    totalPrice: finalTotalPrice,
-    total_amount: finalTotalPrice,
+    totalPrice: unit.finalTotalPrice,
+    total_amount: unit.finalTotalPrice,
     // Paid by QR at checkout; hotel still verifies the screenshot in MADYAWPH.
     amountPaid: 0,
     amount_paid: 0,
-    deposit_amount: amountDue,
-    balance_due: finalTotalPrice,
+    deposit_amount: unit.amountDue,
+    balance_due: unit.finalTotalPrice,
     online_payment_mode: onlinePaymentMode,
     deposit_percent: depositPercent,
     payment_status: paymentStatus,
@@ -1256,43 +1487,41 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     confirmationSendStatus: 'none' as const,
     confirmationSentAt: null as null,
     confirmationSendError: '',
+    };
   };
 
-  const propertyIdValue = propertyIdResult.value;
-  const checkInValue = stayWindow.checkInDate;
-  const checkOutValue = stayWindow.checkOutDate;
-
-  async function persistBooking(session: mongoose.ClientSession | null) {
-    if (session) {
-      if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, session, stayTimes)) {
-        const conflict = new Error('The requested dates are not available.');
-        (conflict as Error & { status: number }).status = 409;
-        throw conflict;
-      }
-      const created = await BookingModel.create([bookingDoc], { session });
-      const booking = created?.[0];
-      if (!booking) {
-        throw new Error('Unable to create booking.');
-      }
-      if (promoCode) {
-        await incrementPromoUse(promoCode, session);
-      }
-      return booking;
-    }
-
-    if (await hasBookingOverlap(propertyIdValue, checkInValue, checkOutValue, undefined, null, stayTimes)) {
+  async function persistUnit(unit: BookingUnit, unitIndex: number, session: mongoose.ClientSession | null) {
+    const win = unit.pricing.charge.window;
+    const unitTimes = { checkInTime: win.checkInTime, checkOutTime: win.checkOutTime };
+    if (await hasBookingOverlap(unit.roomId, win.checkInDate, win.checkOutDate, undefined, session, unitTimes)) {
       const conflict = new Error('The requested dates are not available.');
       (conflict as Error & { status: number }).status = 409;
       throw conflict;
     }
-    const booking = await BookingModel.create(bookingDoc);
-    if (promoCode) {
-      await incrementPromoUse(promoCode);
+    const doc = buildBookingDoc(unit, unitIndex);
+    if (session) {
+      const created = await BookingModel.create([doc], { session });
+      const booking = created?.[0];
+      if (!booking) {
+        throw new Error('Unable to create booking.');
+      }
+      return booking;
     }
-    return booking;
+    return BookingModel.create(doc);
   }
 
-  let booking;
+  async function persistAllUnits(session: mongoose.ClientSession | null) {
+    const createdBookings = [];
+    for (let index = 0; index < units.length; index += 1) {
+      createdBookings.push(await persistUnit(units[index], index, session));
+    }
+    if (promoCode) {
+      await incrementPromoUse(promoCode, session);
+    }
+    return createdBookings;
+  }
+
+  let createdBookings;
   let session: mongoose.ClientSession | null = null;
   try {
     try {
@@ -1305,7 +1534,7 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     if (session) {
       try {
         session.startTransaction();
-        booking = await persistBooking(session);
+        createdBookings = await persistAllUnits(session);
         await session.commitTransaction();
       } catch (txError) {
         try {
@@ -1316,13 +1545,13 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
 
         if (isTransactionUnsupported(txError)) {
           console.warn('[Bookings] Transactions unsupported; falling back to non-transactional create.');
-          booking = await persistBooking(null);
+          createdBookings = await persistAllUnits(null);
         } else {
           throw txError;
         }
       }
     } else {
-      booking = await persistBooking(null);
+      createdBookings = await persistAllUnits(null);
     }
   } catch (error) {
     const status = (error as { status?: number }).status ?? 400;
@@ -1334,13 +1563,30 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     }
   }
 
+  // Finalize each reservation (ID, payment screenshot, hotel queue row) under the
+  // one shared payment; the guest's first booking anchors the confirmation page.
+  const allSyncErrors: string[] = [];
+  for (let unitIndex = 0; unitIndex < createdBookings.length; unitIndex += 1) {
+    const booking = createdBookings[unitIndex];
+    const unit = units[unitIndex];
+    const property = unit.property;
+    const pricing = unit.pricing;
+    const stayWindow = pricing.charge.window;
+    const stayDatesForQueue = {
+      checkInDate: toStayDate(stayWindow.checkInDate),
+      checkOutDate: toStayDate(stayWindow.checkOutDate),
+    };
+    const finalTotalPrice = unit.finalTotalPrice;
+    const amountDue = unit.amountDue;
+    const unitProof = proofCheck.ok ? { ...proofCheck, amountClaimed: amountDue } : proofCheck;
+
   console.log(`[MongoDB Action] Collection: bookings, Action: create, Success: true, ID: ${booking._id}`);
 
   const hotelId = String(booking.hotel_id ?? property.hotel_id ?? '');
   const bookingId = String(booking._id);
   const roomId = String(booking.room_id ?? property._id);
   const paymentMethod = paymentMethodResult.value;
-  const syncErrors: string[] = [];
+  const syncErrors = allSyncErrors;
 
   // Stable token URLs (same fields hotel walk-ins use: guest_id_url / payment_proof_url).
   const validIdToken = newBookingFileToken();
@@ -1375,12 +1621,12 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
   // Payment screenshot first — hotel Online Bookings row must include it at create time.
   try {
     if (paymentProofFile && proofCheck.ok) {
-      const saved = await savePaymentProof(booking, paymentProofFile, proofCheck, finalTotalPrice, amountDue);
+      const saved = await savePaymentProof(booking, paymentProofFile, unitProof, finalTotalPrice, amountDue);
       paymentProofUrl = saved.proofUrl;
       if (typeof (booking as { set?: (v: Record<string, unknown>) => void }).set === 'function') {
         (booking as { set: (v: Record<string, unknown>) => void }).set({
           payment_proof_stored: true,
-          payment_proof_amount_claimed: proofCheck.amountClaimed,
+          payment_proof_amount_claimed: unitProof.amountClaimed,
           payment_proof_url: paymentProofUrl,
           // MADYAWPH shows the receipt from payment_screenshot_url.
           payment_screenshot_url: paymentProofUrl,
@@ -1419,9 +1665,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         totalAmount: finalTotalPrice,
         amountDue,
         // Guest-claimed receipt amount — hotel Payments UI reads amount_paid / payment_proof_amount_claimed.
-        amountPaid: proofOk ? proofCheck.amountClaimed : 0,
+        amountPaid: proofOk ? unitProof.amountClaimed : 0,
         balanceDue: proofOk
-          ? Math.max(0, finalTotalPrice - proofCheck.amountClaimed)
+          ? Math.max(0, finalTotalPrice - unitProof.amountClaimed)
           : finalTotalPrice,
         onlinePaymentMode,
         depositPercent,
@@ -1442,8 +1688,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
         paymentProofUploaded: proofOk,
         paymentProofFilename: proofOk ? paymentProofFile!.originalname.slice(0, 200) : undefined,
         paymentProofMime: proofOk ? paymentProofFile!.mimetype : undefined,
-        paymentTransactionRef: proofOk ? proofCheck.ref : undefined,
-        paymentProofAmountClaimed: proofOk ? proofCheck.amountClaimed : undefined,
+        paymentTransactionRef: proofOk ? unitProof.ref : undefined,
+        paymentProofAmountClaimed: proofOk ? unitProof.amountClaimed : undefined,
         paymentProofExpectedAmount: amountDue,
         paymentProofVerified: false,
         paymentProofUrl: proofOk ? paymentProofUrl : undefined,
@@ -1457,8 +1703,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
             payment_proof_url: paymentProofUrl,
             // MADYAWPH shows the receipt from payment_screenshot_url.
             payment_screenshot_url: paymentProofUrl,
-            amount_paid: proofCheck.amountClaimed,
-            payment_proof_amount_claimed: proofCheck.amountClaimed,
+            amount_paid: unitProof.amountClaimed,
+            payment_proof_amount_claimed: unitProof.amountClaimed,
           }
           : {}),
       });
@@ -1494,22 +1740,34 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     );
   }
 
+  }
+  const firstBooking = createdBookings[0];
+
   // No email at checkout — the guest's only email is the hotel's welcome, sent when the
   // hotel approves the booking (see hotelBookingSync → sendBookingConfirmationNotification).
 
-  const receiptToken = signReceiptToken(String(booking._id), guestEmailResult.value);
+  const receiptToken = signReceiptToken(String(firstBooking._id), guestEmailResult.value);
   return res.status(201).json({
-    ...serializeBooking(booking as never),
+    ...serializeBooking(firstBooking as never),
     amountPaid: 0,
-    balanceDue: finalTotalPrice,
-    depositAmount: amountDue,
+    balanceDue: totalFinalPrice,
+    depositAmount: totalAmountDue,
     paymentStatus: 'unpaid',
     onlinePaymentMode,
     depositPercent,
     validIdUploaded: true,
-    hotelLedgerSynced: syncErrors.every((e) => !e.startsWith('ledger:')),
-    hotelQueueSynced: syncErrors.every((e) => !e.startsWith('queue:')),
+    hotelLedgerSynced: allSyncErrors.every((e) => !e.startsWith('ledger:')),
+    hotelQueueSynced: allSyncErrors.every((e) => !e.startsWith('queue:')),
     receiptToken,
+    // Multi-category: one reservation per room type under this one payment.
+    categoryCount: createdBookings.length,
+    bookingIds: createdBookings.map((entry) => String(entry._id)),
+    bookings: createdBookings.map((entry, index) => ({
+      id: String(entry._id),
+      roomName: String(entry.propertyName ?? units[index]?.property.category_name ?? ''),
+      totalPrice: units[index]?.finalTotalPrice ?? 0,
+    })),
+    combinedTotalPrice: totalFinalPrice,
   });
 });
 

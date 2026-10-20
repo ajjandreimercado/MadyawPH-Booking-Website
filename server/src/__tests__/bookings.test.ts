@@ -330,17 +330,47 @@ describe('POST /api/bookings', () => {
     ];
     const { propertyId: _unused, roomType: _type, propertyName: _name, ...BY_CATEGORY } = { ...VALID_PAYLOAD, categoryId: 'cat-deluxe' };
 
+    const ALL_ROOMS = [
+      ...ROOMS,
+      { _id: 'room-201', hotel_id: 'hotel-001', category_id: 'cat-family', category_name: 'Family', display_name: 'Room 201', room_number: '201', price_per_night: 4000, room_type: 'standard-room', status: 'available' },
+    ];
+
     beforeEach(() => {
       const { RoomCategoryModel } = jest.requireMock('../data/mongoModels') as { RoomCategoryModel: { findById: jest.Mock } };
       RoomCategoryModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: 'cat-deluxe', name: 'Deluxe' }) });
-      (MockPropertyModel.find as jest.Mock).mockReturnValue({
+      (MockPropertyModel.find as jest.Mock).mockImplementation((query: { category_id?: string } = {}) => ({
         session: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue(ROOMS),
-      });
+        lean: jest.fn().mockResolvedValue(ALL_ROOMS.filter((room) => !query.category_id || room.category_id === query.category_id)),
+      }));
       (MockPropertyModel.findById as jest.Mock).mockImplementation((id: string) => ({
         select: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue(ROOMS.find((room) => room._id === id) ?? null),
+        lean: jest.fn().mockResolvedValue(ALL_ROOMS.find((room) => room._id === id) ?? null),
       }));
+    });
+
+    it('books two room types together with one group down payment', async () => {
+      const fields = { ...BY_CATEGORY, categoryIds: 'cat-deluxe,cat-family', groupBooking: true };
+      const quote = await request(app).post('/api/bookings/quote').send(fields);
+      expect(quote.status).toBe(200);
+      // Deluxe 2500×4 + Family 4000×4, discounted once on the combined total.
+      expect(quote.body).toMatchObject({ categoryCount: 2, stayPrice: 26000, totalPrice: 26000, groupBooking: true });
+      expect(quote.body.dueNow).toBe(13000);
+      expect(quote.body.dueAfterConfirmation).toBe(13000);
+      expect(quote.body.items).toHaveLength(2);
+
+      const res = await postBooking({ ...fields, groupBooking: 'true', paymentProofAmountClaimed: 13000 });
+      expect(res.status).toBe(201);
+      expect(res.body.categoryCount).toBe(2);
+      expect(res.body.bookingIds).toHaveLength(2);
+      expect(MockBookingModel.create).toHaveBeenCalledTimes(2);
+      const createdDocs = (MockBookingModel.create as jest.Mock).mock.calls.map((call) => {
+        const arg = call[0];
+        return Array.isArray(arg) ? arg[0] : arg;
+      });
+      expect(createdDocs.map((doc) => doc.propertyId)).toEqual(['room-101', 'room-201']);
+      expect(createdDocs.map((doc) => doc.totalPrice)).toEqual([10000, 16000]);
+      expect(createdDocs.map((doc) => doc.deposit_amount)).toEqual([5000, 8000]);
+      expect(createdDocs.every((doc) => doc.group_booking === true && doc.online_payment_mode === 'half')).toBe(true);
     });
 
     it('assigns the cheapest free room and names the booking after the room type', async () => {
@@ -450,12 +480,12 @@ describe('POST /api/bookings', () => {
     }
   });
 
-  it('creates a group booking with a 50% down payment', async () => {
+  it('ignores group booking for a single room — booking type needs 2+ room types', async () => {
     const quote = await request(app).post('/api/bookings/quote').send({ ...VALID_PAYLOAD, groupBooking: true });
     expect(quote.status).toBe(200);
-    expect(quote.body.groupBooking).toBe(true);
-    expect(quote.body.dueNow).toBe(Math.floor(quote.body.totalPrice / 2));
-    expect(quote.body.dueAfterConfirmation).toBe(quote.body.totalPrice - quote.body.dueNow);
+    expect(quote.body.groupBooking).toBe(false);
+    expect(quote.body.dueNow).toBe(quote.body.totalPrice);
+    expect(quote.body.dueAfterConfirmation).toBe(0);
 
     const res = await postBooking({
       ...VALID_PAYLOAD,
@@ -466,10 +496,10 @@ describe('POST /api/bookings', () => {
 
     const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
-    expect(created.group_booking).toBe(true);
-    expect(created.online_payment_mode).toBe('half');
-    expect(created.deposit_percent).toBe(50);
-    expect(created.deposit_amount).toBe(quote.body.dueNow);
+    expect(created.group_booking).toBe(false);
+    expect(created.online_payment_mode).toBe('full');
+    expect(created.deposit_percent).toBe(100);
+    expect(created.deposit_amount).toBe(quote.body.totalPrice);
   });
 
   it('stores the payment screenshot, ID link and arrival time for the hotel app', async () => {

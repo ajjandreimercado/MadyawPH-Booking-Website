@@ -229,15 +229,22 @@ export default function HotelDetailPage() {
     }
   };
 
-  // Guests book the room type; the server assigns a free room of that type.
-  const handleReserve = (cat: HotelDetailCategory, mode: ReserveMode) => {
-    if (cat.availableRooms <= 0) {
+  // Guests book room types; the server assigns a free room of each type. Several types
+  // can be booked together (one checkout, one payment) via ?cats=id1,id2.
+  const handleReserve = (items: Array<{ category: HotelDetailCategory; mode: ReserveMode }>) => {
+    const bookable = items.filter((item) => item.category.availableRooms > 0);
+    if (bookable.length === 0) {
       showToast({ title: 'No rooms available', description: 'This room type is full for your dates.', type: 'info' });
       return;
     }
+    const first = bookable[0];
     // Hourly "block": one block on the check-in day (check-out = check-in date).
-    const booked = mode === 'block' ? { ...stay, checkOut: stay.checkIn, block: true } : { ...stay, block: false };
-    navigate(`/booking/${cat.id}?${stayQuery(booked)}`);
+    const booked = first.mode === 'block' ? { ...stay, checkOut: stay.checkIn, block: true } : { ...stay, block: false };
+    const params = new URLSearchParams(stayQuery(booked));
+    if (bookable.length > 1) {
+      params.set('cats', bookable.map((item) => item.category.id).join(','));
+    }
+    navigate(`/booking/${first.category.id}?${params.toString()}`);
   };
 
   if (isLoading && !hotel) {

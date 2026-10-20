@@ -62,6 +62,8 @@ interface SummaryProps {
   freeCancellation?: boolean;
   /** Cancellation policy ("Non-refundable") is shown only on the final details step. */
   showCancellation?: boolean;
+  /** e.g. "2 rooms (one per room type)" for multi-category bookings. */
+  roomsLabel?: string;
 }
 
 function PriceLines({ quote, quoteLoading, quoteError }: Pick<SummaryProps, 'quote' | 'quoteLoading' | 'quoteError'>) {
@@ -73,9 +75,15 @@ function PriceLines({ quote, quoteLoading, quoteError }: Pick<SummaryProps, 'quo
   return (
     <div className={`space-y-2 text-sm font-bold ${quoteLoading ? 'opacity-60' : ''}`} aria-busy={quoteLoading}>
       <div className="flex justify-between gap-3">
-        <span className="text-brand-dark/65">Room, {nights}</span>
+        <span className="text-brand-dark/65">{(quote.categoryCount ?? 1) > 1 ? `${quote.categoryCount} room types` : 'Room'}, {nights}</span>
         <span className="text-brand-dark tabular-nums">{peso(quote.stayPrice)}</span>
       </div>
+      {quote.items?.map((item) => (
+        <div key={item.categoryId} className="flex justify-between gap-3 text-xs">
+          <span className="text-brand-dark/50 truncate">{item.roomName}</span>
+          <span className="text-brand-dark/60 tabular-nums shrink-0">{peso(item.totalPrice)}</span>
+        </div>
+      ))}
       {quote.discountAmount > 0 && (
         <div className="flex justify-between gap-3 text-brand-success">
           <span>{DISCOUNT_LABELS[quote.discountType] ?? 'Discount'}</span>
@@ -131,7 +139,7 @@ function SummaryBody(props: SummaryProps) {
         </dl>
         <p className="text-sm font-bold text-brand-dark">
           {stayLengthLabel(quote) ?? (nights ? `${nights} night${nights === 1 ? '' : 's'}` : '')}
-          {' · '}{describeGuests(stay)} · 1 room
+          {' · '}{describeGuests(stay)} · {props.roomsLabel ?? '1 room'}
         </p>
         <Link to={props.changeSelectionHref} className="inline-block text-sm font-bold text-brand-primary underline underline-offset-2">
           Change your selection
