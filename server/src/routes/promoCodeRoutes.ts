@@ -8,10 +8,11 @@ import { validateString, validateEnum, validateId } from '../utils/validators';
 const promoCodeRoutes = Router();
 
 // ─── POST /validate ────────────────────────────────────────────────────────────
-// Signed-in guests only (checkout is behind auth): prevents anonymous promo-code
-// enumeration / brute-forcing of discount codes.
+// Public (the website has no accounts): guests check a code at checkout.
+// Rate-limited to blunt promo-code enumeration; the same validity is already
+// observable through the public stay quote. Admin CRUD below stays auth-only.
 
-promoCodeRoutes.post('/validate', requireAuth, authWriteLimiter, async (req, res) => {
+promoCodeRoutes.post('/validate', authWriteLimiter, async (req, res) => {
   const { code, bookingAmount } = req.body as { code?: string; bookingAmount?: number };
 
   const codeResult = validateString(code, 'Promo code', 1, 50);

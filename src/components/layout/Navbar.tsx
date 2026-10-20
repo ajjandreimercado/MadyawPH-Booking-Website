@@ -1,11 +1,9 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Menu, X, User } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { madyawLogoUrl } from '../../lib/branding';
 import { useOnClickOutside } from '../../hooks/useOnClickOutside';
-import { useAuth } from '../../contexts/AuthContext';
-import { useAuthModal } from '../../contexts/AuthModalContext';
 
 const NAV_LINKS = [
   { label: 'Browse Stays', path: '/search' },
@@ -16,15 +14,11 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
-  const { openAuthModal } = useAuthModal();
 
   useOnClickOutside(navRef, () => {
     setMobileMenuOpen(false);
-    setAccountOpen(false);
   });
 
   const handleMobileNav = (path: string) => {
@@ -59,69 +53,6 @@ export default function Navbar() {
               {label}
             </Link>
           ))}
-          {user ? (
-            <>
-              <Link to="/trips" className={linkClass}>
-                My trips
-              </Link>
-              <div className="relative">
-                <button
-                  type="button"
-                  aria-expanded={accountOpen}
-                  aria-haspopup="menu"
-                  onClick={() => setAccountOpen((v) => !v)}
-                  className="flex items-center gap-2 rounded-xl border border-brand-cream/20 bg-brand-cream/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-brand-cream hover:border-brand-gold/50 hover:text-brand-gold transition-colors"
-                >
-                  {user.avatar ? (
-                    <img src={user.avatar} alt="" className="h-5 w-5 rounded-full object-cover" />
-                  ) : (
-                    <User className="h-3.5 w-3.5" />
-                  )}
-                  <span className="max-w-[9rem] truncate">{user.name || 'Account'}</span>
-                </button>
-                {accountOpen ? (
-                  <div
-                    role="menu"
-                    className="absolute right-0 mt-2 w-52 rounded-xl border border-brand-primary/10 bg-brand-cream shadow-lg py-2 z-50"
-                  >
-                    <p className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-brand-dark/45 truncate">
-                      {user.email}
-                    </p>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="w-full text-left px-4 py-2.5 text-sm font-bold text-brand-dark hover:bg-brand-primary/5"
-                      onClick={() => {
-                        setAccountOpen(false);
-                        navigate('/trips');
-                      }}
-                    >
-                      My trips
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="w-full text-left px-4 py-2.5 text-sm font-bold text-brand-dark hover:bg-brand-primary/5"
-                      onClick={() => {
-                        setAccountOpen(false);
-                        void logout();
-                      }}
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => openAuthModal({ mode: 'login' })}
-              className="rounded-xl bg-brand-gold px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-brand-dark hover:brightness-105 transition-all"
-            >
-              Sign in
-            </button>
-          )}
         </div>
 
         <button
@@ -155,38 +86,6 @@ export default function Navbar() {
                 {label}
               </button>
             ))}
-            {user ? (
-              <>
-                <button
-                  type="button"
-                  className="text-left text-lg font-serif text-brand-dark hover:text-brand-primary font-bold"
-                  onClick={() => handleMobileNav('/trips')}
-                >
-                  My trips
-                </button>
-                <button
-                  type="button"
-                  className="text-left text-sm font-bold text-brand-dark/70"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    void logout();
-                  }}
-                >
-                  Sign out ({user.email})
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="text-left text-lg font-serif text-brand-primary font-bold"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  openAuthModal({ mode: 'login' });
-                }}
-              >
-                Sign in
-              </button>
-            )}
           </div>
         </motion.div>
       )}
