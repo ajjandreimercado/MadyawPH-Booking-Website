@@ -239,8 +239,6 @@ export default function RoomsAndRates({
                   {/* Your choices */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
-                    {/* Client rule: always this wording, whatever the real count. */}
-                    <p className="text-brand-danger">Only 1 room available</p>
                   </div>
 
                   {/* Select rooms */}
