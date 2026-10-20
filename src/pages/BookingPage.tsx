@@ -6,8 +6,6 @@ import {
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
 import { fetchRoomCategory, quoteStay, validatePromoCode, validateMembershipId, type StayQuote } from '../services/api';
-import { useBookings } from '../contexts/BookingsContext';
-import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, RoomCategory } from '../types';
 import { DISCOUNT_OPTIONS } from '../lib/bookingFlow';
@@ -89,8 +87,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { appendBooking } = useBookings();
-  const { user } = useAuth();
   const { showToast } = useToast();
   const stay = readStay(searchParams);
   const query = stayQuery(stay);
@@ -204,21 +200,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       });
     return () => { cancelled = true; };
   }, [categoryId]);
-
-  // A signed-in (e.g. Gmail) account only prefills the form — the guest can change
-  // or clear the email and book with a mobile number instead. Accounts are optional.
-  useEffect(() => {
-    if (!user) return;
-    setDraft((prev) => {
-      const next = {
-        ...prev,
-        email: prev.email.trim() ? prev.email : (user.email ?? ''),
-        fullName: prev.fullName.trim() ? prev.fullName : (user.name ?? ''),
-      };
-      saveDraft(categoryId, next);
-      return next;
-    });
-  }, [user, categoryId]);
 
   // Server price for this stay — the same numbers the booking will be saved with.
   useEffect(() => {
@@ -364,7 +345,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }, validIdFile.name),
       });
-      appendBooking(booking);
       clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
       const contactEmail = draft.email.trim();
@@ -439,7 +419,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 promoAccepted={promoDiscountAmt > 0}
                 memberStatus={memberStatus}
                 memberAccepted={memberDiscountAmt > 0}
-                accountEmail={user?.email}
                 onError={(title) => showToast({ title, type: 'error' })}
                 onNext={goToFinish}
               />
@@ -635,7 +614,6 @@ function DetailsStep({
   promoAccepted,
   memberStatus,
   memberAccepted,
-  accountEmail,
   onError,
   onNext,
 }: {
@@ -647,7 +625,6 @@ function DetailsStep({
   promoAccepted: boolean;
   memberStatus: string | null;
   memberAccepted: boolean;
-  accountEmail?: string;
   onError: (title: string) => void;
   onNext: () => void;
 }) {
@@ -685,10 +662,8 @@ function DetailsStep({
                 />
               </div>
               <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-                Optional — any email works (not just Gmail), or leave this blank and use your mobile number.
-                {accountEmail
-                  ? ' We prefilled your account email; you can change or clear it.'
-                  : ' After the Front Office verifies your payment, your "Booking Successful!" email with a reservation QR code is sent here.'}
+                Optional — any email works, or leave this blank and use your mobile number.
+                After the Front Office verifies your payment, your "Booking Successful!" email with a reservation QR code is sent here.
               </p>
             </div>
             <div>

@@ -18,9 +18,6 @@ import {
   type WalletPaymentMethod,
 } from '../lib/paymentQr';
 import { ConfirmationSkeleton } from '../components/ui/Skeleton';
-import { cacheKey, peekCache } from '../lib/queryCache';
-import { useBookings } from '../contexts/BookingsContext';
-import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { formatStayDate } from '../lib/stayParams';
 import { clockLabel } from '../components/booking/CheckoutSummary';
@@ -55,17 +52,10 @@ export default function BookingConfirmationPage() {
   const { bookingId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { bookings } = useBookings();
-  const { user } = useAuth();
   const { showToast } = useToast();
-  const sessionBooking = bookings.find((b) => b.id === bookingId) ?? null;
-  const [booking, setBooking] = useState<BookingRequest | null>(sessionBooking);
-  const [hotel, setHotel] = useState<Hotel | null>(() =>
-    sessionBooking?.hotelId
-      ? peekCache<Hotel>(cacheKey(['hotel', sessionBooking.hotelId])) ?? null
-      : null,
-  );
-  const [isLoading, setIsLoading] = useState(!sessionBooking);
+  const [booking, setBooking] = useState<BookingRequest | null>(null);
+  const [hotel, setHotel] = useState<Hotel | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -82,14 +72,15 @@ export default function BookingConfirmationPage() {
 
   useEffect(() => {
     if (!bookingId) return;
-    const guestEmail = searchParams.get('email') ?? user?.email ?? undefined;
-    // Signed-in owners can open receipts from My trips without an email token.
-    if (!receiptToken && !user && !sessionBooking) {
-      setError('This confirmation link is incomplete or has expired. Please use the link from your booking email, or sign in to My trips.');
+    const guestEmail = searchParams.get('email') ?? undefined;
+    // Guests open their booking through the signed receipt link from their email
+    // (or the link shown right after booking) — there are no accounts on this site.
+    if (!receiptToken && !guestEmail) {
+      setError('This confirmation link is incomplete or has expired. Please use the link from your booking email.');
       setIsLoading(false);
       return;
     }
-    if (!sessionBooking) setIsLoading(true);
+    setIsLoading(true);
     fetchBookingById(bookingId, guestEmail, receiptToken || undefined)
       .then(async (b) => {
         setBooking(b);
@@ -104,12 +95,10 @@ export default function BookingConfirmationPage() {
         setIsLoading(false);
       })
       .catch(err => {
-        if (!sessionBooking) {
-          setError(errorMessageFromUnknown(err, 'Unable to load your booking right now.'));
-        }
+        setError(errorMessageFromUnknown(err, 'Unable to load your booking right now.'));
         setIsLoading(false);
       });
-  }, [bookingId, searchParams, sessionBooking, receiptToken, user]);
+  }, [bookingId, searchParams, receiptToken]);
 
   const walletOptions = WALLET_PAYMENT_OPTIONS.filter((opt) =>
     availableWalletMethods(hotel).includes(opt.id),
@@ -193,7 +182,7 @@ export default function BookingConfirmationPage() {
 
   const handleUploadProof = async () => {
     if (!booking || !bookingId || isUploadingProof) return;
-    if (!receiptToken && !user) return;
+    if (!receiptToken) return;
     if (!paymentProofFile) {
       showToast({ title: 'Upload your payment screenshot', type: 'error' });
       return;

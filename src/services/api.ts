@@ -13,17 +13,6 @@ export interface ApiListResponse<T> {
   totalPages?: number;
 }
 
-export interface ApiAuthSession {
-  token?: string;
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    role?: string;
-    partner?: unknown;
-  };
-}
-
 export interface PropertyQueryParams {
   hotelId?: string;
   destination?: string;
@@ -140,7 +129,6 @@ function resolveApiBaseUrl() {
 export const API_BASE_URL = resolveApiBaseUrl();
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true, // send/receive httpOnly auth cookies
   maxRedirects: 0,       // surface 3xx as errors; do NOT silently re-issue POST → GET
   headers: {
     Accept: 'application/json',
@@ -158,7 +146,7 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
-// Requests now rely on httpOnly cookies set by the API; do not auto-inject tokens from localStorage.
+// No accounts on this website: guests are identified by signed receipt tokens, not cookies.
 
 api.interceptors.response.use(
   (response) => response,
@@ -288,39 +276,6 @@ export async function fetchPropertyById(propertyId: string): Promise<Property> {
   );
 }
 
-export async function loginUser(payload: { email: string; password: string }) {
-  const response = await api.post<ApiAuthSession>('/auth/login', payload, { headers: { 'Content-Type': 'application/json' } });
-  return response.data;
-}
-
-export async function registerUser(payload: { name: string; email: string; password: string }) {
-  const response = await api.post<ApiAuthSession>('/auth/register', payload, { headers: { 'Content-Type': 'application/json' } });
-  return response.data;
-}
-
-export async function loginWithGoogleCredential(credential: string) {
-  const response = await api.post<ApiAuthSession>('/auth/google', { credential }, { headers: { 'Content-Type': 'application/json' } });
-  return response.data;
-}
-
-export async function logoutUser() {
-  try {
-    await api.post('/auth/logout');
-  } catch (error) {
-    if (isAxiosError(error) && error.response?.status === 401) {
-      return;
-    }
-
-    throw error;
-  }
-}
-
-/** The signed-in user, or null when no one is signed in (API answers 204). */
-export async function getCurrentUser() {
-  const response = await api.get<ApiAuthSession['user']>('/auth/me');
-  return response.status === 204 ? null : response.data;
-}
-
 export async function createBookingRequest(payload: BookingCreatePayload) {
   const form = new FormData();
   if (payload.categoryId) form.append('categoryId', payload.categoryId);
@@ -376,11 +331,6 @@ export async function reviewBookingAvailability(bookingId: string) {
     ...response.data,
     booking: normalizeBookingResponse(response.data.booking),
   };
-}
-
-export async function fetchBookings(params: { page?: number; limit?: number } = {}): Promise<BookingRequest[]> {
-  const response = await api.get<ApiListResponse<BookingRequest> | BookingRequest[]>('/bookings', { params });
-  return normalizeList(response.data).map(normalizeBookingResponse);
 }
 
 export function isAxiosError(error: unknown): error is AxiosError {
@@ -745,8 +695,6 @@ export async function validatePromoCode(code: string, bookingAmount: number): Pr
 export interface MemberValidationResult {
   valid: boolean;
   membershipId?: string;
-  memberName?: string;
-  pointsBalance?: number;
   discountPercent?: number;
   discountAmount?: number;
   message?: string;

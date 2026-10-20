@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
 import { authWriteLimiter } from '../middleware/rateLimiters';
 import { validateOptionalString, validatePositiveNumber } from '../utils/validators';
 import { resolveMemberDiscount } from '../utils/memberDiscount';
@@ -7,10 +6,12 @@ import { resolveMemberDiscount } from '../utils/memberDiscount';
 const memberRoutes = Router();
 
 // ─── POST /validate ────────────────────────────────────────────────────────────
-// Signed-in guests only: the response includes member name/points, so anonymous
-// access would leak member PII to anyone who guesses an ID.
+// Public (the website has no accounts): guests check a membership ID at
+// checkout. The response NEVER includes the member's name or points balance —
+// only whether the ID earns a discount and how much — so guessing an ID
+// cannot leak member PII. Rate-limited against ID enumeration.
 
-memberRoutes.post('/validate', requireAuth, authWriteLimiter, async (req, res) => {
+memberRoutes.post('/validate', authWriteLimiter, async (req, res) => {
   const membershipIdResult = validateOptionalString(req.body?.membershipId ?? req.body?.memberShidId, 'Membership ID', 40);
   if (!membershipIdResult.ok) {
     return res.status(400).json({ message: membershipIdResult.message });
@@ -27,14 +28,16 @@ memberRoutes.post('/validate', requireAuth, authWriteLimiter, async (req, res) =
   }
 
   const result = await resolveMemberDiscount(membershipId, amountResult.value ?? 0);
+  // No memberName / pointsBalance anywhere in this response (public endpoint):
+  // the resolver's success message embeds the points balance, so rebuild it.
   return res.json({
     valid: result.valid,
     membershipId: result.membershipId,
-    memberName: result.memberName,
-    pointsBalance: result.pointsBalance,
     discountPercent: result.discountPercent,
     discountAmount: result.discountAmount,
-    message: result.message,
+    message: result.valid
+      ? `Madyaw member ${result.discountPercent}% discount — you save ₱${result.discountAmount.toLocaleString()}. Once per day.`
+      : result.message,
   });
 });
 

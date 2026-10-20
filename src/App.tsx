@@ -8,15 +8,12 @@ import { Loader2 } from 'lucide-react';
 import RootLayout from './components/layout/RootLayout';
 import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
-import RequireAuth from './components/auth/RequireAuth';
 
 // Lazy-load heavier pages for performance
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const HotelDetailPage = lazy(() => import('./pages/HotelDetailPage'));
 const BookingPage = lazy(() => import('./pages/BookingPage'));
 const BookingConfirmationPage = lazy(() => import('./pages/BookingConfirmationPage'));
-const MyTripsPage = lazy(() => import('./pages/MyTripsPage'));
-const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 const DestinationsPage = lazy(() => import('./pages/DestinationsPage'));
 const BecomeMemberPage = lazy(() => import('./pages/BecomeMemberPage'));
 const HelpCenterPage = lazy(() => import('./pages/SupportPages').then((m) => ({ default: m.HelpCenterPage })));
@@ -83,16 +80,10 @@ export default function App() {
           element={<Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>}
         />
         <Route path="/booking/confirm/:bookingId" element={<Suspense fallback={<PageLoader />}><BookingConfirmationPage /></Suspense>} />
-        <Route
-          path="/trips"
-          element={(
-            <RequireAuth>
-              <Suspense fallback={<PageLoader />}><MyTripsPage /></Suspense>
-            </RequireAuth>
-          )}
-        />
-        <Route path="/my-bookings" element={<Navigate to="/trips" replace />} />
-        <Route path="/auth/callback" element={<Suspense fallback={<PageLoader />}><AuthCallback /></Suspense>} />
+        {/* No accounts on this website — bookings are managed via the emailed receipt link. */}
+        <Route path="/trips" element={<Navigate to="/" replace />} />
+        <Route path="/my-bookings" element={<Navigate to="/" replace />} />
+        <Route path="/auth/callback" element={<Navigate to="/" replace />} />
 
         <Route path="*" element={<NotFoundPage />} />
       </Route>
