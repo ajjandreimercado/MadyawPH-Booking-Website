@@ -41,7 +41,7 @@ export default function StayBar({
       aria-label="Change dates and guests"
       className={embedded
         ? 'w-full'
-        : 'sticky top-[68px] sm:top-[76px] z-30 -mx-4 sm:mx-0 mb-6 bg-brand-cream/95 backdrop-blur border-y sm:border border-brand-primary/15 sm:rounded-2xl shadow-sm px-4 py-3'}
+        : 'sticky top-[4.5rem] sm:top-20 z-30 -mx-4 sm:mx-0 mb-6 bg-brand-cream border-y sm:border border-brand-primary/15 sm:rounded-2xl shadow-sm px-4 py-3'}
     >
       <button
         type="button"

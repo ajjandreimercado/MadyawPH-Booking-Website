@@ -38,19 +38,19 @@ export default function Navbar() {
   return (
     <nav
       ref={navRef}
-      className="fixed top-0 left-0 right-0 z-50 bg-brand-dark/95 py-4 sm:py-5 shadow-md"
+      className="fixed top-0 left-0 right-0 z-50 h-[4.5rem] sm:h-20 bg-brand-dark shadow-md"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex justify-between items-center gap-3">
         <Link
           to="/"
-          className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark rounded-2xl"
+          className="flex items-center gap-3 shrink-0 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 focus-visible:ring-offset-brand-dark rounded-2xl"
         >
           <img
             src={madyawLogoUrl}
             alt="Madyaw logo"
-            className="h-12 w-12 rounded-2xl bg-brand-cream p-1.5 object-contain shadow-sm ring-1 ring-white/10"
+            className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-brand-cream p-1.5 object-contain shadow-sm ring-1 ring-white/10"
           />
-          <span className="text-2xl font-display italic font-semibold tracking-tight text-brand-cream">Madyaw</span>
+          <span className="text-xl sm:text-2xl font-display italic font-semibold tracking-tight text-brand-cream whitespace-nowrap">Madyaw</span>
         </Link>
 
         <div className="hidden min-[880px]:flex items-center gap-6 lg:gap-10">

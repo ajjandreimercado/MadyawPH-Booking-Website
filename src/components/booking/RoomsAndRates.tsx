@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { BedDouble, Check, Coffee, ShieldCheck, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BedDouble, Check, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
 import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
 import { describeGuests, formatStayDate, peso, stayNights, type Stay } from '../../lib/stayParams';
@@ -62,6 +62,14 @@ export default function RoomsAndRates({
   const [bedType, setBedType] = useState('');
   const [maxPrice, setMaxPrice] = useState(0);
   const [sort, setSort] = useState<SortKey>('price-asc');
+  const [viewing, setViewing] = useState<HotelDetailCategory | null>(null);
+
+  useEffect(() => {
+    if (!viewing) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setViewing(null);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [viewing]);
 
   const bedTypes = useMemo(
     () => [...new Set(categories.map((c) => c.bedConfiguration).filter((b): b is string => Boolean(b)))],
@@ -156,8 +164,24 @@ export default function RoomsAndRates({
                 >
                   {/* Room type */}
                   <div className="p-4 flex gap-3">
-                    <img src={category.imageUrl || NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
-                      className="w-24 h-20 rounded-lg object-cover shrink-0" loading="lazy" />
+                    {category.imageUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setViewing(category)}
+                        aria-label={`View photo of ${category.name}`}
+                        title="Click to view photo"
+                        className="group relative w-24 h-20 rounded-lg overflow-hidden shrink-0 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                      >
+                        <img src={category.imageUrl} alt={category.name} onError={showNoPhoto}
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                        <span className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/35 transition-colors flex items-center justify-center">
+                          <Expand className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
+                        </span>
+                      </button>
+                    ) : (
+                      <img src={NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
+                        className="w-24 h-20 rounded-lg object-cover shrink-0" loading="lazy" />
+                    )}
                     <div className="min-w-0">
                       <h3 className="font-bold text-brand-primary underline-offset-2">{category.name}</h3>
                       <ul className="mt-1 space-y-0.5 text-xs font-bold text-brand-dark/65">
@@ -222,12 +246,44 @@ export default function RoomsAndRates({
       </div>
 
       {/* Reserve panel: sticky on desktop, bottom bar on phones */}
-      <aside className="hidden lg:block lg:sticky lg:top-[96px] rounded-xl border border-brand-primary/15 bg-white p-4">
+      <aside className="hidden lg:block lg:sticky lg:top-[12rem] rounded-xl border border-brand-primary/15 bg-white p-4">
         <ReserveSummary selected={selected} nights={nights} stay={stay} onReserve={onReserve} />
       </aside>
       {selected && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-brand-primary/15 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(10,25,47,0.12)]">
           <ReserveSummary selected={selected} nights={nights} stay={stay} onReserve={onReserve} compact />
+        </div>
+      )}
+
+      {/* Room photo viewer */}
+      {viewing && (
+        <div
+          className="fixed inset-0 z-[100] bg-brand-dark/95 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo of ${viewing.name}`}
+          onClick={() => setViewing(null)}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-brand-cream hover:text-white p-1"
+            onClick={() => setViewing(null)}
+            aria-label="Close photo"
+          >
+            <X className="w-8 h-8" />
+          </button>
+          <figure className="max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={viewing.imageUrl || NO_PHOTO_SRC}
+              alt={viewing.name}
+              onError={showNoPhoto}
+              className="max-h-[80vh] w-full object-contain rounded-xl"
+            />
+            <figcaption className="mt-3 text-center text-sm font-bold text-brand-cream">
+              {viewing.name}
+              {viewing.bedConfiguration ? <span className="block mt-0.5 text-xs font-bold text-brand-cream/60">{viewing.bedConfiguration}</span> : null}
+            </figcaption>
+          </figure>
         </div>
       )}
     </div>

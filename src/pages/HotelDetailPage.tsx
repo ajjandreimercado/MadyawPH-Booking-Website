@@ -258,15 +258,15 @@ export default function HotelDetailPage() {
 
   const allAmenities = Array.from(new Set(categories.flatMap(c => c.amenities ?? [])));
   const anyAvailable = categories.some(c => c.availableRooms > 0);
-  const sectionCard = 'bg-brand-cream rounded-2xl p-5 sm:p-6 border border-brand-primary/10 scroll-mt-40';
+  const sectionCard = 'bg-brand-cream rounded-2xl p-5 sm:p-6 border border-brand-primary/10 scroll-mt-[12rem] lg:scroll-mt-[13rem]';
 
   return (
-    <div className="bg-brand-background min-h-screen pt-28 pb-28 lg:pb-20">
+    <div className="bg-brand-background min-h-screen pt-[5.5rem] sm:pt-28 pb-28 lg:pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <StayBar stay={stay} onSearch={(next) => setSearchParams((prev) => writeStay(prev, next), { replace: true })} />
 
         {/* Header */}
-        <div id="overview" className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 scroll-mt-40">
+        <div id="overview" className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 scroll-mt-[12rem] lg:scroll-mt-[13rem]">
           <div>
             <h1 className="text-3xl font-display font-semibold text-brand-dark mb-2">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
