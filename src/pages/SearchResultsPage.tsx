@@ -477,9 +477,9 @@ export default function SearchResultsPage() {
   ].filter(Boolean).length;
 
   return (
-    <div className="min-h-screen bg-brand-background">
+    <div className="min-h-screen bg-brand-background pt-[4.5rem] sm:pt-20">
       {/* Search Header */}
-      <div className="sticky z-30 top-[68px] sm:top-[76px] bg-brand-surface border-b border-brand-primary/10 shadow-sm">
+      <div className="sticky z-30 top-[4.5rem] sm:top-20 bg-brand-surface border-b border-brand-primary/10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             <div className="relative flex-1 min-w-[12rem] max-w-full sm:max-w-sm">
