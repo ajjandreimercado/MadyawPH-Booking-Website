@@ -12,8 +12,8 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
   res.on('finish', () => {
     const ms = Date.now() - begin;
     const level = res.statusCode >= 500 ? 'ERROR' : res.statusCode >= 400 ? 'WARN' : 'INFO';
-    // Mask sensitive query strings (e.g. token=)
-    const url = req.originalUrl.replace(/([?&](?:token|password|secret)=)[^&]*/gi, '$1[REDACTED]');
+    // Mask sensitive query strings (file-link tokens/signatures, credentials)
+    const url = req.originalUrl.replace(/([?&](?:token|sig|password|secret|authorization|api[-_]?key)=)[^&]*/gi, '$1[REDACTED]');
     console.log(`[${level}] ${req.method} ${url} → ${res.statusCode} (${ms}ms)`);
   });
 

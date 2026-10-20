@@ -3,7 +3,6 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import mongoose from 'mongoose';
 import { CLIENT_ORIGINS } from './config/env';
 import authRoutes from './routes/authRoutes';
 import hotelRoutes from './routes/hotelRoutes';
@@ -93,7 +92,13 @@ app.use((req, res, next) => {
     req.path === '/api/hotels/payment-qr-cache'
     || /\/api\/hotels\/[^/]+\/payment-qr\/sync$/.test(req.path);
   const limit = isQrWebhook ? '512kb' : '10kb';
-  express.json({ limit })(req, res, next);
+  express.json({
+    limit,
+    // Keep the raw bytes so webhook handlers can verify HMAC signatures (Meta X-Hub-Signature-256).
+    verify: (reqWithBody, _res, buf) => {
+      (reqWithBody as typeof reqWithBody & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  })(req, res, next);
 });
 
 // ─── CSRF guard for cookie-auth browser requests ─────────────────────────────
@@ -111,31 +116,14 @@ app.use('/api/messenger', messengerRoutes);
 app.use(apiLimiter);
 
 // ─── Health check (no auth, before route handlers) ───────────────────────────
-app.get('/api/health', async (_req, res) => {
-  let database: string | undefined;
-  let hotels: number | undefined;
-  let rooms: number | undefined;
-
-  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
-    try {
-      database = mongoose.connection.db.databaseName;
-      [hotels, rooms] = await Promise.all([
-        mongoose.connection.db.collection('hotels').countDocuments(),
-        mongoose.connection.db.collection('rooms').countDocuments(),
-      ]);
-    } catch {
-      // omit inventory when counts fail
-    }
-  }
-
+// Public on purpose for Render health checks — return liveness only, never DB
+// names, inventory counts, or other internals (OWASP A05 information disclosure).
+app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'madyaw-booking-api',
     uptime: Math.round(getUptimeMs() / 1000),
     timestamp: new Date().toISOString(),
-    database,
-    hotels,
-    rooms,
   });
 });
 

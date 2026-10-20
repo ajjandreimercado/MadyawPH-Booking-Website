@@ -20,5 +20,10 @@ coverage/
 !.env.example
 !server/.env.example
 
+# ─── Local data dumps (PII / password hashes — NEVER commit) ──────────────────
+server/data/*.json
+!server/data/*.example.json
+.cursor/*.log
+
 # ─── TypeScript cache ─────────────────────────────────────────────────────────
 *.tsbuildinfo

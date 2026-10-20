@@ -1,14 +1,16 @@
 import { Router } from 'express';
-import { publicReadLimiter } from '../middleware/rateLimiters';
+import { requireAuth } from '../middleware/auth';
+import { authWriteLimiter } from '../middleware/rateLimiters';
 import { validateOptionalString, validatePositiveNumber } from '../utils/validators';
 import { resolveMemberDiscount } from '../utils/memberDiscount';
 
 const memberRoutes = Router();
 
-// ─── POST /validate ───────────────────────────────────────────────────────────
-// Public: validate a Madyaw membership ID against hotel-app member records.
+// ─── POST /validate ────────────────────────────────────────────────────────────
+// Signed-in guests only: the response includes member name/points, so anonymous
+// access would leak member PII to anyone who guesses an ID.
 
-memberRoutes.post('/validate', publicReadLimiter, async (req, res) => {
+memberRoutes.post('/validate', requireAuth, authWriteLimiter, async (req, res) => {
   const membershipIdResult = validateOptionalString(req.body?.membershipId ?? req.body?.memberShidId, 'Membership ID', 40);
   if (!membershipIdResult.ok) {
     return res.status(400).json({ message: membershipIdResult.message });

@@ -101,6 +101,11 @@ export function getMessengerVerifyToken(): string {
   return optionalEnv('MESSENGER_VERIFY_TOKEN');
 }
 
+/** Meta app secret — used to verify X-Hub-Signature-256 on webhook POSTs. */
+export function getMessengerAppSecret(): string {
+  return optionalEnv('MESSENGER_APP_SECRET');
+}
+
 /** Public website origin for "Book on website" links in Messenger. */
 export function getMadyawPublicUrl(): string {
   const raw = optionalEnv('MADYAW_PUBLIC_URL');

@@ -2,14 +2,16 @@ import { Router } from 'express';
 import { PromoCodeModel } from '../data/mongoModels';
 import { requireAuth } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
+import { authWriteLimiter } from '../middleware/rateLimiters';
 import { validateString, validateEnum, validateId } from '../utils/validators';
 
 const promoCodeRoutes = Router();
 
 // ─── POST /validate ────────────────────────────────────────────────────────────
-// Public: validate a promo code and return the discount details.
+// Signed-in guests only (checkout is behind auth): prevents anonymous promo-code
+// enumeration / brute-forcing of discount codes.
 
-promoCodeRoutes.post('/validate', async (req, res) => {
+promoCodeRoutes.post('/validate', requireAuth, authWriteLimiter, async (req, res) => {
   const { code, bookingAmount } = req.body as { code?: string; bookingAmount?: number };
 
   const codeResult = validateString(code, 'Promo code', 1, 50);

@@ -1,0 +1,56 @@
+name: Security
+
+# Runs on every push/PR so new implementations are checked automatically:
+# secret scanning, vulnerable-dependency gates, server tests, frontend build.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly re-scan: catches newly disclosed CVEs in unchanged dependencies.
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencies-and-tests:
+    name: Dependency audit + tests + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (frontend)
+        run: npm ci
+      - name: Audit production deps (frontend) — fail on high/critical
+        run: npm audit --omit=dev --audit-level=high
+      - name: Typecheck (frontend)
+        run: npm run lint
+      - name: Build (frontend)
+        run: npm run build
+
+      - name: Install (server)
+        working-directory: server
+        run: npm ci
+      - name: Audit production deps (server) — fail on high/critical
+        working-directory: server
+        run: npm audit --omit=dev --audit-level=high
+      - name: Tests (server)
+        working-directory: server
+        run: npm test
