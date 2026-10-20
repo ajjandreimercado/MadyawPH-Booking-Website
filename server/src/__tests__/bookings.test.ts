@@ -311,8 +311,16 @@ describe('POST /api/bookings', () => {
     expect(MockBookingModel.create).not.toHaveBeenCalled();
   });
 
-  it('forces guestEmail to the signed-in account email', async () => {
-    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: 'spoofed@example.com' });
+  it('uses the guest-typed contact email even when signed in (Gmail is optional)', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: 'other@example.com' });
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.guestEmail).toBe('other@example.com');
+  });
+
+  it('falls back to the account email when a signed-in guest types none', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: '' });
     expect(res.status).toBe(201);
     const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;

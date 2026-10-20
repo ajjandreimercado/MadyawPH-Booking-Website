@@ -1172,19 +1172,20 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   const guestNameResult = validateString(rawGuestName, 'Guest name', 1, 80);
   if (!guestNameResult.ok) return res.status(400).json({ message: guestNameResult.message });
 
-  // Contact: signed-in guests are locked to their account email (ignore spoofing).
-  // Guest checkout needs an email OR a mobile number — never both-required.
+  // Contact: a Gmail/account sign-in is never required to book. The email the guest
+  // types (any provider) is the booking contact; a signed-in account email is only
+  // the fallback when they type none. Email OR mobile number is enough.
   let guestEmailValue = '';
-  if (requester) {
-    const accountEmail = validateEmail(requester.email);
-    if (!accountEmail.ok) return res.status(400).json({ message: accountEmail.message });
-    guestEmailValue = accountEmail.value;
-  } else if (typeof body.guestEmail === 'string' && body.guestEmail.trim()) {
+  if (typeof body.guestEmail === 'string' && body.guestEmail.trim()) {
     const guestEmail = validateEmail(body.guestEmail.trim());
     if (!guestEmail.ok) {
       return res.status(400).json({ message: 'Enter a valid email address, or leave it blank and use your mobile number.' });
     }
     guestEmailValue = guestEmail.value;
+  } else if (requester) {
+    const accountEmail = validateEmail(requester.email);
+    if (!accountEmail.ok) return res.status(400).json({ message: accountEmail.message });
+    guestEmailValue = accountEmail.value;
   }
   const guestEmailResult = { ok: true as const, value: guestEmailValue };
 

@@ -210,13 +210,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     return () => { cancelled = true; };
   }, [categoryId]);
 
-  // Account email owns the booking — always bind to the signed-in session.
+  // A signed-in (e.g. Gmail) account only prefills the form — the guest can change
+  // or clear the email and book with a mobile number instead. Accounts are optional.
   useEffect(() => {
     if (!user) return;
     setDraft((prev) => {
       const next = {
         ...prev,
-        email: user.email ?? prev.email,
+        email: prev.email.trim() ? prev.email : (user.email ?? ''),
         fullName: prev.fullName.trim() ? prev.fullName : (user.name ?? ''),
       };
       saveDraft(categoryId, next);
@@ -362,7 +363,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         categoryId,
         propertyName: category.name,
         guestName: draft.fullName.trim(),
-        guestEmail: (user?.email ?? draft.email).trim(),
+        guestEmail: draft.email.trim(),
         guestPhone: draft.phone.trim(),
         checkInDate: stay.checkIn,
         checkOutDate: stay.checkOut,
@@ -387,7 +388,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       appendBooking(booking);
       clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
-      const contactEmail = (user?.email ?? draft.email).trim();
+      const contactEmail = draft.email.trim();
       // Popup first ("Processing Payment…"), then the guest opens the confirmation page.
       setSubmitted({ bookingId: booking.id, receiptToken, email: contactEmail });
       window.scrollTo({ top: 0 });
@@ -477,7 +478,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   <ReviewHeader title="Your details" editHref={detailsHref} />
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                     <ReviewItem label="Name" value={draft.fullName} />
-                    <ReviewItem label="Email" value={user?.email ?? draft.email} />
+                    <ReviewItem label="Email" value={draft.email} />
                     <ReviewItem label="Phone" value={draft.phone} />
                     <ReviewItem label="Nationality" value={draft.nationality} />
                     {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
@@ -702,17 +703,17 @@ function DetailsStep({
                   id="booking-email"
                   type="email"
                   autoComplete="email"
-                  value={accountEmail ?? draft.email}
-                  readOnly={Boolean(accountEmail)}
-                  onChange={e => { if (!accountEmail) update({ email: e.target.value }); }}
-                  placeholder="yourname@gmail.com"
-                  className={`input-field !pl-10 ${accountEmail ? 'bg-brand-primary/5 cursor-default' : ''}`}
+                  value={draft.email}
+                  onChange={e => update({ email: e.target.value })}
+                  placeholder="you@example.com (optional)"
+                  className="input-field !pl-10"
                 />
               </div>
               <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                Optional — any email works (not just Gmail), or leave this blank and use your mobile number.
                 {accountEmail
-                  ? 'Tied to your Madyaw account — confirmation and receipts stay here.'
-                  : 'After the Front Office verifies your payment, your "Booking Successful!" email with a reservation QR code is sent here.'}
+                  ? ' We prefilled your account email; you can change or clear it.'
+                  : ' After the Front Office verifies your payment, your "Booking Successful!" email with a reservation QR code is sent here.'}
               </p>
             </div>
             <div>
