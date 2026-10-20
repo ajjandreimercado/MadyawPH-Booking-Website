@@ -14,6 +14,8 @@ export interface CheckoutDraft {
   /** Estimated arrival as HH:mm (hotel app check_in_time), '' when unknown. */
   arrivalTime: string;
   specialRequests: string;
+  /** Group booking: pay 50% down payment now, balance at the hotel. */
+  groupBooking: boolean;
   /** Reference number from the guest's GCash/Maya receipt. */
   paymentRef: string;
   /** Amount the guest paid (from the receipt), as typed — '' until they enter it. */
@@ -34,6 +36,7 @@ export const EMPTY_DRAFT: CheckoutDraft = {
   stayGuestName: '',
   arrivalTime: '',
   specialRequests: '',
+  groupBooking: false,
   paymentRef: '',
   paymentAmountPaid: '',
   malePax: 0,
@@ -119,7 +122,9 @@ export function buildSpecialRequests(draft: CheckoutDraft, validIdName: string):
     draft.nationality !== 'Filipino' ? `Nationality: ${draft.nationality}` : '',
     draft.arrivalTime ? `Estimated arrival: ${arrivalLabel(draft.arrivalTime) || draft.arrivalTime}` : '',
     draft.malePax || draft.femalePax ? `Demographics: ${draft.malePax}M / ${draft.femalePax}F` : '',
-    'Payment: full stay paid by QR at booking (screenshot attached)',
+    draft.groupBooking
+      ? 'Group booking: 50% down payment paid by QR at booking (screenshot attached), balance at the hotel'
+      : 'Payment: full stay paid by QR at booking (screenshot attached)',
     draft.specialRequests.trim() ? `Requests: ${draft.specialRequests.trim()}` : '',
   ].filter(Boolean).join(' | ').slice(0, 500);
 }

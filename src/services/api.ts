@@ -96,6 +96,8 @@ export interface BookingCreatePayload {
   discountAmount?: number;
   specialRequests?: string;
   promoCode?: string;
+  /** Group booking: pay a 50% down payment now, balance at the hotel. */
+  groupBooking?: boolean;
   /** Madyaw Club membership ID (SHID-…) from the hotel app. */
   membershipId?: string;
   /** Required on the live Booking Details page; optional only for unused legacy callers. */
@@ -336,6 +338,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
   if (payload.arrivalTime) form.append('arrivalTime', payload.arrivalTime);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
+  if (payload.groupBooking) form.append('groupBooking', 'true');
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);
   if (payload.paymentProofFile) form.append('paymentProof', payload.paymentProofFile);
@@ -521,6 +524,10 @@ export interface SearchResultHotel {
   latitude?: number;
   longitude?: number;
   minPrice: number;
+  /** Hotel-app promo pricing: when true, promoPrice is the big "starts from" price. */
+  hasPromo?: boolean;
+  promoPrice?: number;
+  promoRegularPrice?: number;
   availableRooms: number;
   totalRooms: number;
   images: string[];
@@ -691,6 +698,8 @@ export interface StayQuote {
   checkOutDate?: string;
   /** What the booking will be saved with. */
   totalPrice: number;
+  /** Group booking = 50% down payment (server-computed). */
+  groupBooking?: boolean;
   dueNow: number;
   dueAfterConfirmation: number;
   taxesIncluded: boolean;
@@ -714,6 +723,8 @@ export async function quoteStay(payload: {
   discountReason?: string;
   promoCode?: string;
   membershipId?: string;
+  /** Group booking: quote a 50% down payment as dueNow. */
+  groupBooking?: boolean;
 }): Promise<StayQuote> {
   const response = await api.post<StayQuote>('/bookings/quote', payload);
   return response.data;

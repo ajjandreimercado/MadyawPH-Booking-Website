@@ -32,6 +32,7 @@ import { geocodeLocation } from '../services/geocodeService';
 import { parseCoordinate, roundDistanceKm } from '../utils/geo';
 import { buildAnchorLabel, shouldSortByDistance } from '../utils/searchGeo';
 import { compareRoomsForAssignment, findBookedRoomIds, isRoomBookable, parseStayQuery, roomListPrice } from '../utils/roomAvailability';
+import { resolvePromoPricing } from '../utils/promoPricing';
 import { computeStayCharge, isHourlyRoom, resolveStayWindow, surgeFor, hourlyConfig } from '../utils/hotelStayPricing';
 import {
   buildAmenityRoomClause,
@@ -445,6 +446,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   const hotelStatsMap = new Map<string, {
     minPrice: number; availableRooms: number; totalRooms: number;
     images: string[]; types: Set<string>;
+    hasPromo: boolean; promoPrice: number; promoRegularPrice: number;
   }>();
 
   for (const room of rooms) {
@@ -452,11 +454,19 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     if (!hid) continue;
     const existing = hotelStatsMap.get(hid) ?? {
       minPrice: Infinity, availableRooms: 0, totalRooms: 0, images: [], types: new Set(),
+      hasPromo: false, promoPrice: Infinity, promoRegularPrice: 0,
     };
     existing.totalRooms += 1;
     if (stay ? isRoomBookable(room, bookedIds, stay.start) : room.status === 'available') existing.availableRooms += 1;
     const price = Number(room.price_per_night ?? 0);
     if (price > 0 && price < existing.minPrice) existing.minPrice = price;
+    // Hotel-app promo pricing: cheapest promo room drives the "starts from" promo price.
+    const promo = resolvePromoPricing(room as Record<string, unknown>, price);
+    if (promo.hasPromo && promo.promoPrice > 0 && promo.promoPrice < existing.promoPrice) {
+      existing.hasPromo = true;
+      existing.promoPrice = promo.promoPrice;
+      existing.promoRegularPrice = promo.regularPrice;
+    }
     if (room.image_url && existing.images.length < 3) {
       const resolved = resolveHotelImageUrlFromRecord(room);
       if (resolved) existing.images.push(resolved);
@@ -498,6 +508,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     const hid = String((hotel as { _id: unknown })._id);
     const stats = hotelStatsMap.get(hid) ?? {
       minPrice: 0, availableRooms: 0, totalRooms: 0, images: [], types: new Set<string>(),
+      hasPromo: false, promoPrice: Infinity, promoRegularPrice: 0,
     };
     const ratingData = ratingMap.get(hid) ?? { sum: 0, count: 0 };
     const avgRating = ratingData.count > 0 ? Math.round((ratingData.sum / ratingData.count) * 10) / 10 : 0;
@@ -517,6 +528,10 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
     return {
       ...serializeHotel(hotel as never, { fallbackImageUrl: coverImages.get(hid) }),
       minPrice: stats.minPrice === Infinity ? 0 : stats.minPrice,
+      // Promo (hotel app): frontend shows a big "Starts from ₱{promoPrice}" when hasPromo.
+      hasPromo: stats.hasPromo,
+      promoPrice: stats.hasPromo && stats.promoPrice !== Infinity ? stats.promoPrice : undefined,
+      promoRegularPrice: stats.hasPromo && stats.promoRegularPrice > 0 ? stats.promoRegularPrice : undefined,
       availableRooms: stats.availableRooms,
       totalRooms: stats.totalRooms,
       images: stats.images,
@@ -900,9 +915,20 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
         stayPrice = null;
       }
     }
+    // Promo pricing for this room type (category record first, then its rooms).
+    const promoCandidates = roomsInCategory
+      .map((room) => resolvePromoPricing([rawCategory, rawRoomById.get(room.id)], Number(rawRoomById.get(room.id)?.price_per_night ?? category.defaultPrice ?? 0)))
+      .filter((p) => p.hasPromo && p.promoPrice > 0)
+      .sort((a, b) => a.promoPrice - b.promoPrice);
+    const categoryPromo = promoCandidates[0]
+      ?? resolvePromoPricing(rawCategory, Number(category.defaultPrice ?? 0));
     return {
       ...category,
       stayPrice,
+      // Hotel-app promo pricing for display ("Starts from ₱…" / PROMO badge).
+      hasPromo: categoryPromo.hasPromo,
+      promoPrice: categoryPromo.hasPromo ? categoryPromo.promoPrice : undefined,
+      promoRegularPrice: categoryPromo.hasPromo ? categoryPromo.regularPrice : undefined,
       // Hourly room types: one block's length and price (guests can book a single block).
       hourly,
       // Room-type facts from the rooms themselves; badges only when every room has them.

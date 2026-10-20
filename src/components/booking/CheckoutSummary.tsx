@@ -92,9 +92,15 @@ function PriceLines({ quote, quoteLoading, quoteError }: Pick<SummaryProps, 'quo
         <span className="text-brand-dark tabular-nums">{peso(quote.totalPrice)}</span>
       </div>
       <div className="flex justify-between gap-3 text-xs">
-        <span className="text-brand-dark/60">Pay now by GCash or Maya QR</span>
+        <span className="text-brand-dark/60">{quote.groupBooking ? 'Group booking · 50% down payment now' : 'Pay now by GCash or Maya QR'}</span>
         <span className="text-brand-dark tabular-nums">{peso(quote.dueNow)}</span>
       </div>
+      {quote.dueAfterConfirmation > 0 && (
+        <div className="flex justify-between gap-3 text-xs">
+          <span className="text-brand-dark/60">Balance at the hotel</span>
+          <span className="text-brand-dark tabular-nums">{peso(quote.dueAfterConfirmation)}</span>
+        </div>
+      )}
       {!quote.available && (
         <p className="text-xs font-bold text-brand-danger">This room was just booked for these dates. Change your selection to continue.</p>
       )}

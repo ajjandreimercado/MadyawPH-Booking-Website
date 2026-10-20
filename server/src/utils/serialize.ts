@@ -1,4 +1,5 @@
 import { resolveHotelOnlinePaymentMode, resolveOnlinePaymentModeFromBooking } from './halfPayment';
+import { resolvePromoPricing } from './promoPricing';
 import { resolveHotelImageUrl, resolveHotelImageUrlFromRecord } from './hotelImageUrl';
 import {
   hasAnyPaymentQr,
@@ -121,6 +122,8 @@ export function serializeHotel(
 export function serializeRoomCategory(category: AnyDocument) {
   const source = category as AnyDocument;
   const hotelId = source.hotel_id ?? source.hotelId;
+  const defaultPrice = Number(source.default_price ?? source.defaultPrice ?? 0);
+  const promo = resolvePromoPricing(source, defaultPrice);
 
   return {
     id: toId(category._id),
@@ -128,7 +131,10 @@ export function serializeRoomCategory(category: AnyDocument) {
     hotelId: hotelId ? toId(hotelId) : '',
     name: String(source.name ?? ''),
     description: String(source.description ?? ''),
-    defaultPrice: Number(source.default_price ?? source.defaultPrice ?? 0),
+    defaultPrice,
+    hasPromo: promo.hasPromo,
+    promoPrice: promo.hasPromo ? promo.promoPrice : undefined,
+    promoRegularPrice: promo.hasPromo ? promo.regularPrice : undefined,
     imageUrl: resolveHotelImageUrlFromRecord(category) ?? '',
   };
 }
@@ -197,6 +203,7 @@ export function serializeBooking(booking: AnyDocument) {
     depositAmount: Number(booking.deposit_amount ?? booking.amountPaid ?? booking.amount_paid ?? 0),
     onlinePaymentMode: resolveOnlinePaymentModeFromBooking(booking),
     depositPercent: resolveOnlinePaymentModeFromBooking(booking) === 'full' ? 100 : Number(booking.deposit_percent ?? 50),
+    groupBooking: Boolean(booking.group_booking ?? booking.groupBooking),
     membershipId: booking.member_shid_id ? String(booking.member_shid_id) : undefined,
     discountType: booking.discount_type ? String(booking.discount_type) : undefined,
     checkInAt: booking.check_in_at,

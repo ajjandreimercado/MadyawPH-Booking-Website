@@ -61,6 +61,10 @@ export interface RoomCategory {
   name: string;
   description: string;
   defaultPrice: number;
+  /** Hotel-app promo pricing for display (big "starts from" promo price). */
+  hasPromo?: boolean;
+  promoPrice?: number;
+  promoRegularPrice?: number;
   imageUrl: string;
 }
 

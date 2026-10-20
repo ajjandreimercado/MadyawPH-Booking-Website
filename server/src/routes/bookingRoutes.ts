@@ -426,8 +426,10 @@ async function resolveBookingRoom(body: {
 bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const body = pickFields(req.body ?? {}, [
     'categoryId', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
-    'roomType', 'discountReason', 'promoCode', 'membershipId', 'arrivalTime',
+    'roomType', 'discountReason', 'promoCode', 'membershipId', 'arrivalTime', 'groupBooking',
   ] as const);
+  // Group bookings (any room type) pay a 50% down payment; individual bookings pay in full.
+  const groupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
   const quoteArrival = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime) ? body.arrivalTime : undefined;
   const checkInResult = validateString(body.checkInDate, 'Check-in date', 1, 30);
   if (!checkInResult.ok) return res.status(400).json({ message: checkInResult.message });
@@ -504,9 +506,10 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
       discountType: quote.finalDiscountType,
       discountReason: quote.finalDiscountReason,
       totalPrice: quote.finalTotalPrice,
-      // Guests pay the full stay by the hotel's QR when they book; the hotel verifies it.
-      dueNow: computeOnlinePaymentDue(quote.finalTotalPrice, 'full').amountDue,
-      dueAfterConfirmation: 0,
+      // Individual: full stay due now. Group booking: 50% down payment, balance at the hotel.
+      groupBooking,
+      dueNow: computeOnlinePaymentDue(quote.finalTotalPrice, groupBooking ? 'half' : 'full').amountDue,
+      dueAfterConfirmation: computeOnlinePaymentDue(quote.finalTotalPrice, groupBooking ? 'half' : 'full').balanceDue,
       taxesIncluded: true,
     });
   } catch (error) {
@@ -563,12 +566,13 @@ async function checkPaymentProof(
       message: 'Enter a valid amount paid greater than ₱0.',
     };
   }
-  // Website stays are paid in full: the receipt must show the stay total (±₱1 for rounding).
+  // The receipt must show the amount due now (full stay, or 50% down payment for
+  // group bookings) — ±₱1 for rounding.
   if (Math.abs(claimed - amountDue) > 1) {
     return {
       ok: false,
       status: 400,
-      message: `Your receipt amount must match the stay total of ₱${amountDue.toLocaleString()}. Pay the full amount by the hotel's QR, then enter it here.`,
+      message: `Your receipt amount must match the amount due of ₱${amountDue.toLocaleString()}. Pay that amount by the hotel's QR, then enter it here.`,
     };
   }
   const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
@@ -954,7 +958,10 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     'paymentTransactionRef',
     'paymentProofAmountClaimed',
     'arrivalTime',
+    'groupBooking',
   ] as const);
+  // Group bookings (any room type) pay a 50% down payment; individual bookings pay in full.
+  const groupBooking = body.groupBooking === true || body.groupBooking === 'true' || body.groupBooking === '1';
 
   const arrivalTime = typeof body.arrivalTime === 'string' && ARRIVAL_TIME_RE.test(body.arrivalTime)
     ? body.arrivalTime
@@ -1084,8 +1091,9 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Check-out must be after check-in.' });
   }
 
-  // Website reservations always require full stay payment after hotel confirmation.
-  const paymentMode = 'full' as const;
+  // Individual bookings pay the full stay; group bookings pay a 50% down payment
+  // (balance at the hotel) — available for every room type.
+  const paymentMode = groupBooking ? ('half' as const) : ('full' as const);
 
   let quote: StayQuote;
   try {
@@ -1225,6 +1233,8 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
       : {}),
     paymentMethod: paymentMethodResult.value,
     source: 'web',
+    // Group booking: 50% down payment (online_payment_mode/deposit_percent carry the split).
+    group_booking: groupBooking,
     nights: pricing.nights,
     guestCount: pricing.guestCount,
     roomRate: pricing.roomRate,
