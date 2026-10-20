@@ -39,10 +39,16 @@ function isBookable(category: HotelDetailCategory, stay: Stay): boolean {
   return category.availableRooms > 0 && fitsParty(category, stay) && stayTotal(category) != null;
 }
 
+/** Max room types in one booking (mirrors the server cap). */
+const MAX_SELECTED_CATEGORIES = 5;
+
+export type ReserveItem = { category: HotelDetailCategory; mode: ReserveMode };
+
 /**
  * Booking.com-style "Rooms & Rates" (steps 2–3): filters and sort, then one row per room type
  * with Room type | Price for the stay | Your choices | Select rooms, and a sticky reserve panel.
- * One room per reservation, so "Select rooms" is 0 or 1.
+ * Guests may select several room types (one room each) and book them together in one
+ * checkout with one payment; the hourly "block" option stays a single-type booking.
  */
 export default function RoomsAndRates({
   categories: allCategories,
@@ -51,12 +57,23 @@ export default function RoomsAndRates({
 }: {
   categories: HotelDetailCategory[];
   stay: Stay;
-  onReserve: (category: HotelDetailCategory, mode: ReserveMode) => void;
+  onReserve: (items: ReserveItem[]) => void;
 }) {
   const nights = stayNights(stay);
   // Client rule: fully booked room types are hidden until a room frees up for these dates.
   const categories = useMemo(() => allCategories.filter((c) => c.availableRooms > 0), [allCategories]);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selections, setSelections] = useState<Selection[]>([]);
+
+  /** Add/replace one room type in the selection; hourly blocks always book on their own. */
+  const applySelection = (category: HotelDetailCategory, mode: ReserveMode | null) => {
+    setSelections((prev) => {
+      if (mode === null) return prev.filter((s) => s.id !== category.id);
+      if (mode === 'block') return [{ id: category.id, mode }];
+      const staySelections = prev.filter((s) => s.mode === 'stay' && s.id !== category.id);
+      if (staySelections.length >= MAX_SELECTED_CATEGORIES) return prev;
+      return [...staySelections, { id: category.id, mode }];
+    });
+  };
   const [freeCancellationOnly, setFreeCancellationOnly] = useState(false);
   const [breakfastOnly, setBreakfastOnly] = useState(false);
   const [bedType, setBedType] = useState('');
@@ -94,8 +111,11 @@ export default function RoomsAndRates({
     });
   }, [categories, freeCancellationOnly, breakfastOnly, bedType, maxPrice, sort, nights, stay]);
 
-  const selectedCategory = categories.find((c) => c.id === selection?.id && isBookable(c, stay)) ?? null;
-  const selected = selectedCategory && selection ? { category: selectedCategory, mode: selection.mode } : null;
+  const selectedItems: ReserveItem[] = selections.flatMap((selection) => {
+    const category = categories.find((c) => c.id === selection.id && isBookable(c, stay));
+    return category ? [{ category, mode: selection.mode }] : [];
+  });
+  const selectedIds = new Set(selectedItems.map((item) => item.category.id));
 
   if (allCategories.length === 0) {
     return <p className="text-sm font-bold text-brand-dark/60">This hotel has no rooms listed yet.</p>;
@@ -156,11 +176,12 @@ export default function RoomsAndRates({
             </div>
             {visible.map((category) => {
               const bookable = isBookable(category, stay);
-              const isSelected = selected?.category.id === category.id;
+              const isSelected = selectedIds.has(category.id);
+              const selectionMode = selections.find((s) => s.id === category.id)?.mode;
               return (
                 <div
                   key={category.id}
-                  onClick={() => { if (bookable && !isSelected) setSelection({ id: category.id, mode: 'stay' }); }}
+                  onClick={() => { if (bookable && !isSelected) applySelection(category, 'stay'); }}
                   title={bookable && !isSelected ? 'Click to select this room and see its price' : undefined}
                   className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
                 >
@@ -246,9 +267,9 @@ export default function RoomsAndRates({
                     {bookable ? (
                       <select
                         aria-label={`Rooms of ${category.name}`}
-                        value={isSelected && selection ? selection.mode : ''}
+                        value={isSelected && selectionMode ? selectionMode : ''}
                         onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setSelection(e.target.value ? { id: category.id, mode: e.target.value as ReserveMode } : null)}
+                        onChange={(e) => applySelection(category, e.target.value ? e.target.value as ReserveMode : null)}
                         className="w-full md:w-auto px-3 py-2 rounded-lg border border-brand-primary/30 text-sm font-bold bg-white"
                       >
                         <option value="">0</option>
@@ -272,11 +293,11 @@ export default function RoomsAndRates({
 
       {/* Reserve panel: sticky on desktop, bottom bar on phones */}
       <aside className="hidden lg:block lg:sticky lg:top-[12rem] rounded-xl border border-brand-primary/15 bg-white p-4">
-        <ReserveSummary selected={selected} nights={nights} stay={stay} onReserve={onReserve} />
+        <ReserveSummary items={selectedItems} nights={nights} stay={stay} onReserve={onReserve} />
       </aside>
-      {selected && (
+      {selectedItems.length > 0 && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-brand-primary/15 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(10,25,47,0.12)]">
-          <ReserveSummary selected={selected} nights={nights} stay={stay} onReserve={onReserve} compact />
+          <ReserveSummary items={selectedItems} nights={nights} stay={stay} onReserve={onReserve} compact />
         </div>
       )}
 
@@ -316,32 +337,34 @@ export default function RoomsAndRates({
 }
 
 function ReserveSummary({
-  selected,
+  items,
   nights,
   stay,
   onReserve,
   compact = false,
 }: {
-  selected: { category: HotelDetailCategory; mode: ReserveMode } | null;
+  items: ReserveItem[];
   nights: number;
   stay: Stay;
-  onReserve: (category: HotelDetailCategory, mode: ReserveMode) => void;
+  onReserve: (items: ReserveItem[]) => void;
   compact?: boolean;
 }) {
-  const price = selected ? priceFor(selected.category, selected.mode) : null;
-  const label = selected ? optionLabel(selected.category, selected.mode, stay, nights) : '';
+  const total = items.reduce((sum, item) => sum + (priceFor(item.category, item.mode) ?? 0), 0);
+  const hasPrice = items.every((item) => priceFor(item.category, item.mode) != null);
   const button = (
-    <button type="button" disabled={!selected} onClick={() => selected && onReserve(selected.category, selected.mode)}
+    <button type="button" disabled={items.length === 0} onClick={() => items.length > 0 && onReserve(items)}
       className="btn-primary w-full py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       Reserve
     </button>
   );
-  if (compact && selected) {
+  if (compact && items.length > 0) {
     return (
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-brand-dark/60 truncate">1 × {selected.category.name} · {label}</p>
-          <p className="text-lg font-bold text-brand-dark tabular-nums">{price == null ? '—' : peso(price)}</p>
+          <p className="text-xs font-bold text-brand-dark/60 truncate">
+            {items.length} room type{items.length === 1 ? '' : 's'} · {items.map((item) => item.category.name).join(', ')}
+          </p>
+          <p className="text-lg font-bold text-brand-dark tabular-nums">{hasPrice ? peso(total) : '—'}</p>
         </div>
         <div className="w-36">{button}</div>
       </div>
@@ -349,15 +372,34 @@ function ReserveSummary({
   }
   return (
     <div className="space-y-3">
-      {selected ? (
+      {items.length > 0 ? (
         <>
-          <p className="text-sm font-bold text-brand-dark">1 room selected</p>
-          <p className="text-xs font-bold text-brand-dark/60">{selected.category.name} · {label}, {describeGuests(stay)}</p>
-          <p className="text-2xl font-bold text-brand-dark tabular-nums">{price == null ? '—' : peso(price)}</p>
+          <p className="text-sm font-bold text-brand-dark">
+            {items.length} room type{items.length === 1 ? '' : 's'} selected · {describeGuests(stay)}
+          </p>
+          <ul className="space-y-1.5">
+            {items.map((item) => (
+              <li key={item.category.id} className="flex items-baseline justify-between gap-2 text-xs font-bold">
+                <span className="text-brand-dark/70 min-w-0">
+                  <span className="block truncate">{item.category.name}</span>
+                  <span className="text-brand-dark/45">{optionLabel(item.category, item.mode, stay, nights)}</span>
+                </span>
+                <span className="text-brand-dark tabular-nums shrink-0">
+                  {priceFor(item.category, item.mode) == null ? '—' : peso(priceFor(item.category, item.mode)!)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-2xl font-bold text-brand-dark tabular-nums">{hasPrice ? peso(total) : '—'}</p>
           <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
+          {items.length >= 2 && (
+            <p className="text-[11px] font-bold text-brand-primary">
+              Booking {items.length} room types together — you can choose Individual or Group (50% down payment) at checkout.
+            </p>
+          )}
         </>
       ) : (
-        <p className="text-sm font-bold text-brand-dark/60">Select a room to see your total.</p>
+        <p className="text-sm font-bold text-brand-dark/60">Select one or more room types to see your total.</p>
       )}
       {button}
       <p className="flex items-start gap-1.5 text-[11px] font-bold text-brand-dark/55">

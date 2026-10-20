@@ -90,6 +90,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const { showToast } = useToast();
   const stay = readStay(searchParams);
   const query = stayQuery(stay);
+  // Multi-category booking (?cats=id1,id2 from the hotel page): one checkout and one
+  // payment covering one room of each listed type, primary category first.
+  const categoryIds = [...new Set(
+    [categoryId, ...(searchParams.get('cats')?.split(',') ?? [])]
+      .map((id) => id.trim())
+      .filter(Boolean),
+  )].slice(0, 5);
+  const isMultiCategory = categoryIds.length >= 2;
 
   const [category, setCategory] = useState<RoomCategory | null>(() =>
     categoryId ? peekCache<RoomCategory>(cacheKey(['room-category', categoryId])) ?? null : null,
@@ -141,6 +149,25 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const appliedPromo = promoDiscountAmt > 0 ? draft.promoCode.trim() : undefined;
   const appliedMember = memberDiscountAmt > 0 ? draft.membershipId.trim() : undefined;
   const stayPrice = quote?.stayPrice ?? 0;
+  // Booking type (Individual vs Group 50% down payment) only exists for 2+ room types.
+  const effectiveGroupBooking = isMultiCategory && draft.groupBooking;
+  const [extraCategories, setExtraCategories] = useState<RoomCategory[]>([]);
+
+  // Names/photos of the other booked room types (primary category loads separately).
+  useEffect(() => {
+    const others = categoryIds.filter((id) => id !== categoryId);
+    if (others.length === 0) {
+      setExtraCategories([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(others.map((id) => fetchRoomCategory(id).catch(() => null)))
+      .then((list) => {
+        if (!cancelled) setExtraCategories(list.filter((c): c is RoomCategory => Boolean(c)));
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- categoryIds derives from the URL
+  }, [categoryIds.join(','), categoryId]);
 
   useEffect(() => {
     if (!categoryId) return;
@@ -199,6 +226,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     const timer = window.setTimeout(() => {
       quoteStay({
         categoryId,
+        categoryIds: isMultiCategory ? categoryIds : undefined,
         // Hourly rooms are priced from the arrival time (window start).
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         checkInDate: stay.checkIn,
@@ -208,7 +236,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
-        groupBooking: draft.groupBooking,
+        groupBooking: effectiveGroupBooking,
       })
         .then((result) => {
           if (cancelled) return;
@@ -222,7 +250,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         .finally(() => { if (!cancelled) setQuoteLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime, draft.groupBooking]);
+  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime, effectiveGroupBooking, isMultiCategory, categoryIds.join(',')]);
 
   // Prefill "amount paid" with the amount due now (full stay, or 50% DP for group
   // bookings) — guest can still edit the receipt amount.
@@ -340,13 +368,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
-        groupBooking: draft.groupBooking,
+        groupBooking: effectiveGroupBooking,
+        categoryIds: isMultiCategory ? categoryIds : undefined,
         validIdFile,
         paymentProofFile,
         paymentTransactionRef: paymentRef,
         paymentProofAmountClaimed: paymentAmountPaid,
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
-        specialRequests: buildSpecialRequests(draft, validIdFile.name),
+        specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }, validIdFile.name),
       });
       appendBooking(booking);
       clearDraft(categoryId);
@@ -377,7 +406,16 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     );
   }
 
-  const roomLabel = category.name;
+  const bookedCategories = isMultiCategory
+    ? categoryIds.flatMap((id) => {
+      const found = id === categoryId ? category : extraCategories.find((c) => c.id === id);
+      return found ? [found] : [];
+    })
+    : [category];
+  const roomLabel = isMultiCategory && bookedCategories.length > 1
+    ? bookedCategories.map((c) => c.name).join(', ')
+    : category.name;
+  const roomsLabel = isMultiCategory ? `${categoryIds.length} rooms (one per room type)` : '1 room';
   const quoteBlocksBooking = !quote || Boolean(quoteError) || !quote.available || !(Number(quote.totalPrice) > 0);
 
   return (
@@ -399,6 +437,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               quoteError={quoteError}
               freeCancellation={quote?.freeCancellation}
               showCancellation={step === 'finish'}
+              roomsLabel={roomsLabel}
             />
           </div>
 
@@ -447,17 +486,23 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 <Card>
                   <ReviewHeader title="Your stay" editHref={changeSelectionHref} editLabel="Change" />
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                    <ReviewItem label="Room" value={roomLabel} />
-                    <ReviewItem label="Booking type" value={draft.groupBooking ? 'Group booking · 50% down payment' : 'Individual booking · full payment'} />
-                    <ReviewItem label="Guests" value={`${describeGuests(stay)} · 1 room`} />
+                    <ReviewItem label={isMultiCategory ? 'Rooms' : 'Room'} value={roomLabel} />
+                    {isMultiCategory && (
+                      <ReviewItem label="Booking type" value={effectiveGroupBooking ? 'Group booking · 50% down payment' : 'Individual booking · full payment'} />
+                    )}
+                    <ReviewItem label="Guests" value={`${describeGuests(stay)} · ${roomsLabel}`} />
                     <ReviewItem label="Check-in" value={`${formatStayDate(stay.checkIn)}, from ${clockLabel(quote?.checkInTime ?? '14:00')}`} />
                     <ReviewItem label="Check-out" value={`${formatStayDate(quote?.checkOutDate ?? stay.checkOut)}, until ${clockLabel(quote?.checkOutTime ?? '11:00')}`} />
                     {quote && <ReviewItem label="Total" value={`${peso(quote.totalPrice)} (taxes and charges included)`} />}
                   </dl>
                 </Card>
 
+                {isMultiCategory && (
                 <Card>
                   <h2 className="text-lg font-bold text-brand-dark mb-3">Booking type</h2>
+                  <p className="mb-3 text-xs font-bold text-brand-dark/55">
+                    You're booking {categoryIds.length} room types together, so you can choose how to pay.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Booking type">
                     <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${!draft.groupBooking ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20'}`}>
                       <input
@@ -483,16 +528,17 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                       <span>
                         <span className="block text-sm font-bold text-brand-dark">Group booking</span>
                         <span className="block text-xs font-bold text-brand-dark/55">
-                          Pay only a 50% down payment now{quote ? ` (${peso(quote.dueNow)})` : ''}; the balance is paid at the hotel. Available for all room types.
+                          Pay only a 50% down payment now{quote ? ` (${peso(quote.dueNow)})` : ''}; the balance is paid at the hotel.
                         </span>
                       </span>
                     </label>
                   </div>
                 </Card>
+                )}
 
                 <Card>
                   <h2 className="text-lg font-bold text-brand-dark mb-4 flex items-center gap-2"><Wallet className="w-5 h-5 text-brand-primary" aria-hidden />Pay for your stay</h2>
-                  {draft.groupBooking && quote && quote.dueAfterConfirmation > 0 && (
+                  {effectiveGroupBooking && quote && quote.dueAfterConfirmation > 0 && (
                     <p className="mb-3 rounded-xl bg-brand-primary/5 border border-brand-primary/15 px-3 py-2 text-xs font-bold text-brand-dark/70">
                       Group booking: pay <span className="text-brand-dark">{peso(quote.dueNow)}</span> (50% down payment) now.
                       The remaining <span className="text-brand-dark">{peso(quote.dueAfterConfirmation)}</span> is paid at the hotel.
