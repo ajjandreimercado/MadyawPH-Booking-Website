@@ -182,15 +182,31 @@ function hotelHasCoordinates(hotel: { coordinates?: { latitude?: unknown; longit
 
 /** First room-category photo per hotel, shown as the hotel's photo (the hotel app stores none). */
 async function firstCategoryImageByHotel(hotelIds: string[]): Promise<Map<string, string>> {
-  const categories = await RoomCategoryModel.find({ hotel_id: { $in: hotelIds } }).lean();
+  const gallery = await categoryImagesByHotel(hotelIds);
   const images = new Map<string, string>();
-  for (const category of categories) {
-    const hid = String(category.hotel_id ?? '');
-    if (images.has(hid)) continue;
-    const url = resolveHotelImageUrlFromRecord(category);
-    if (url) images.set(hid, url);
+  for (const [hid, urls] of gallery) {
+    if (urls[0]) images.set(hid, urls[0]);
   }
   return images;
+}
+
+/**
+ * All distinct room-category photos per hotel — the same gallery the hotel page shows.
+ * Card slideshows use these: individual room photos are often dead files on the hotel
+ * app's disk, while category photos resolve through the media proxy.
+ */
+async function categoryImagesByHotel(hotelIds: string[]): Promise<Map<string, string[]>> {
+  const categories = await RoomCategoryModel.find({ hotel_id: { $in: hotelIds } }).lean();
+  const gallery = new Map<string, string[]>();
+  for (const category of categories) {
+    const hid = String(category.hotel_id ?? '');
+    const url = resolveHotelImageUrlFromRecord(category);
+    if (!url) continue;
+    const list = gallery.get(hid) ?? [];
+    if (!list.includes(url) && list.length < 6) list.push(url);
+    gallery.set(hid, list);
+  }
+  return gallery;
 }
 
 // ─── GET / ────────────────────────────────────────────────────────────────────
@@ -488,11 +504,15 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
   }
 
   const hotelIds = Array.from(hotelStatsMap.keys());
-  const [hotels, allReviews, coverImages] = await Promise.all([
+  const [hotels, allReviews, galleryByHotel] = await Promise.all([
     HotelModel.find({ _id: { $in: hotelIds } }).lean(),
     ReviewModel.find({ hotel_id: { $in: hotelIds } }).lean(),
-    firstCategoryImageByHotel(hotelIds),
+    categoryImagesByHotel(hotelIds),
   ]);
+  const coverImages = new Map<string, string>();
+  for (const [hid, urls] of galleryByHotel) {
+    if (urls[0]) coverImages.set(hid, urls[0]);
+  }
 
   const ratingMap = new Map<string, { sum: number; count: number }>();
   for (const review of allReviews) {
@@ -525,8 +545,9 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
       }
     }
 
+    const serialized = serializeHotel(hotel as never, { fallbackImageUrl: coverImages.get(hid) });
     return {
-      ...serializeHotel(hotel as never, { fallbackImageUrl: coverImages.get(hid) }),
+      ...serialized,
       minPrice: stats.minPrice === Infinity ? 0 : stats.minPrice,
       // Promo (hotel app): frontend shows a big "Starts from ₱{promoPrice}" when hasPromo.
       hasPromo: stats.hasPromo,
@@ -534,7 +555,14 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
       promoRegularPrice: stats.hasPromo && stats.promoRegularPrice > 0 ? stats.promoRegularPrice : undefined,
       availableRooms: stats.availableRooms,
       totalRooms: stats.totalRooms,
-      images: stats.images,
+      // Slideshow gallery: hotel cover + every room-category photo (the photos that
+      // actually load), then any individual room photos, deduped. Same set as the
+      // hotel page's "View N photos" gallery.
+      images: [...new Set([
+        serialized.imageUrl,
+        ...(galleryByHotel.get(hid) ?? []),
+        ...stats.images,
+      ].filter(Boolean) as string[])].slice(0, 6),
       avgRating,
       totalReviews: ratingData.count,
       roomTypes: Array.from(stats.types),

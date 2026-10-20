@@ -54,14 +54,20 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
   const locationLabel = formatHotelLocation(hotel.location, hotel.city);
 
   // All photos of the hotel/rooms for the swipeable slideshow (deduped, capped).
-  const slides = [...new Set([hotel.imageUrl, ...(hotel.images ?? [])].filter(Boolean) as string[])]
+  const allSlides = [...new Set([hotel.imageUrl, ...(hotel.images ?? [])].filter(Boolean) as string[])]
     .map((src) => hotelCardImageSrc(src) ?? src)
     .slice(0, 6);
-  if (slides.length === 0) slides.push(NO_PHOTO_SRC);
 
   const [slide, setSlide] = useState(0);
   const [paused, setPaused] = useState(false);
+  // Photos that fail to load (dead files on the hotel app) drop out of the slideshow
+  // instead of turning into the "No photo" placeholder while swiping.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
   const touchX = useRef<number | null>(null);
+
+  const slides = allSlides.filter((src) => !broken.has(src));
+  if (slides.length === 0) slides.push(NO_PHOTO_SRC);
+  const activeSlide = Math.min(slide, slides.length - 1);
 
   // Slow auto-slideshow; pauses while the guest interacts or prefers reduced motion.
   useEffect(() => {
@@ -91,20 +97,23 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
           setPaused(false);
           if (start == null || slides.length < 2) return;
           const dx = (e.changedTouches[0]?.clientX ?? start) - start;
-          if (Math.abs(dx) > 40) goTo(slide + (dx < 0 ? 1 : -1));
+          if (Math.abs(dx) > 40) goTo(activeSlide + (dx < 0 ? 1 : -1));
         }}
       >
         {slides.map((src, i) => (
           <img
             key={`${src}-${i}`}
             src={src}
-            alt={i === slide ? hotel.name : ''}
-            aria-hidden={i !== slide}
+            alt={i === activeSlide ? hotel.name : ''}
+            aria-hidden={i !== activeSlide}
             loading={priority && i === 0 ? 'eager' : 'lazy'}
             decoding="async"
             fetchPriority={priority && i === 0 ? 'high' : 'auto'}
-            className={`absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-700 ${i === slide ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            onError={showNoPhoto}
+            className={`absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-700 ${i === activeSlide ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            onError={() => {
+              if (src === NO_PHOTO_SRC) return;
+              setBroken((prev) => new Set(prev).add(src));
+            }}
             draggable={false}
           />
         ))}
@@ -125,7 +134,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
             <button
               type="button"
               aria-label="Previous photo"
-              onClick={(e) => { e.stopPropagation(); goTo(slide - 1); }}
+              onClick={(e) => { e.stopPropagation(); goTo(activeSlide - 1); }}
               className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-brand-dark/60 text-white hidden sm:flex items-center justify-center hover:bg-brand-dark/80"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -133,7 +142,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
             <button
               type="button"
               aria-label="Next photo"
-              onClick={(e) => { e.stopPropagation(); goTo(slide + 1); }}
+              onClick={(e) => { e.stopPropagation(); goTo(activeSlide + 1); }}
               className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-brand-dark/60 text-white hidden sm:flex items-center justify-center hover:bg-brand-dark/80"
             >
               <ChevronRight className="w-4 h-4" />
@@ -145,7 +154,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
                   type="button"
                   aria-label={`Photo ${i + 1}`}
                   onClick={(e) => { e.stopPropagation(); goTo(i); }}
-                  className={`h-1.5 rounded-full transition-all ${i === slide ? 'w-5 bg-white' : 'w-1.5 bg-white/60'}`}
+                  className={`h-1.5 rounded-full transition-all ${i === activeSlide ? 'w-5 bg-white' : 'w-1.5 bg-white/60'}`}
                 />
               ))}
             </div>
