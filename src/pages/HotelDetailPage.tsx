@@ -268,7 +268,7 @@ export default function HotelDetailPage() {
         {/* Header */}
         <div id="overview" className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 scroll-mt-[12rem] lg:scroll-mt-[13rem]">
           <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold text-brand-primary underline decoration-brand-gold decoration-4 underline-offset-8 mb-3">{hotel.name}</h1>
+            <h1 className="text-3xl md:text-4xl font-sans font-extrabold tracking-tight text-brand-primary underline decoration-brand-gold decoration-4 underline-offset-8 mb-3">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-bold text-brand-dark/60 min-w-0 break-words">{hotel.location}</p>
