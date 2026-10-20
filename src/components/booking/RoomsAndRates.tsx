@@ -184,6 +184,17 @@ export default function RoomsAndRates({
                     )}
                     <div className="min-w-0">
                       <h3 className="font-bold text-brand-primary underline-offset-2">{category.name}</h3>
+                      {category.description && (
+                        <p className="mt-0.5 text-xs font-bold text-brand-dark/60 line-clamp-2">{category.description}</p>
+                      )}
+                      {category.hasPromo && category.promoPrice ? (
+                        <p className="mt-1 text-xs font-bold text-brand-danger">
+                          <span className="uppercase tracking-wider">Promo</span> · Starts from {peso(category.promoPrice)}
+                          {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
+                            ? <span className="ml-1.5 text-brand-dark/45 line-through">{peso(category.promoRegularPrice)}</span>
+                            : null}
+                        </p>
+                      ) : null}
                       <ul className="mt-1 space-y-0.5 text-xs font-bold text-brand-dark/65">
                         {category.bedConfiguration && <li className="flex items-center gap-1.5"><BedDouble className="w-3.5 h-3.5" aria-hidden />{category.bedConfiguration}</li>}
                         {category.maxGuests ? <li className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" aria-hidden />Sleeps up to {category.maxGuests}</li> : null}
@@ -199,7 +210,10 @@ export default function RoomsAndRates({
                   {/* Price */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10">
                     <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
-                    <p className="text-[11px] font-bold text-brand-dark/55">{nights} night{nights === 1 ? '' : 's'}, {describeGuests(stay)}</p>
+                    {/* Room facts come from the category itself, not the searched dates/guests. */}
+                    {category.description
+                      ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
+                      : null}
                     <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
                     {category.hourly && (
                       <p className="mt-1 text-[11px] font-bold text-brand-primary">

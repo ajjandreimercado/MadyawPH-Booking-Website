@@ -208,6 +208,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
+        groupBooking: draft.groupBooking,
       })
         .then((result) => {
           if (cancelled) return;
@@ -221,15 +222,21 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         .finally(() => { if (!cancelled) setQuoteLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime]);
+  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime, draft.groupBooking]);
 
-  // Prefill "amount paid" with the stay total once — guest can still edit the receipt amount.
+  // Prefill "amount paid" with the amount due now (full stay, or 50% DP for group
+  // bookings) — guest can still edit the receipt amount.
   useEffect(() => {
-    const due = Number(quote?.totalPrice ?? 0);
-    if (!(due > 0) || draft.paymentAmountPaid.trim()) return;
-    update({ paymentAmountPaid: String(due) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only seed when quote first has a total
-  }, [quote?.totalPrice]);
+    const due = Number(quote?.dueNow ?? quote?.totalPrice ?? 0);
+    if (!(due > 0)) return;
+    setDraft((prev) => {
+      if (prev.paymentAmountPaid.trim() && Number(prev.paymentAmountPaid.replace(/,/g, '')) === due) return prev;
+      const next = { ...prev, paymentAmountPaid: String(due) };
+      saveDraft(categoryId, next);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed whenever the server due changes (incl. group toggle)
+  }, [quote?.dueNow, quote?.totalPrice]);
 
   useEffect(() => {
     const code = draft.promoCode.trim();
@@ -293,7 +300,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
       return;
     }
-    const amountDue = Number(quote?.totalPrice ?? 0);
+    const amountDue = Number(quote?.dueNow ?? quote?.totalPrice ?? 0);
     if (!quote || quoteLoading || quoteError || !quote.available || !(amountDue > 0)) {
       showToast({
         title: 'Price not ready',
@@ -333,6 +340,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
+        groupBooking: draft.groupBooking,
         validIdFile,
         paymentProofFile,
         paymentTransactionRef: paymentRef,
@@ -439,6 +447,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   <ReviewHeader title="Your stay" editHref={changeSelectionHref} editLabel="Change" />
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                     <ReviewItem label="Room" value={roomLabel} />
+                    <ReviewItem label="Booking type" value={draft.groupBooking ? 'Group booking · 50% down payment' : 'Individual booking · full payment'} />
                     <ReviewItem label="Guests" value={`${describeGuests(stay)} · 1 room`} />
                     <ReviewItem label="Check-in" value={`${formatStayDate(stay.checkIn)}, from ${clockLabel(quote?.checkInTime ?? '14:00')}`} />
                     <ReviewItem label="Check-out" value={`${formatStayDate(quote?.checkOutDate ?? stay.checkOut)}, until ${clockLabel(quote?.checkOutTime ?? '11:00')}`} />
@@ -447,10 +456,50 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 </Card>
 
                 <Card>
+                  <h2 className="text-lg font-bold text-brand-dark mb-3">Booking type</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Booking type">
+                    <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${!draft.groupBooking ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20'}`}>
+                      <input
+                        type="radio"
+                        name="booking-type"
+                        checked={!draft.groupBooking}
+                        onChange={() => update({ groupBooking: false })}
+                        className="mt-0.5 accent-brand-primary"
+                      />
+                      <span>
+                        <span className="block text-sm font-bold text-brand-dark">Individual booking</span>
+                        <span className="block text-xs font-bold text-brand-dark/55">Pay the full stay now by QR.</span>
+                      </span>
+                    </label>
+                    <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${draft.groupBooking ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20'}`}>
+                      <input
+                        type="radio"
+                        name="booking-type"
+                        checked={draft.groupBooking}
+                        onChange={() => update({ groupBooking: true })}
+                        className="mt-0.5 accent-brand-primary"
+                      />
+                      <span>
+                        <span className="block text-sm font-bold text-brand-dark">Group booking</span>
+                        <span className="block text-xs font-bold text-brand-dark/55">
+                          Pay only a 50% down payment now{quote ? ` (${peso(quote.dueNow)})` : ''}; the balance is paid at the hotel. Available for all room types.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </Card>
+
+                <Card>
                   <h2 className="text-lg font-bold text-brand-dark mb-4 flex items-center gap-2"><Wallet className="w-5 h-5 text-brand-primary" aria-hidden />Pay for your stay</h2>
+                  {draft.groupBooking && quote && quote.dueAfterConfirmation > 0 && (
+                    <p className="mb-3 rounded-xl bg-brand-primary/5 border border-brand-primary/15 px-3 py-2 text-xs font-bold text-brand-dark/70">
+                      Group booking: pay <span className="text-brand-dark">{peso(quote.dueNow)}</span> (50% down payment) now.
+                      The remaining <span className="text-brand-dark">{peso(quote.dueAfterConfirmation)}</span> is paid at the hotel.
+                    </p>
+                  )}
                   <PayByQr
                     hotelId={category.hotelId}
-                    amount={quote?.totalPrice ?? null}
+                    amount={quote?.dueNow ?? quote?.totalPrice ?? null}
                     file={paymentProofFile}
                     onFile={changePaymentProof}
                     reference={draft.paymentRef}

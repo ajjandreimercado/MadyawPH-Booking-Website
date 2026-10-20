@@ -450,6 +450,28 @@ describe('POST /api/bookings', () => {
     }
   });
 
+  it('creates a group booking with a 50% down payment', async () => {
+    const quote = await request(app).post('/api/bookings/quote').send({ ...VALID_PAYLOAD, groupBooking: true });
+    expect(quote.status).toBe(200);
+    expect(quote.body.groupBooking).toBe(true);
+    expect(quote.body.dueNow).toBe(Math.floor(quote.body.totalPrice / 2));
+    expect(quote.body.dueAfterConfirmation).toBe(quote.body.totalPrice - quote.body.dueNow);
+
+    const res = await postBooking({
+      ...VALID_PAYLOAD,
+      groupBooking: 'true',
+      paymentProofAmountClaimed: quote.body.dueNow,
+    });
+    expect(res.status).toBe(201);
+
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.group_booking).toBe(true);
+    expect(created.online_payment_mode).toBe('half');
+    expect(created.deposit_percent).toBe(50);
+    expect(created.deposit_amount).toBe(quote.body.dueNow);
+  });
+
   it('stores the payment screenshot, ID link and arrival time for the hotel app', async () => {
     const res = await postBooking({ ...VALID_PAYLOAD, arrivalTime: '15:00' });
     expect(res.status).toBe(201);
@@ -494,7 +516,7 @@ describe('POST /api/bookings', () => {
   it('returns 400 when the receipt amount is not the stay total', async () => {
     const res = await postBooking({ ...VALID_PAYLOAD, paymentProofAmountClaimed: 2500 });
     expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/must match the stay total/i);
+    expect(String(res.body.message)).toMatch(/must match the amount due/i);
     expect(MockBookingModel.create).not.toHaveBeenCalled();
   });
 

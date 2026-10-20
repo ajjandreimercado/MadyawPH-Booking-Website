@@ -1,6 +1,6 @@
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, ArrowRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
+import { MapPin, ArrowRight, ChevronLeft, ChevronRight, Clock, Star, TrendingUp, ShieldCheck, CreditCard, MessageSquareQuote } from 'lucide-react';
 import Hero from '../components/home/Hero';
 import AppMembershipBanner from '../components/home/AppMembershipBanner';
 import { HomeSectionsSkeleton } from '../components/ui/Skeleton';
@@ -32,7 +32,7 @@ export function DestinationCard({ dest, onClick }: { dest: Destination; onClick:
     <button
       type="button"
       onClick={onClick}
-      className="relative h-52 rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left"
+      className="relative aspect-[4/3] rounded-2xl overflow-hidden group shadow-md cursor-pointer w-full text-left"
     >
       <img src={getDestinationImage(dest.name)} alt={dest.name}
         loading="lazy"
@@ -51,31 +51,68 @@ export function DestinationCard({ dest, onClick }: { dest: Destination; onClick:
 
 function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHotel; priority?: boolean }) {
   const navigate = useNavigate();
-  const rawSrc = hotel.imageUrl || hotel.images?.[0];
-  const imgSrc = hotelCardImageSrc(rawSrc) ?? rawSrc ?? NO_PHOTO_SRC;
   const locationLabel = formatHotelLocation(hotel.location, hotel.city);
+
+  // All photos of the hotel/rooms for the swipeable slideshow (deduped, capped).
+  const slides = [...new Set([hotel.imageUrl, ...(hotel.images ?? [])].filter(Boolean) as string[])]
+    .map((src) => hotelCardImageSrc(src) ?? src)
+    .slice(0, 6);
+  if (slides.length === 0) slides.push(NO_PHOTO_SRC);
+
+  const [slide, setSlide] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const touchX = useRef<number | null>(null);
+
+  // Slow auto-slideshow; pauses while the guest interacts or prefers reduced motion.
+  useEffect(() => {
+    if (paused || slides.length < 2) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const id = window.setInterval(() => setSlide((s) => (s + 1) % slides.length), 4500);
+    return () => window.clearInterval(id);
+  }, [paused, slides.length]);
+
+  const goTo = (index: number) => setSlide(((index % slides.length) + slides.length) % slides.length);
+  const hasPromo = Boolean(hotel.hasPromo && hotel.promoPrice && hotel.promoPrice > 0);
+  const startsFrom = hasPromo ? hotel.promoPrice! : hotel.minPrice;
 
   return (
     <div
-      className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer w-full max-w-sm mx-auto sm:max-w-none sm:mx-0 hover:shadow-md transition-shadow"
+      className="bg-brand-cream rounded-2xl border border-brand-primary/10 shadow-sm overflow-hidden cursor-pointer w-full sm:max-w-none sm:mx-0 hover:shadow-md transition-shadow"
       onClick={() => navigate(withStay(`/hotels/${hotel.id}`))}
     >
-      <div className="relative aspect-[4/3] bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 overflow-hidden">
-        <img
-          src={imgSrc}
-          alt={hotel.name}
-          loading={priority ? 'eager' : 'lazy'}
-          decoding="async"
-          fetchPriority={priority ? 'high' : 'auto'}
-          className="absolute inset-0 w-full h-full object-cover object-center"
-          onError={showNoPhoto}
-        />
-        <div className="absolute top-3 right-3 bg-brand-cream/90 px-2 py-1 rounded-lg shadow-sm">
-          <p className="text-xs font-bold text-brand-dark tabular-nums">
-            <span className="text-[10px] text-brand-dark/50 pr-0.5">₱</span>
-            {hotel.minPrice?.toLocaleString() || 0}
-          </p>
-        </div>
+      <div
+        className="relative aspect-[4/3] bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 overflow-hidden touch-pan-y"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onTouchStart={(e) => { setPaused(true); touchX.current = e.touches[0]?.clientX ?? null; }}
+        onTouchEnd={(e) => {
+          const start = touchX.current;
+          touchX.current = null;
+          setPaused(false);
+          if (start == null || slides.length < 2) return;
+          const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+          if (Math.abs(dx) > 40) goTo(slide + (dx < 0 ? 1 : -1));
+        }}
+      >
+        {slides.map((src, i) => (
+          <img
+            key={`${src}-${i}`}
+            src={src}
+            alt={i === slide ? hotel.name : ''}
+            aria-hidden={i !== slide}
+            loading={priority && i === 0 ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchPriority={priority && i === 0 ? 'high' : 'auto'}
+            className={`absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-700 ${i === slide ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            onError={showNoPhoto}
+            draggable={false}
+          />
+        ))}
+        {hasPromo && (
+          <span className="absolute top-3 left-3 bg-brand-danger text-white text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg shadow-md">
+            Promo
+          </span>
+        )}
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-brand-dark/80 text-white text-sm font-bold px-2.5 py-1.5 rounded-lg shadow-md">
           <Star className="w-3.5 h-3.5 fill-brand-star text-brand-star shrink-0" />
           {hotel.avgRating > 0 ? hotel.avgRating.toFixed(1) : 'New'}
@@ -83,6 +120,37 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
             <span className="text-[10px] font-bold text-white/70">({hotel.totalReviews})</span>
           )}
         </div>
+        {slides.length > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="Previous photo"
+              onClick={(e) => { e.stopPropagation(); goTo(slide - 1); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-brand-dark/60 text-white hidden sm:flex items-center justify-center hover:bg-brand-dark/80"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next photo"
+              onClick={(e) => { e.stopPropagation(); goTo(slide + 1); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-brand-dark/60 text-white hidden sm:flex items-center justify-center hover:bg-brand-dark/80"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <div className="absolute bottom-3 right-3 flex gap-1.5">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`Photo ${i + 1}`}
+                  onClick={(e) => { e.stopPropagation(); goTo(i); }}
+                  className={`h-1.5 rounded-full transition-all ${i === slide ? 'w-5 bg-white' : 'w-1.5 bg-white/60'}`}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
       <div className="p-4 sm:p-5">
         <h3 className="font-serif font-bold text-lg text-brand-dark mb-1 line-clamp-1">{hotel.name}</h3>
@@ -90,11 +158,26 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
           <MapPin className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate" title={hotel.location}>{locationLabel}</span>
         </p>
-        <div className="flex items-center justify-end">
+        {/* Price: big promo "starts from" when the hotel turned promo on, else regular starts-from. */}
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${hasPromo ? 'text-brand-danger' : 'text-brand-dark/45'}`}>
+              {hasPromo ? 'Promo · Starts from' : 'Starts from'}
+            </p>
+            <p className={`font-bold text-brand-dark tabular-nums leading-none ${hasPromo ? 'text-3xl' : 'text-2xl'}`}>
+              <span className="text-sm align-top pr-0.5">₱</span>{(startsFrom ?? 0).toLocaleString()}
+              <span className="text-xs font-bold text-brand-dark/50"> /night</span>
+            </p>
+            {hasPromo && hotel.promoRegularPrice && hotel.promoRegularPrice > (hotel.promoPrice ?? 0) && (
+              <p className="mt-1 text-xs font-bold text-brand-dark/45 tabular-nums">
+                Regular <span className="line-through">₱{hotel.promoRegularPrice.toLocaleString()}</span>
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); navigate(withStay(`/hotels/${hotel.id}`)); }}
-            className="text-xs font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1 transition-colors"
+            className="text-xs font-bold text-brand-primary hover:text-brand-hover flex items-center gap-1 transition-colors shrink-0"
           >
             View rooms <ArrowRight className="w-3.5 h-3.5" />
           </button>
@@ -204,7 +287,8 @@ export default function HomePage() {
                 View all <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Same card width as Featured Properties on mobile (full row), then 2-up / 4-up. */}
+            <div className="grid grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
               {destinations.map(dest => (
                 <DestinationCard
                   key={dest.name}
