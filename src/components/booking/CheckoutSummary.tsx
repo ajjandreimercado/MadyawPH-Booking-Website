@@ -152,12 +152,13 @@ function SummaryBody(props: SummaryProps) {
       </section>
 
       {props.showCancellation && (
-        <section className="rounded-xl border border-brand-primary/15 bg-white p-4 text-sm">
-          <h2 className="font-bold text-brand-dark mb-2">Cancellation policy</h2>
-          <p className="font-bold text-brand-danger">Non-refundable</p>
-          <p className="text-brand-dark/70">
-            All bookings are non-refundable. Once you pay, your payment can't be refunded if you cancel, change
-            your dates or don't arrive. If the hotel declines your booking, you get a full refund.
+        <section className="rounded-xl border border-brand-danger/30 bg-brand-danger/5 p-4 text-sm">
+          <h2 className="font-bold uppercase tracking-wider text-brand-danger mb-2">Non-refundable booking</h2>
+          <p className="text-brand-dark/75">
+            Please review the hotel's cancellation and refund policy carefully before proceeding. Payments for
+            bookings marked non-refundable cannot be refunded, subject to the hotel's disclosed terms and
+            applicable consumer protection laws. If the hotel declines your booking, you get a full refund.
+            You acknowledge this policy with the checkbox before submitting.
           </p>
           <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
         </section>

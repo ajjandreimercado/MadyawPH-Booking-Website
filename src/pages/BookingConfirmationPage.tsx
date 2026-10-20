@@ -38,10 +38,17 @@ function statusLabel(status?: string) {
       return 'Cancelled';
     case 'pending':
     case 'requested':
-      return 'Pending review';
+      return 'Pending Payment Verification / Awaiting Hotel Confirmation';
     default:
       return status ? String(status) : 'Booking complete';
   }
+}
+
+/** Payment is tracked separately from the reservation: uploading proof never verifies it. */
+function paymentStatusLabel(booking: BookingRequest) {
+  if (booking.paymentProofVerified) return 'Payment Verified — confirmed by hotel staff';
+  if (booking.paymentProofUploaded) return 'Payment: Proof Submitted / Under Review';
+  return 'Payment: Awaiting your payment proof';
 }
 
 export default function BookingConfirmationPage() {
@@ -292,7 +299,8 @@ export default function BookingConfirmationPage() {
   );
   // Deposit is only "done" after proof upload — never from approval ledger alone.
   const paymentDone = Boolean(booking.paymentProofUploaded);
-  const bookingComplete = (isConfirmed || paymentDone) && !['declined', 'cancelled'].includes(booking.status);
+  // A submitted receipt alone never completes the booking — only hotel confirmation does.
+  const bookingComplete = isConfirmed && !['declined', 'cancelled'].includes(booking.status);
   const forcePay = forcePayParam;
   // Legacy pay-after-confirm links only — new bookings already paid by QR at checkout.
   const showPaySection = (forcePay && !paymentDone && !['declined', 'cancelled'].includes(booking.status))
@@ -359,7 +367,8 @@ export default function BookingConfirmationPage() {
         >
           <p className="text-xs font-bold uppercase tracking-widest text-white/70 mb-1">Booking Reference</p>
           <p className="text-3xl font-serif font-bold tracking-wider">{(booking as { bookingReference?: string }).bookingReference ?? booking.id.slice(0, 12).toUpperCase()}</p>
-          <p className="text-xs text-white/60 mt-1 font-bold">Status: {statusLabel(booking.status)}</p>
+          <p className="text-xs text-white/60 mt-1 font-bold">Booking: {statusLabel(booking.status)}</p>
+          <p className="text-xs text-white/60 mt-0.5 font-bold">{paymentStatusLabel(booking)}</p>
         </motion.div>
 
         <motion.div

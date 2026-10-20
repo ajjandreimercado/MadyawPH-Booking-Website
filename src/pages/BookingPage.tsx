@@ -141,7 +141,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
-  const paymentMethod: BookingPaymentMethod = 'gcash';
+  const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
   // The server prices and names room-type bookings from the room it assigns.
   const roomType = 'standard-room' as BookingRoomType;
   const discountReason = draft.discountType === 'pwd' || draft.discountType === 'senior citizen' ? draft.discountType : undefined;
@@ -370,6 +370,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         membershipId: appliedMember,
         groupBooking: effectiveGroupBooking,
         categoryIds: isMultiCategory ? categoryIds : undefined,
+        policyAcknowledged: agreed,
         validIdFile,
         paymentProofFile,
         paymentTransactionRef: paymentRef,
@@ -554,6 +555,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     amountPaid={draft.paymentAmountPaid}
                     onAmountPaid={(value) => update({ paymentAmountPaid: value })}
                     onError={(title) => showToast({ title, type: 'error' })}
+                    onMethodChange={setPaymentMethod}
                   />
                 </Card>
 
@@ -575,7 +577,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   >
                     {isSubmitting
                       ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending your request…</>
-                      : <><ShieldCheck className="w-5 h-5" /> Complete booking</>}
+                      : <><ShieldCheck className="w-5 h-5" /> Submit Payment Proof &amp; Complete Booking</>}
                   </button>
                   {!paymentReady && (
                     <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">Upload your payment screenshot and reference number above to continue.</p>

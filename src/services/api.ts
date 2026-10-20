@@ -63,6 +63,9 @@ export interface HotelDetailCategory extends RoomCategory {
   amenities?: string[];
   freeCancellation?: boolean;
   breakfastIncluded?: boolean;
+  /** Extra-person / extra-bed charges, only when the hotel set them. */
+  extraPersonCharge?: number;
+  extraBedCharge?: number;
 }
 
 export interface HotelDetailResponse {
@@ -100,6 +103,8 @@ export interface BookingCreatePayload {
   promoCode?: string;
   /** Group booking: pay a 50% down payment now, balance at the hotel. */
   groupBooking?: boolean;
+  /** Guest acknowledged the non-refundable policy (unchecked by default at checkout). */
+  policyAcknowledged?: boolean;
   /** Madyaw Club membership ID (SHID-…) from the hotel app. */
   membershipId?: string;
   /** Required on the live Booking Details page; optional only for unused legacy callers. */
@@ -342,6 +347,7 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   if (payload.arrivalTime) form.append('arrivalTime', payload.arrivalTime);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
   if (payload.groupBooking) form.append('groupBooking', 'true');
+  if (payload.policyAcknowledged) form.append('policyAcknowledged', 'true');
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
   if (payload.validIdFile) form.append('validId', payload.validIdFile);
   if (payload.paymentProofFile) form.append('paymentProof', payload.paymentProofFile);

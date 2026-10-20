@@ -66,6 +66,8 @@ export interface RoomCategory {
   promoPrice?: number;
   promoRegularPrice?: number;
   imageUrl: string;
+  /** All photos the hotel uploaded for this room type. */
+  images?: string[];
 }
 
 export interface Room {
