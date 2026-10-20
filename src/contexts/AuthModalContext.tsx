@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AuthModal from '../components/auth/AuthModal';
+import { useAuth } from './AuthContext';
 import { rememberAuthReturn, takeAuthReturn } from '../lib/authReturn';
 
 type AuthMode = 'login' | 'register';
@@ -23,6 +24,7 @@ const AuthModalContext = createContext<AuthModalContextType | undefined>(undefin
 export function AuthModalProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -31,12 +33,14 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
   const closeAuthModal = useCallback(() => setIsOpen(false), []);
 
   const openAuthModal = useCallback((options?: OpenAuthOptions) => {
+    // Already signed in — never show "Sign in to book" again.
+    if (user) return;
     if (options?.returnTo) rememberAuthReturn(options.returnTo);
     setMode(options?.mode ?? 'login');
     setEmail(options?.email ?? '');
     setName(options?.name ?? '');
     setIsOpen(true);
-  }, []);
+  }, [user]);
 
   // RequireAuth / AuthCallback navigate here with location.state.openAuthModal
   useEffect(() => {
@@ -50,13 +54,24 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
 
     if (!state?.openAuthModal) return;
 
+    // Signed in already (e.g. state replayed after login) — clear it, don't reopen.
+    if (user) {
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
+      return;
+    }
+
     if (state.from) rememberAuthReturn(state.from);
     setMode(state.authMode ?? 'login');
     setEmail(state.authEmail ?? '');
     setName(state.authName ?? '');
     setIsOpen(true);
     navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
-  }, [location, navigate]);
+  }, [location, navigate, user]);
+
+  // Close immediately if a session appears while the modal is open.
+  useEffect(() => {
+    if (user && isOpen) setIsOpen(false);
+  }, [user, isOpen]);
 
   const handleSuccess = () => {
     setIsOpen(false);

@@ -54,12 +54,14 @@ interface SummaryProps {
   hotelName?: string;
   location?: string;
   stay: Stay;
-  /** Back to Rooms & Rates with the same stay, to change room, dates or guests. */
+  /** Back to Rooms Available with the same stay, to change room, dates or guests. */
   changeSelectionHref: string;
   quote: StayQuote | null;
   quoteLoading: boolean;
   quoteError: string | null;
   freeCancellation?: boolean;
+  /** Cancellation policy ("Non-refundable") is shown only on the final details step. */
+  showCancellation?: boolean;
 }
 
 function PriceLines({ quote, quoteLoading, quoteError }: Pick<SummaryProps, 'quote' | 'quoteLoading' | 'quoteError'>) {
@@ -141,15 +143,17 @@ function SummaryBody(props: SummaryProps) {
         <PriceLines quote={props.quote} quoteLoading={props.quoteLoading} quoteError={props.quoteError} />
       </section>
 
-      <section className="rounded-xl border border-brand-primary/15 bg-white p-4 text-sm">
-        <h2 className="font-bold text-brand-dark mb-2">Cancellation policy</h2>
-        <p className="font-bold text-brand-danger">Non-refundable</p>
-        <p className="text-brand-dark/70">
-          All bookings are non-refundable. Once you pay, your payment can't be refunded if you cancel, change
-          your dates or don't arrive. If the hotel declines your booking, you get a full refund.
-        </p>
-        <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
-      </section>
+      {props.showCancellation && (
+        <section className="rounded-xl border border-brand-primary/15 bg-white p-4 text-sm">
+          <h2 className="font-bold text-brand-dark mb-2">Cancellation policy</h2>
+          <p className="font-bold text-brand-danger">Non-refundable</p>
+          <p className="text-brand-dark/70">
+            All bookings are non-refundable. Once you pay, your payment can't be refunded if you cancel, change
+            your dates or don't arrive. If the hotel declines your booking, you get a full refund.
+          </p>
+          <Link to="/cancellation" className="mt-1 inline-block text-xs font-bold text-brand-primary underline underline-offset-2">Read the full policy</Link>
+        </section>
+      )}
 
       <ul className="space-y-1.5 text-sm font-bold text-brand-dark/75">
         {['Pay by scanning the hotel’s own GCash or Maya QR', 'Upload your receipt screenshot', 'The hotel verifies it and confirms by email'].map((line) => (

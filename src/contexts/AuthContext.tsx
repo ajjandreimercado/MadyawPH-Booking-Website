@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getCurrentUser, isAxiosError, loginUser, loginWithGoogleCredential, registerUser, logoutUser } from '../services/api';
 
 export type UserRole = 'guest' | 'partner' | 'admin' | 'staff' | 'super_admin';
@@ -95,7 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  const verifyToken = async () => {
+  // Stable identities (useCallback): consumers with these in effect deps
+  // (AuthCallback, RequireAuth) must not re-run just because the user changed.
+  const verifyToken = useCallback(async () => {
     try {
       const currentUser = await getCurrentUser();
       setUser(currentUser ? normalizeUser(currentUser) : null);
@@ -113,22 +115,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       return false;
     }
-  };
+  }, []);
 
-  const login = async (input: LoginInput) => {
+  const login = useCallback(async (input: LoginInput) => {
     const session = await loginUser(input);
     setUser(normalizeUser(session.user));
-  };
+  }, []);
 
-  const loginWithGoogle = async (credential: string) => {
+  const loginWithGoogle = useCallback(async (credential: string) => {
     const session = await loginWithGoogleCredential(credential);
     setUser(normalizeUser(session.user));
-  };
+  }, []);
 
-  const register = async (input: RegisterInput) => {
+  const register = useCallback(async (input: RegisterInput) => {
     const session = await registerUser(input);
     setUser(normalizeUser(session.user));
-  };
+  }, []);
 
   useEffect(() => {
     void verifyToken();

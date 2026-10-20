@@ -1,7 +1,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
-import { Loader2, MapPin, Phone, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, MessageSquareQuote, Clock, IdCard, Wallet } from 'lucide-react';
+import { Loader2, MapPin, Star, ChevronLeft, ChevronRight, X, Wifi, Waves, Utensils, Dumbbell, ParkingCircle, Wind, Coffee, Tv, MessageSquareQuote, Clock, IdCard, Wallet } from 'lucide-react';
 import { fetchHotelDetailById } from '../api/propertyService';
 import { fetchReviews, type Review } from '../services/api';
 import { errorMessageFromUnknown } from '../lib/apiError';
@@ -25,7 +25,7 @@ const AMENITY_ICONS: Record<string, React.ComponentType<{ className?: string }>>
 
 const SECTIONS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'rooms', label: 'Rooms & Rates' },
+  { id: 'rooms', label: 'Rooms Available' },
   { id: 'facilities', label: 'Facilities' },
   { id: 'house-rules', label: 'House Rules' },
   { id: 'reviews', label: 'Reviews' },
@@ -268,7 +268,7 @@ export default function HotelDetailPage() {
         {/* Header */}
         <div id="overview" className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 scroll-mt-[12rem] lg:scroll-mt-[13rem]">
           <div>
-            <h1 className="text-3xl font-display font-semibold text-brand-dark mb-2">{hotel.name}</h1>
+            <h1 className="text-3xl md:text-4xl font-display font-bold text-brand-primary underline decoration-brand-gold decoration-4 underline-offset-8 mb-3">{hotel.name}</h1>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-bold text-brand-dark/60 min-w-0 break-words">{hotel.location}</p>
@@ -286,11 +286,6 @@ export default function HotelDetailPage() {
                   <span className="text-[10px] font-bold uppercase tracking-wider">Location</span>
                 </button>
               </div>
-              {hotel.contactNumber && (
-                <a href={`tel:${hotel.contactNumber}`} className="flex items-center gap-2 px-3 py-1.5 bg-brand-primary/5 hover:bg-brand-primary/10 rounded-full transition-colors text-sm font-bold text-brand-dark/70 hover:text-brand-primary border border-brand-primary/10">
-                  <Phone className="w-3.5 h-3.5 text-brand-primary" />{hotel.contactNumber}
-                </a>
-              )}
               {reviews.length > 0 && (
                 <div className="flex items-center gap-2">
                   <StarRating rating={avgRating} size="sm" showValue />
@@ -325,10 +320,10 @@ export default function HotelDetailPage() {
         </div>
 
         <div className="space-y-8">
-          {/* Rooms & Rates */}
+          {/* Rooms Available */}
           <section id="rooms" className={sectionCard} aria-busy={isRefreshing}>
             <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-              <h2 className="text-xl font-serif font-bold text-brand-dark">Rooms & Rates</h2>
+              <h2 className="text-xl font-serif font-bold text-brand-dark">Rooms Available</h2>
               {isRefreshing && (
                 <span className="flex items-center gap-1.5 text-xs font-bold text-brand-dark/50">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Updating prices…
@@ -373,10 +368,6 @@ export default function HotelDetailPage() {
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Wallet className="w-4 h-4 text-brand-primary" aria-hidden />Payment</dt>
                 <dd className="text-brand-dark/70 font-bold">You pay the full stay when you book, by scanning the hotel's GCash or Maya QR. The hotel checks your payment and confirms your stay.</dd>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
-                <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Wallet className="w-4 h-4 text-brand-primary" aria-hidden />Cancellation</dt>
-                <dd className="text-brand-danger font-bold">Non-refundable. Payments can't be refunded if you cancel, change dates or don't arrive.</dd>
               </div>
             </dl>
           </section>
