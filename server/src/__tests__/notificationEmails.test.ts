@@ -7,6 +7,7 @@ import {
   formatStayLength,
   senderFor,
   buildHotelWelcomeHtml,
+  buildVerifyReservationUrl,
   resolveRoomStayDetails,
 } from '../services/notificationService';
 import { ExternalReservationModel, PropertyModel } from '../data/mongoModels';
@@ -95,6 +96,21 @@ describe('approval welcome email', () => {
     expect(html).toContain('Room 1');
     expect(html).toContain('W4YX');
     expect(html).not.toContain('Madyaw');
+  });
+
+  it('includes a reservation verification QR block when a verify URL is given', () => {
+    const html = buildHotelWelcomeHtml({
+      hotelName: 'Gloreto', guestName: 'AJ', roomNumber: '1', roomLabel: '', accessPassword: '',
+      bookingReference: 'BR-1', checkIn: 'a', checkOut: 'b',
+      verifyUrl: 'https://madyaw.com/booking/confirm/b1?token=abc',
+    });
+    expect(html).toContain('VERIFY YOUR RESERVATION');
+    expect(html).toContain('cid:booking-qr');
+    expect(html).toContain('https://madyaw.com/booking/confirm/b1?token=abc');
+
+    const url = buildVerifyReservationUrl({ _id: 'b1', guestEmail: 'aj@example.com' });
+    expect(url).toContain('/booking/confirm/b1');
+    expect(url).toContain('token=');
   });
 
   it('says the password comes at check-in when there is none for this guest', () => {
