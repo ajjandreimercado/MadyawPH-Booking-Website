@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import QRCode from 'qrcode';
 import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel } from '../data/mongoModels';
 import { parseMetadata } from '../utils/healBookingMediaUrls';
 import { CLIENT_ORIGINS, getEmailFrom, getResendApiKey } from '../config/env';
@@ -263,6 +264,8 @@ export function buildHotelWelcomeHtml(input: {
   bookingReference: string;
   checkIn: string;
   checkOut: string;
+  /** Reservation verification link; the QR image (cid:booking-qr) encodes the same URL. */
+  verifyUrl?: string;
 }): string {
   const hotel = escapeHtml(input.hotelName);
   const roomTitle = escapeHtml(input.roomNumber ? `Room ${input.roomNumber}` : (input.roomLabel || 'Your room'));
@@ -282,6 +285,11 @@ export function buildHotelWelcomeHtml(input: {
   <div style="display:inline-block;background:#1e2a78;color:#ffffff;border-radius:10px;padding:14px 26px;font-size:26px;font-weight:700;letter-spacing:6px;">${password}</div>
   <p style="margin:16px 0 0;font-size:13px;color:#64748b;">Use this password for guest portal access and room services during your stay. Please keep it private. If you need help, visit the front desk.</p>`
     : `<p style="margin:0;font-size:13px;color:#64748b;">Your room access password will be given to you at check-in. If you need help, reply to this email or contact the front desk.</p>`}
+  ${input.verifyUrl ? `<div style="margin:28px 0 0;text-align:center;">
+    <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:1px;color:#64748b;">VERIFY YOUR RESERVATION</p>
+    <img src="cid:booking-qr" alt="Reservation QR code" width="148" height="148" style="border:1px solid #d6def3;border-radius:12px;padding:8px;background:#ffffff;">
+    <p style="margin:8px 0 0;font-size:12px;color:#64748b;">Scan to open your booking, or visit<br><a href="${escapeHtml(input.verifyUrl)}" style="color:#1e2a78;">your reservation page</a></p>
+  </div>` : ''}
   <p style="margin:28px 0 0;font-size:14px;">Warm regards,<br><strong>${hotel}</strong></p>
 </div></body></html>`;
 }
@@ -322,7 +330,28 @@ export function queueGuestNotification(label: string, task: () => Promise<unknow
   });
 }
 
-async function deliverEmail(to: string, subject: string, text: string, from: string, html?: string): Promise<EmailSendResult> {
+/** Link + QR target guests use to verify/open their reservation (signed receipt token). */
+export function buildVerifyReservationUrl(booking: BookingNotificationTarget): string {
+  const origin = frontendOrigin();
+  const bookingId = String(booking._id ?? '');
+  const email = String(booking.guestEmail ?? '').trim().toLowerCase();
+  if (!bookingId) return `${origin}/search`;
+  const token = signReceiptToken(bookingId, email);
+  const params = new URLSearchParams({ token });
+  if (email) params.set('email', email);
+  return `${origin}/booking/confirm/${encodeURIComponent(bookingId)}?${params.toString()}`;
+}
+
+type EmailAttachment = { filename: string; content: string; content_type: string; content_id?: string };
+
+async function deliverEmail(
+  to: string,
+  subject: string,
+  text: string,
+  from: string,
+  html?: string,
+  attachments?: EmailAttachment[],
+): Promise<EmailSendResult> {
   const apiKey = getResendApiKey();
   if (!apiKey) {
     console.log(`\n======================================================`);
@@ -345,6 +374,7 @@ async function deliverEmail(to: string, subject: string, text: string, from: str
       subject,
       text,
       ...(html ? { html } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     }),
   });
 
@@ -462,7 +492,8 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     || Number(booking.payment_proof_amount_claimed ?? 0)
     || (booking.payment_proof_stored || booking.payment_proof_filename ? stayTotal : 0);
 
-  const subject = `Welcome to ${hotelName}!`;
+  const subject = 'Booking Successful!';
+  const verifyUrl = buildVerifyReservationUrl(booking);
   const messageHtml = buildHotelWelcomeHtml({
     hotelName,
     guestName: String(booking.guestName ?? 'Guest').trim() || 'Guest',
@@ -472,7 +503,21 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     bookingReference: ref,
     checkIn: checkInDate,
     checkOut: checkOutDate,
+    verifyUrl,
   });
+  // QR code the guest/front desk scans to verify the reservation (inline attachment).
+  let qrAttachment: EmailAttachment | undefined;
+  try {
+    const png = await QRCode.toBuffer(verifyUrl, { width: 320, margin: 1 });
+    qrAttachment = {
+      filename: 'booking-qr.png',
+      content: png.toString('base64'),
+      content_type: 'image/png',
+      content_id: 'booking-qr',
+    };
+  } catch (qrError) {
+    console.warn('[Notification] Could not generate booking QR:', qrError instanceof Error ? qrError.message : qrError);
+  }
   const messageBody = buildHotelWelcomeBody({
     guestFirstName: guestFirstName(booking),
     hotelName,
@@ -495,10 +540,23 @@ export async function sendBookingConfirmationNotification(booking: BookingNotifi
     }
 
     if (!booking.guestEmail) {
-      throw new Error('Guest email is required to send confirmation.');
+      // Phone-only guest checkout: no email to send — FO staff confirm by phone call.
+      await persistSendState(booking, {
+        confirmationSendStatus: 'skipped',
+        confirmationSendError: 'Phone-only guest — FO confirms by phone call.',
+      });
+      console.log(`[Notification] Booking ${ref}: phone-only guest, FO to call ${String(booking.guest_phone ?? '')} to confirm.`);
+      return true;
     }
 
-    const result = await deliverEmail(booking.guestEmail, subject, messageBody, senderFor(hotelName), messageHtml);
+    const result = await deliverEmail(
+      booking.guestEmail,
+      subject,
+      `${messageBody}\n\nVerify your reservation: ${verifyUrl}`,
+      senderFor(hotelName),
+      messageHtml,
+      qrAttachment ? [qrAttachment] : undefined,
+    );
     const sentTimestamp = new Date();
 
     if (!result.delivered) {

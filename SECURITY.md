@@ -23,6 +23,11 @@ What protects the site today, and where it lives. Enforcement is on the API; the
 - **Hotel webhooks** (`/api/bookings/hotel-events`, QR/media cache) need `HOTEL_WEBHOOK_SECRET`.
   Meta Messenger webhooks verify `X-Hub-Signature-256` when `MESSENGER_APP_SECRET` is set — set it.
 - **Receipts and payment links** use signed, expiring receipt tokens (`utils/receiptToken.ts`).
+- **Guest checkout** (`POST /api/bookings`) is public by design — no account needed to book:
+  guarded by `bookingCreateLimiter`, field allowlists, server-side pricing, and one-time
+  payment-proof reference/screenshot uniqueness. Guests give a name plus an email **or** a
+  mobile number; signed-in guests still have their booking locked to the account email,
+  and reading/managing a booking still requires the account or the signed receipt token.
 - **Reviews** need a signed-in account with a completed, uncancelled stay at that room; one per stay, and
   the public name comes from the booking.
 - Errors never return stack traces to clients. `/api/health` returns liveness only (no DB name/counts).

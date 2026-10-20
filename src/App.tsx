@@ -73,21 +73,14 @@ export default function App() {
         <Route path="/terms" element={<Suspense fallback={<PageLoader />}><TermsOfServicePage /></Suspense>} />
 
         <Route path="/hotels/:hotelId" element={<Suspense fallback={<PageLoader />}><HotelDetailPage /></Suspense>} />
+        {/* Guest checkout: no sign-in required to book (name + email or mobile). */}
         <Route
           path="/booking/:categoryId"
-          element={(
-            <RequireAuth>
-              <Suspense fallback={<PageLoader />}><BookingPage step="details" /></Suspense>
-            </RequireAuth>
-          )}
+          element={<Suspense fallback={<PageLoader />}><BookingPage step="details" /></Suspense>}
         />
         <Route
           path="/booking/:categoryId/finish"
-          element={(
-            <RequireAuth>
-              <Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>
-            </RequireAuth>
-          )}
+          element={<Suspense fallback={<PageLoader />}><BookingPage step="finish" /></Suspense>}
         />
         <Route path="/booking/confirm/:bookingId" element={<Suspense fallback={<PageLoader />}><BookingConfirmationPage /></Suspense>} />
         <Route

@@ -287,9 +287,28 @@ describe('POST /api/bookings', () => {
     } as never);
   });
 
-  it('returns 401 when creating a booking without signing in', async () => {
+  it('allows guest checkout without signing in (name + email)', async () => {
     const res = await postBooking(VALID_PAYLOAD, true, true, false);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.guestEmail).toBe('alice@example.com');
+  });
+
+  it('allows guest checkout with only a mobile number (no email)', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: '' }, true, true, false);
+    expect(res.status).toBe(201);
+    const createdArg = (MockBookingModel.create as jest.Mock).mock.calls[0][0];
+    const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
+    expect(created.guestEmail).toBe('');
+    expect(created.guest_phone).toBeTruthy();
+  });
+
+  it('rejects guest checkout with neither email nor mobile number', async () => {
+    const res = await postBooking({ ...VALID_PAYLOAD, guestEmail: '', guestPhone: '' }, true, true, false);
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/email address or a mobile/i);
+    expect(MockBookingModel.create).not.toHaveBeenCalled();
   });
 
   it('forces guestEmail to the signed-in account email', async () => {

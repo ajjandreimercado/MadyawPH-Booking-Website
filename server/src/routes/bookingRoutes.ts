@@ -1041,12 +1041,12 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
 // No session token required — this is a guest booking website with no login.
 // Accepts multipart/form-data with required Valid ID file.
 
-// requireAuth: bookings are owned by the signed-in account (guestEmail locked to session).
-bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
+// Guest checkout: no account or sign-in is required to book. A guest provides their
+// name plus an email address OR a mobile number (phone-only guests are confirmed by
+// an FO phone call instead of email). Signed-in guests keep their account email
+// locked to the session. Public endpoint — bookingCreateLimiter guards it (A04).
+bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => {
   const requester = await getRequestUser(req);
-  if (!requester) {
-    return res.status(401).json({ message: USER_MESSAGES.accountNotFound });
-  }
 
   let validIdFile: UploadedBookingFile | undefined;
   let paymentProofFile: UploadedBookingFile | undefined;
@@ -1168,17 +1168,39 @@ bookingRoutes.post('/', requireAuth, bookingCreateLimiter, async (req, res) => {
 
   // ── Guest field validation ────────────────────────────────────────────────
 
-  const rawGuestName = body.guestName || requester.name;
+  const rawGuestName = body.guestName || requester?.name;
   const guestNameResult = validateString(rawGuestName, 'Guest name', 1, 80);
   if (!guestNameResult.ok) return res.status(400).json({ message: guestNameResult.message });
 
-  // Ownership: always use the signed-in account email (ignore client spoofing).
-  const guestEmailResult = validateEmail(requester.email);
-  if (!guestEmailResult.ok) return res.status(400).json({ message: guestEmailResult.message });
+  // Contact: signed-in guests are locked to their account email (ignore spoofing).
+  // Guest checkout needs an email OR a mobile number — never both-required.
+  let guestEmailValue = '';
+  if (requester) {
+    const accountEmail = validateEmail(requester.email);
+    if (!accountEmail.ok) return res.status(400).json({ message: accountEmail.message });
+    guestEmailValue = accountEmail.value;
+  } else if (typeof body.guestEmail === 'string' && body.guestEmail.trim()) {
+    const guestEmail = validateEmail(body.guestEmail.trim());
+    if (!guestEmail.ok) {
+      return res.status(400).json({ message: 'Enter a valid email address, or leave it blank and use your mobile number.' });
+    }
+    guestEmailValue = guestEmail.value;
+  }
+  const guestEmailResult = { ok: true as const, value: guestEmailValue };
 
-  // Guest phone: required, format-validated (OWASP A03)
-  const guestPhoneResult = validatePhone(body.guestPhone);
-  if (!guestPhoneResult.ok) return res.status(400).json({ message: guestPhoneResult.message });
+  // Phone is required only when there is no email (FO calls phone-only guests to
+  // confirm). When given, it must be format-valid (OWASP A03).
+  const rawPhone = typeof body.guestPhone === 'string' ? body.guestPhone.trim() : '';
+  if (!guestEmailValue && !rawPhone) {
+    return res.status(400).json({ message: 'Provide an email address or a mobile phone number so the hotel can confirm your booking.' });
+  }
+  let guestPhoneValue = '';
+  if (rawPhone) {
+    const guestPhone = validatePhone(rawPhone);
+    if (!guestPhone.ok) return res.status(400).json({ message: guestPhone.message });
+    guestPhoneValue = guestPhone.value;
+  }
+  const guestPhoneResult = { ok: true as const, value: guestPhoneValue };
 
   // ── Numeric occupancy validation ──────────────────────────────────────────
   // OWASP A03: integer + range checks prevent garbage values in DB and pricing logic

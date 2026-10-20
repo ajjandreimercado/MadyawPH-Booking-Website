@@ -66,8 +66,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function missingDetails(draft: CheckoutDraft, validIdFile: File | null): string | null {
   if (!draft.fullName.trim()) return 'Enter your full name.';
-  if (!EMAIL_RE.test(draft.email.trim())) return 'Enter a valid email address.';
-  if (!draft.phone.trim()) return 'Enter your phone number.';
+  // Quick booking: name plus an email OR a mobile number is enough — no account needed.
+  const email = draft.email.trim();
+  const phone = draft.phone.trim();
+  if (!email && !phone) return 'Enter your email address or your mobile phone number so the hotel can confirm your booking.';
+  if (email && !EMAIL_RE.test(email)) return 'Enter a valid email address, or leave it blank and use your mobile number.';
+  if (!email && phone.replace(/\D/g, '').length < 7) return 'Enter a valid mobile phone number.';
   if (draft.bookingForSomeoneElse && !draft.stayGuestName.trim()) return 'Enter the name of the guest who will stay.';
   if (!validIdFile) return 'Upload your valid ID.';
   return null;
@@ -107,6 +111,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  /** Set right after a successful submission — shows the "Processing Payment…" popup. */
+  const [submitted, setSubmitted] = useState<{ bookingId: string; receiptToken?: string; email: string } | null>(null);
   const [, startTransition] = useTransition();
 
   const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(categoryId));
@@ -381,10 +387,10 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       appendBooking(booking);
       clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
-      const accountEmail = (user?.email ?? draft.email).trim();
-      const params = new URLSearchParams({ email: accountEmail });
-      if (receiptToken) params.set('token', receiptToken);
-      navigate(`/booking/confirm/${booking.id}?${params.toString()}`);
+      const contactEmail = (user?.email ?? draft.email).trim();
+      // Popup first ("Processing Payment…"), then the guest opens the confirmation page.
+      setSubmitted({ bookingId: booking.id, receiptToken, email: contactEmail });
+      window.scrollTo({ top: 0 });
     } catch (err) {
       showToast({ title: 'Booking failed', description: errorMessageFromUnknown(err, 'Please try again.'), type: 'error' });
     } finally {
@@ -588,6 +594,34 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
           </div>
         </div>
       </div>
+
+      {submitted && (
+        <div className="fixed inset-0 z-[100] bg-brand-dark/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Processing payment">
+          <div className="w-full max-w-md rounded-2xl bg-brand-cream p-6 text-center shadow-xl">
+            <Loader2 className="mx-auto h-10 w-10 animate-spin text-brand-primary" aria-hidden />
+            <h2 className="mt-4 text-xl font-bold text-brand-dark">Processing Payment...</h2>
+            <p className="mt-1 text-sm font-bold text-brand-dark/65">Your booking will be confirmed shortly.</p>
+            <p className="mt-3 text-xs font-bold text-brand-dark/55">
+              {submitted.email
+                ? <>The Front Office is verifying your payment. Once confirmed, a <span className="text-brand-dark">"Booking Successful!"</span> email with your booking details and reservation QR code will be sent to {submitted.email}.</>
+                : <>The Front Office is verifying your payment. Once confirmed, staff will call you at {draft.phone.trim()} to let you know your room is booked.</>}
+            </p>
+            <button
+              type="button"
+              className="btn-primary mt-5 w-full py-3"
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (submitted.email) params.set('email', submitted.email);
+                if (submitted.receiptToken) params.set('token', submitted.receiptToken);
+                const qs = params.toString();
+                navigate(`/booking/confirm/${submitted.bookingId}${qs ? `?${qs}` : ''}`);
+              }}
+            >
+              View my booking
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -656,9 +690,12 @@ function DetailsStep({
             <input id="booking-fullname" type="text" autoComplete="name" value={draft.fullName}
               onChange={e => update({ fullName: e.target.value })} placeholder="Full name as shown on ID" className="input-field" />
           </div>
+          <p className="text-[11px] text-brand-dark/45 font-bold -mt-1">
+            No account needed — we just need your email <span className="text-brand-dark">or</span> mobile number so the hotel can confirm your booking.
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="booking-email" className="field-label">Email Address <span className="text-red-400">*</span></label>
+              <label htmlFor="booking-email" className="field-label">Email Address <span className="text-brand-dark/40 font-normal">(or use mobile)</span></label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
                 <input
@@ -675,16 +712,19 @@ function DetailsStep({
               <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
                 {accountEmail
                   ? 'Tied to your Madyaw account — confirmation and receipts stay here.'
-                  : "The hotel's confirmation and payment link are sent here. Please double-check it."}
+                  : 'After the Front Office verifies your payment, your "Booking Successful!" email with a reservation QR code is sent here.'}
               </p>
             </div>
             <div>
-              <label htmlFor="booking-phone" className="field-label">Phone Number <span className="text-red-400">*</span></label>
+              <label htmlFor="booking-phone" className="field-label">Mobile Phone Number <span className="text-brand-dark/40 font-normal">(or use email)</span></label>
               <div className="relative">
                 <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
                 <input id="booking-phone" type="tel" autoComplete="tel" value={draft.phone}
                   onChange={e => update({ phone: e.target.value })} placeholder="+63 9XX XXX XXXX" className="input-field !pl-10" />
               </div>
+              <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                No email? The Front Office will call this number to confirm your booking.
+              </p>
             </div>
           </div>
           <div>
