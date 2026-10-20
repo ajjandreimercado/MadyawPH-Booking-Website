@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BedDouble, ChevronLeft, ChevronRight, Coffee, Expand, ShieldCheck, Users, X } from 'lucide-react';
 import type { HotelDetailCategory } from '../../services/api';
 import { NO_PHOTO_SRC, showNoPhoto } from '../../lib/hotelImage';
@@ -86,6 +86,7 @@ export default function RoomsAndRates({
   const [maxPrice, setMaxPrice] = useState(0);
   const [sort, setSort] = useState<SortKey>('price-asc');
   const [viewing, setViewing] = useState<{ category: HotelDetailCategory; index: number } | null>(null);
+  const touchGalleryX = useRef<number | null>(null);
 
   useEffect(() => {
     if (!viewing) return;
@@ -114,9 +115,15 @@ export default function RoomsAndRates({
       && (!maxPrice || (stayTotal(c) ?? Infinity) <= maxPrice)
     ));
     return rows.sort((a, b) => {
-      // Rooms you can book always come first.
+      // Room types you can book always come first.
       const bookable = Number(isBookable(b, stay)) - Number(isBookable(a, stay));
       if (bookable !== 0) return bookable;
+      // Then best occupancy fit for the requested persons: closest capacity first
+      // (e.g. 3 persons → Triple, Cabin for 4, Family before larger/other types).
+      const party = stay.adults + stay.children;
+      const fitGap = (c: HotelDetailCategory) => (c.maxGuests && c.maxGuests >= party ? c.maxGuests - party : Number.MAX_SAFE_INTEGER);
+      const fit = fitGap(a) - fitGap(b);
+      if (fit !== 0) return fit;
       const diff = (stayTotal(a) ?? Infinity) - (stayTotal(b) ?? Infinity);
       return sort === 'price-desc' ? -diff : diff;
     });
@@ -199,19 +206,39 @@ export default function RoomsAndRates({
                   {/* Room type — photo is the same large size as the hotel gallery image */}
                   <div className="p-4 flex flex-col gap-3">
                     {category.imageUrl ? (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setViewing({ category, index: 0 }); }}
-                        aria-label={`View photos of ${category.name}`}
-                        title="Click to view photo"
-                        className="group relative block w-full h-56 sm:h-72 rounded-xl overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                      >
-                        <img src={category.imageUrl} alt={category.name} onError={showNoPhoto}
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
-                        <span className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/35 transition-colors flex items-center justify-center">
-                          <Expand className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
-                        </span>
-                      </button>
+                      <div className="relative">
+                        {/* Tapping the photo books this room type directly (single-type shortcut);
+                            the expand button and thumbnails below open the photo gallery. */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (bookable) onReserve([{ category, mode: 'stay' }]);
+                            else setViewing({ category, index: 0 });
+                          }}
+                          aria-label={bookable ? `Book ${category.name} now` : `View photos of ${category.name}`}
+                          title={bookable ? 'Tap to book this room type' : 'View photos'}
+                          className="group relative block w-full h-56 sm:h-72 rounded-xl overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                        >
+                          <img src={category.imageUrl} alt={category.name} onError={showNoPhoto}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                          <span className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/25 transition-colors" />
+                          {bookable && (
+                            <span className="absolute bottom-2 left-2 rounded-full bg-brand-dark/80 px-3 py-1.5 text-[11px] font-bold text-white">
+                              Tap photo to book
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setViewing({ category, index: 0 }); }}
+                          aria-label={`View photos of ${category.name}`}
+                          title="View photos"
+                          className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-brand-dark/70 text-white hover:bg-brand-dark/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                        >
+                          <Expand className="w-4 h-4" aria-hidden />
+                        </button>
+                      </div>
                     ) : (
                       <img src={NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
                         className="block w-full h-56 sm:h-72 rounded-xl object-cover" loading="lazy" />
@@ -362,11 +389,22 @@ export default function RoomsAndRates({
               <X className="w-8 h-8" />
             </button>
             <figure className="max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
-              <div className="relative">
+              <div
+                className="relative touch-pan-y"
+                onTouchStart={(e) => { touchGalleryX.current = e.touches[0]?.clientX ?? null; }}
+                onTouchEnd={(e) => {
+                  const start = touchGalleryX.current;
+                  touchGalleryX.current = null;
+                  if (start == null || photos.length < 2) return;
+                  const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+                  if (Math.abs(dx) > 40) go(index + (dx < 0 ? 1 : -1));
+                }}
+              >
                 <img
                   src={photos[index]}
                   alt={viewing.category.name}
                   onError={showNoPhoto}
+                  draggable={false}
                   className="max-h-[72vh] w-full object-contain rounded-xl"
                 />
                 {photos.length > 1 && (

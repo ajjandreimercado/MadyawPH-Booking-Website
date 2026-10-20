@@ -583,7 +583,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   >
                     {isSubmitting
                       ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending your request…</>
-                      : <><ShieldCheck className="w-5 h-5" /> Submit Payment Proof &amp; Complete Booking</>}
+                      : <><ShieldCheck className="w-5 h-5" /> BOOK NOW!</>}
                   </button>
                   {!paymentReady && (
                     <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">Upload your payment screenshot and reference number above to continue.</p>
