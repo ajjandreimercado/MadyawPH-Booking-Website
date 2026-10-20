@@ -24,6 +24,58 @@ export function parseMetadata(raw: unknown): Record<string, unknown> {
   return {};
 }
 
+/**
+ * Backfill guest contact into external_reservations metadata (+ the booking's
+ * contact_number mirror) for website bookings created before the phone was
+ * mirrored there, so the number the guest typed is reflected on the hotel app
+ * for older Online Booking requests too. Idempotent — already-mirrored rows skip.
+ */
+export async function healExternalGuestContacts(): Promise<{ healed: number }> {
+  let healed = 0;
+
+  const rows = await ExternalReservationModel.find({
+    guest_phone: { $exists: true, $nin: [null, ''] },
+  });
+  for (const row of rows) {
+    const phone = String(row.guest_phone ?? '').trim();
+    if (!phone) continue;
+    const meta = parseMetadata(row.metadata);
+    if (meta.guest_phone === phone && meta.contact_number === phone) continue;
+    row.set({
+      metadata: JSON.stringify({
+        ...meta,
+        guest_name: typeof meta.guest_name === 'string' && meta.guest_name ? meta.guest_name : String(row.guest_name ?? ''),
+        guest_email: typeof meta.guest_email === 'string' ? meta.guest_email : String(row.guest_email ?? ''),
+        guest_phone: phone,
+        contact_number: phone,
+        phone,
+        mobile_number: phone,
+      }),
+      updated_at: new Date(),
+    });
+    await row.save();
+    healed += 1;
+  }
+
+  const bookings = await BookingModel.find({
+    source: 'web',
+    guest_phone: { $exists: true, $nin: [null, ''] },
+    $or: [
+      { contact_number: { $exists: false } },
+      { contact_number: null },
+      { contact_number: '' },
+    ],
+  }).select('_id guest_phone').lean();
+  for (const booking of bookings) {
+    const phone = String(booking.guest_phone ?? '').trim();
+    if (!phone) continue;
+    await BookingModel.updateOne({ _id: booking._id }, { $set: { contact_number: phone } });
+    healed += 1;
+  }
+
+  return { healed };
+}
+
 export async function healBookingMediaUrls(): Promise<{ healed: number }> {
   // Only bookings still missing a token link (runs on every startup; healed rows are skipped).
   const noTokenLink = { $not: /token=/ };
