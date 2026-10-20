@@ -1450,6 +1450,9 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     guestName: guestNameResult.value,
     guestEmail: guestEmailResult.value,
     guest_phone: guestPhoneResult.value,
+    // Mirror the phone under the hotel app's contact field name too, so the number
+    // the guest typed is reflected on the hotel app either way it reads it.
+    contact_number: guestPhoneResult.value,
     ...hotelAppFields,
     discount_reason: finalDiscountReason,
     discount_type: finalDiscountType,

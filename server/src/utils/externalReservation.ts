@@ -170,6 +170,15 @@ export function buildExternalReservationDoc(input: {
     channel: 'website',
     booking_source: 'website-customer',
     booking_reference: input.bookingReference,
+    // Guest contact — the hotel app reads several display fields from metadata, so mirror
+    // name/email/phone here (not just the columns). Phone-only guests have no email: the
+    // Front Office confirms those bookings by calling guest_phone.
+    guest_name: input.guestName,
+    guest_email: input.guestEmail,
+    guest_phone: input.guestPhone,
+    contact_number: input.guestPhone,
+    phone: input.guestPhone,
+    mobile_number: input.guestPhone,
     ...hotelPaymentMeta({ total: Number(input.totalAmount), amountPaid: proofUploaded ? claimed : 0 }),
     // Which wallet the guest used (the hotel app's payment_method is "Online").
     payment_wallet: input.paymentMethod,

@@ -5,7 +5,7 @@ import {
   startExternalReservationWatcher,
   stopExternalReservationWatcher,
 } from './services/externalReservationWatcher';
-import { healBookingMediaUrls } from './utils/healBookingMediaUrls';
+import { healBookingMediaUrls, healExternalGuestContacts } from './utils/healBookingMediaUrls';
 
 // ─── Startup env validation (fail fast with a clear message) ──────────────────
 const REQUIRED_ENV_VARS = ['PORT', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'CLIENT_ORIGIN', 'MONGODB_URI'];
@@ -79,6 +79,11 @@ async function start() {
   void healBookingMediaUrls()
     .then((result) => console.log(`[MediaHeal] Finished — ${result.healed} booking(s) updated.`))
     .catch((error) => console.error('[MediaHeal] Failed:', error instanceof Error ? error.message : error));
+
+  // Backfill guest phone into external_reservations metadata so it shows on the hotel app.
+  void healExternalGuestContacts()
+    .then((result) => console.log(`[ContactHeal] Finished — ${result.healed} record(s) updated.`))
+    .catch((error) => console.error('[ContactHeal] Failed:', error instanceof Error ? error.message : error));
 
   const server = app.listen(PORT, () => {
     console.log(`[INFO] Madyaw API running on http://localhost:${PORT} (env: ${process.env.NODE_ENV ?? 'development'})`);

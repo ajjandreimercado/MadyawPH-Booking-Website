@@ -302,6 +302,20 @@ describe('POST /api/bookings', () => {
     const created = Array.isArray(createdArg) ? createdArg[0] : createdArg;
     expect(created.guestEmail).toBe('');
     expect(created.guest_phone).toBeTruthy();
+    // The phone must be reflected on the hotel app: booking mirror + external
+    // reservation column + metadata (where the hotel app reads display fields).
+    expect(created.contact_number).toBe(created.guest_phone);
+    const mocks = jest.requireMock('../data/mongoModels') as {
+      ExternalReservationModel: { create: jest.Mock };
+    };
+    const externalDoc = mocks.ExternalReservationModel.create.mock.calls[0][0];
+    expect(externalDoc.guest_phone).toBe(created.guest_phone);
+    const meta = JSON.parse(externalDoc.metadata);
+    expect(meta.guest_phone).toBe(created.guest_phone);
+    expect(meta.contact_number).toBe(created.guest_phone);
+    expect(meta.phone).toBe(created.guest_phone);
+    expect(meta.mobile_number).toBe(created.guest_phone);
+    expect(meta.guest_name).toBeTruthy();
   });
 
   it('rejects guest checkout with neither email nor mobile number', async () => {
@@ -497,6 +511,10 @@ describe('POST /api/bookings', () => {
       expect(meta.balance_due).toBe(0);
       expect(meta.payment_proof_amount_claimed).toBe(created.totalPrice);
       expect(meta.valid_id_uploaded).toBe(true);
+      // Guest phone reflected on the hotel app (column + metadata mirrors).
+      expect(externalDoc.guest_phone).toBe(VALID_PAYLOAD.guestPhone);
+      expect(meta.guest_phone).toBe(VALID_PAYLOAD.guestPhone);
+      expect(meta.contact_number).toBe(VALID_PAYLOAD.guestPhone);
       expect(meta.payment_proof_uploaded).toBe(true);
       expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
     // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
