@@ -7,7 +7,7 @@ import {
   Grid3X3, List, X, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { searchHotels, fetchFilters, type SearchResultHotel, type SearchParams } from '../services/api';
-import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC, showNoPhoto } from '../lib/hotelImage';
+import { formatHotelLocation, hotelCardImageSrc, NO_PHOTO_SRC } from '../lib/hotelImage';
 import { readStay, writeStay, stayQuery as buildStayQuery } from '../lib/stayParams';
 import StayBar from '../components/booking/StayBar';
 import StarRating from '../components/ui/StarRating';
@@ -71,7 +71,11 @@ function HotelCard({
     ...(hotel.imageUrl ? [hotel.imageUrl] : []),
     ...(hotel.images || [])
   ];
-  const displayImages = images.length > 0 ? images.map((src) => hotelCardImageSrc(src) ?? src) : [NO_PHOTO_SRC];
+  // Photos that fail to load drop out instead of showing the placeholder mid-gallery.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  const usable = images.map((src) => hotelCardImageSrc(src) ?? src).filter((src) => !broken.has(src));
+  const displayImages = usable.length > 0 ? [...new Set(usable)] : [NO_PHOTO_SRC];
+  const safeIndex = Math.min(imgIndex, displayImages.length - 1);
   const locationLabel = formatHotelLocation(hotel.location, hotel.city);
   const navigate = useNavigate();
 
@@ -82,12 +86,15 @@ function HotelCard({
       {/* Image */}
       <div className={`relative overflow-hidden group ${view === 'list' ? 'w-full sm:w-56 md:w-64 shrink-0 h-48 sm:h-auto sm:min-h-[200px]' : 'h-52'}`}>
         <img
-          src={displayImages[imgIndex]}
+          src={displayImages[safeIndex]}
           alt={hotel.name}
           loading="lazy"
           decoding="async"
           className="w-full h-full object-cover"
-          onError={showNoPhoto}
+          onError={() => {
+            const src = displayImages[safeIndex];
+            if (src && src !== NO_PHOTO_SRC) setBroken((prev) => new Set(prev).add(src));
+          }}
         />
         {displayImages.length > 1 && (
           <>
