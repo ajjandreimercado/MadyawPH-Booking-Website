@@ -27,7 +27,7 @@
     "mongoose": "^9.6.3",
     "multer": "^2.2.0",
     "qrcode": "^1.5.4",
-    "typescript": "^5.8.2"
+    "typescript": "^7.0.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
