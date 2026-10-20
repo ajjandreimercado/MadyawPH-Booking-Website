@@ -164,25 +164,25 @@ export default function RoomsAndRates({
                   title={bookable && !isSelected ? 'Click to select this room and see its price' : undefined}
                   className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
                 >
-                  {/* Room type */}
-                  <div className="p-4 flex gap-3">
+                  {/* Room type — photo is the same large size as the hotel gallery image */}
+                  <div className="p-4 flex flex-col gap-3">
                     {category.imageUrl ? (
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setViewing(category); }}
                         aria-label={`View photo of ${category.name}`}
                         title="Click to view photo"
-                        className="group relative w-24 h-20 rounded-lg overflow-hidden shrink-0 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                        className="group relative block w-full h-56 sm:h-72 rounded-xl overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                       >
                         <img src={category.imageUrl} alt={category.name} onError={showNoPhoto}
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                         <span className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/35 transition-colors flex items-center justify-center">
-                          <Expand className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
+                          <Expand className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
                         </span>
                       </button>
                     ) : (
                       <img src={NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
-                        className="w-24 h-20 rounded-lg object-cover shrink-0" loading="lazy" />
+                        className="block w-full h-56 sm:h-72 rounded-xl object-cover" loading="lazy" />
                     )}
                     <div className="min-w-0">
                       <h3 className="font-bold text-brand-primary underline-offset-2">{category.name}</h3>
