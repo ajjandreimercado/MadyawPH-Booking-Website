@@ -131,12 +131,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     setPaymentProof(categoryId, file);
     setPaymentProofState(file);
   };
-  const paymentRef = draft.paymentRef.replace(/\s+/g, '');
-  const paymentAmountPaid = Number(String(draft.paymentAmountPaid ?? '').replace(/,/g, ''));
-  const paymentReady = Boolean(paymentProofFile)
-    && paymentRef.length >= 6
-    && Number.isFinite(paymentAmountPaid)
-    && paymentAmountPaid > 0;
+  const paymentReady = Boolean(paymentProofFile);
 
   const [promoDiscountAmt, setPromoDiscountAmt] = useState(0);
   const [promoStatus, setPromoStatus] = useState<string | null>(null);
@@ -259,20 +254,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime, effectiveGroupBooking, isMultiCategory, categoryIds.join(',')]);
 
-  // Prefill "amount paid" with the amount due now (full stay, or 50% DP for group
-  // bookings) — guest can still edit the receipt amount.
-  useEffect(() => {
-    const due = Number(quote?.dueNow ?? quote?.totalPrice ?? 0);
-    if (!(due > 0)) return;
-    setDraft((prev) => {
-      if (prev.paymentAmountPaid.trim() && Number(prev.paymentAmountPaid.replace(/,/g, '')) === due) return prev;
-      const next = { ...prev, paymentAmountPaid: String(due) };
-      saveDraft(categoryId, next);
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed whenever the server due changes (incl. group toggle)
-  }, [quote?.dueNow, quote?.totalPrice]);
-
   useEffect(() => {
     const code = draft.promoCode.trim();
     if (!code || stayPrice <= 0) {
@@ -345,10 +326,10 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       });
       return;
     }
-    if (!paymentProofFile || paymentRef.length < 6 || !(paymentAmountPaid > 0)) {
+    if (!paymentProofFile) {
       showToast({
-        title: 'Add your payment details',
-        description: 'Upload the screenshot, enter the reference number, and the amount you paid.',
+        title: 'Add your payment screenshot',
+        description: 'Upload the screenshot of the payment you just made.',
         type: 'error',
       });
       return;
@@ -380,8 +361,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         policyAcknowledged: agreed,
         validIdFile,
         paymentProofFile,
-        paymentTransactionRef: paymentRef,
-        paymentProofAmountClaimed: paymentAmountPaid,
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
         specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }, validIdFile.name),
       });
@@ -557,10 +536,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     amount={quote?.dueNow ?? quote?.totalPrice ?? null}
                     file={paymentProofFile}
                     onFile={changePaymentProof}
-                    reference={draft.paymentRef}
-                    onReference={(value) => update({ paymentRef: value })}
-                    amountPaid={draft.paymentAmountPaid}
-                    onAmountPaid={(value) => update({ paymentAmountPaid: value })}
                     onError={(title) => showToast({ title, type: 'error' })}
                     onMethodChange={setPaymentMethod}
                   />
@@ -587,7 +562,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                       : <><ShieldCheck className="w-5 h-5" /> BOOK NOW!</>}
                   </button>
                   {!paymentReady && (
-                    <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">Upload your payment screenshot and reference number above to continue.</p>
+                    <p className="mt-2 text-center text-xs font-bold text-brand-dark/50">Upload your payment screenshot above to continue.</p>
                   )}
                 </Card>
               </>

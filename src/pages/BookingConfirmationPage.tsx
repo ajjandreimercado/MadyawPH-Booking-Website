@@ -78,8 +78,6 @@ export default function BookingConfirmationPage() {
   const [qrBroken, setQrBroken] = useState(false);
   const [qrAttempt, setQrAttempt] = useState(0);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
-  const [paymentTransactionRef, setPaymentTransactionRef] = useState('');
-  const [paymentProofAmountClaimed, setPaymentProofAmountClaimed] = useState('');
   const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   useEffect(() => {
@@ -209,35 +207,15 @@ export default function BookingConfirmationPage() {
       showToast({ title: 'Payment proof must be 5 MB or smaller', type: 'error' });
       return;
     }
-    const ref = paymentTransactionRef.replace(/\s+/g, '').trim();
-    if (ref.length < 6) {
-      showToast({
-        title: 'Enter your transaction reference',
-        description: 'Copy the GCash/Maya/bank reference from your receipt (at least 6 characters).',
-        type: 'error',
-      });
-      return;
-    }
-
-    const depositDue = Number(
-      booking.depositAmount
-      ?? booking.totalPrice
-      ?? 0,
-    );
-    const claimed = Number(paymentProofAmountClaimed || depositDue) || depositDue;
-
     setIsUploadingProof(true);
     try {
       const updated = await uploadBookingPaymentProof({
         bookingId,
         token: receiptToken || undefined,
         paymentProofFile,
-        paymentTransactionRef: ref,
-        paymentProofAmountClaimed: claimed,
       });
       setBooking(updated);
       setPaymentProofFile(null);
-      setPaymentTransactionRef('');
       showToast({
         title: 'Payment proof sent to hotel',
         description: 'Your screenshot is in the hotel app for verification. Full payment is confirmed only after they approve it.',
@@ -312,8 +290,8 @@ export default function BookingConfirmationPage() {
 
   const paymentLabel = paymentDone
     ? (booking.paymentProofVerified
-      ? `Full payment confirmed${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}`
-      : `Screenshot sent to hotel${booking.paymentTransactionRef ? ` · ref ${booking.paymentTransactionRef}` : ''}`)
+      ? 'Full payment confirmed'
+      : 'Screenshot sent to hotel')
     : showPaySection
       ? 'Full payment due — pay via hotel QR below'
       : 'Payment details on file';
@@ -474,7 +452,7 @@ export default function BookingConfirmationPage() {
                 Pay full stay · ₱{depositDue.toLocaleString()}
               </h2>
               <p className="mt-1.5 text-sm text-brand-dark/55 leading-relaxed">
-                Pay with the hotel QR, then upload your screenshot and transaction reference. Keep this page open — your booking stays linked via the email token.
+                Pay with the hotel QR, then upload your payment screenshot. Keep this page open — your booking stays linked via the email token.
               </p>
             </div>
 
@@ -536,8 +514,8 @@ export default function BookingConfirmationPage() {
                   <p className="font-serif text-lg font-bold text-brand-dark">Payment QR unavailable</p>
                   <p className="mt-2 text-sm text-brand-dark/55 leading-relaxed max-w-md mx-auto">
                     {hotel?.contactNumber
-                      ? `Call the hotel at ${hotel.contactNumber} for payment instructions, then upload your proof and reference below.`
-                      : 'Contact the hotel for payment instructions, then upload your proof and reference below.'}
+                      ? `Call the hotel at ${hotel.contactNumber} for payment instructions, then upload your payment screenshot below.`
+                      : 'Contact the hotel for payment instructions, then upload your payment screenshot below.'}
                   </p>
                   {hotel?.id && (
                     <button
@@ -561,7 +539,7 @@ export default function BookingConfirmationPage() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">After you pay</p>
                   <p className="mt-0.5 text-sm font-bold text-brand-dark">
-                    Upload proof &amp; reference <span className="text-red-400">*</span>
+                    Upload payment screenshot <span className="text-red-400">*</span>
                   </p>
                 </div>
                 <Upload className="w-4 h-4 text-brand-primary/50 shrink-0 mt-1" />
@@ -598,55 +576,14 @@ export default function BookingConfirmationPage() {
                     const file = e.target.files?.[0];
                     if (!file) return;
                     setPaymentProofFile(file);
-                    if (!paymentProofAmountClaimed) {
-                      setPaymentProofAmountClaimed(String(depositDue));
-                    }
                   }}
                   className="hidden"
                 />
               </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="confirm-txn-ref" className="field-label">
-                    Transaction reference <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    id="confirm-txn-ref"
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={paymentTransactionRef}
-                    onChange={(e) => setPaymentTransactionRef(e.target.value)}
-                    placeholder="e.g. 1234 5678 9012"
-                    className="input-field"
-                    maxLength={64}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="confirm-amount-claimed" className="field-label">
-                    Amount paid <span className="text-red-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-dark/40">
-                      ₱
-                    </span>
-                    <input
-                      id="confirm-amount-claimed"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={paymentProofAmountClaimed || String(depositDue)}
-                      onChange={(e) => setPaymentProofAmountClaimed(e.target.value)}
-                      className="input-field pl-7"
-                    />
-                  </div>
-                </div>
-              </div>
-
               <button
                 type="button"
-                disabled={isUploadingProof || !paymentProofFile || paymentTransactionRef.trim().length < 6}
+                disabled={isUploadingProof || !paymentProofFile}
                 onClick={() => { void handleUploadProof(); }}
                 className="btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2 py-3"
               >

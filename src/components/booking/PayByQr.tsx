@@ -21,18 +21,14 @@ type PayMethod = WalletPaymentMethod | 'bank';
 
 /**
  * Finish-booking payment: the hotel's own GCash/Maya/QR Ph QR, then the guest's receipt
- * screenshot and reference number. The screenshot goes to the hotel app with the booking,
- * and hotel staff verify it there.
+ * screenshot. The screenshot goes to the hotel app with the booking, and hotel staff
+ * verify it there.
  */
 export default function PayByQr({
   hotelId,
   amount,
   file,
   onFile,
-  reference,
-  onReference,
-  amountPaid,
-  onAmountPaid,
   onError,
   onMethodChange,
 }: {
@@ -40,11 +36,6 @@ export default function PayByQr({
   amount: number | null;
   file: File | null;
   onFile: (file: File | null) => void;
-  reference: string;
-  onReference: (value: string) => void;
-  /** Amount the guest typed from their receipt (₱). */
-  amountPaid: string;
-  onAmountPaid: (value: string) => void;
   onError: (message: string) => void;
   /** Reports the guest's chosen payment method so the booking records it. */
   onMethodChange?: (method: BookingPaymentMethod) => void;
@@ -169,7 +160,7 @@ export default function PayByQr({
             <ol className="mt-2 list-decimal pl-5 space-y-1 text-brand-dark/70 font-bold">
               <li>Open your bank app and transfer exactly {amount != null ? peso(amount) : 'the amount shown'} to the account above.</li>
               <li>Complete the transfer first — do not upload a receipt before paying.</li>
-              <li>Take a screenshot of the transfer receipt and upload it below with its reference number.</li>
+              <li>Take a screenshot of the transfer receipt and upload it below.</li>
             </ol>
           </div>
         </div>
@@ -217,7 +208,7 @@ export default function PayByQr({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div>
         <div>
           <label htmlFor="booking-payment-proof" className="field-label">Payment screenshot <span className="text-red-400">*</span></label>
           <label htmlFor="booking-payment-proof"
@@ -260,33 +251,6 @@ export default function PayByQr({
               </div>
             </div>
           )}
-        </div>
-        <div>
-          <label htmlFor="booking-payment-ref" className="field-label">Reference number <span className="text-red-400">*</span></label>
-          <input id="booking-payment-ref" type="text" autoComplete="off" value={reference}
-            onChange={(e) => onReference(e.target.value.toUpperCase())}
-            placeholder="From your GCash/Maya receipt" className="input-field uppercase" />
-        </div>
-        <div className="sm:col-span-2">
-          <label htmlFor="booking-payment-amount" className="field-label">
-            Amount paid (₱) <span className="text-red-400">*</span>
-          </label>
-          <input
-            id="booking-payment-amount"
-            type="number"
-            inputMode="decimal"
-            min={1}
-            step="0.01"
-            autoComplete="off"
-            value={amountPaid}
-            onChange={(e) => onAmountPaid(e.target.value)}
-            placeholder={amount != null ? String(amount) : 'Amount on your receipt'}
-            className="input-field"
-          />
-          <p className="mt-1 text-[11px] font-bold text-brand-dark/50">
-            Pay exactly{amount != null ? ` ${peso(amount)}` : ' the amount shown above'} first, then enter the amount on your receipt.
-            The hotel checks your receipt before it approves the booking.
-          </p>
         </div>
       </div>
       <p className="text-[11px] font-bold text-brand-dark/50">

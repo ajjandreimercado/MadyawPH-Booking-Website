@@ -16,10 +16,6 @@ export interface CheckoutDraft {
   specialRequests: string;
   /** Group booking: pay 50% down payment now, balance at the hotel. */
   groupBooking: boolean;
-  /** Reference number from the guest's GCash/Maya receipt. */
-  paymentRef: string;
-  /** Amount the guest paid (from the receipt), as typed — '' until they enter it. */
-  paymentAmountPaid: string;
   malePax: number;
   femalePax: number;
   discountType: string;
@@ -37,8 +33,6 @@ export const EMPTY_DRAFT: CheckoutDraft = {
   arrivalTime: '',
   specialRequests: '',
   groupBooking: false,
-  paymentRef: '',
-  paymentAmountPaid: '',
   malePax: 0,
   femalePax: 0,
   discountType: '',
