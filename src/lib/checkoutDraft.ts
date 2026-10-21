@@ -1,7 +1,7 @@
 /**
  * Checkout progress per room, saved in sessionStorage so Back, refresh and the
  * "Your details" ⇄ "Finish booking" steps keep what the guest typed.
- * The valid ID file can't be stored there, so it stays in memory for this tab only.
+ * The payment screenshot file can't be stored there, so it stays in memory for this tab only.
  */
 
 export interface CheckoutDraft {
@@ -18,7 +18,6 @@ export interface CheckoutDraft {
   groupBooking: boolean;
   malePax: number;
   femalePax: number;
-  discountType: string;
   promoCode: string;
   membershipId: string;
 }
@@ -35,7 +34,6 @@ export const EMPTY_DRAFT: CheckoutDraft = {
   groupBooking: false,
   malePax: 0,
   femalePax: 0,
-  discountType: '',
   promoCode: '',
   membershipId: '',
 };
@@ -60,7 +58,6 @@ export function arrivalLabel(value: string): string {
 }
 
 const key = (propertyId: string) => `madyaw_checkout_${propertyId}`;
-const validIds = new Map<string, File>();
 const paymentProofs = new Map<string, File>();
 
 export function loadDraft(propertyId: string): CheckoutDraft {
@@ -81,22 +78,12 @@ export function saveDraft(propertyId: string, draft: CheckoutDraft): void {
 }
 
 export function clearDraft(propertyId: string): void {
-  validIds.delete(propertyId);
   paymentProofs.delete(propertyId);
   try {
     sessionStorage.removeItem(key(propertyId));
   } catch {
     // ignore
   }
-}
-
-export function getValidId(propertyId: string): File | null {
-  return validIds.get(propertyId) ?? null;
-}
-
-export function setValidId(propertyId: string, file: File | null): void {
-  if (file) validIds.set(propertyId, file);
-  else validIds.delete(propertyId);
 }
 
 export function getPaymentProof(propertyId: string): File | null {
@@ -109,9 +96,8 @@ export function setPaymentProof(propertyId: string, file: File | null): void {
 }
 
 /** Everything the hotel needs that has no field of its own goes into special_requests (max 500). */
-export function buildSpecialRequests(draft: CheckoutDraft, validIdName: string): string {
+export function buildSpecialRequests(draft: CheckoutDraft): string {
   return [
-    `Valid ID uploaded: ${validIdName}`,
     draft.bookingForSomeoneElse && draft.stayGuestName.trim() ? `Guest staying: ${draft.stayGuestName.trim()}` : '',
     draft.nationality !== 'Filipino' ? `Nationality: ${draft.nationality}` : '',
     draft.arrivalTime ? `Estimated arrival: ${arrivalLabel(draft.arrivalTime) || draft.arrivalTime}` : '',

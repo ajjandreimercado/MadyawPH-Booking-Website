@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, RoomCategoryModel, UserModel, BookingValidIdModel, BookingPaymentProofModel } from '../data/mongoModels';
+import { BookingModel, ExternalReservationModel, HotelModel, PropertyModel, RoomCategoryModel, UserModel, BookingPaymentProofModel } from '../data/mongoModels';
 import { requireAuth, optionalAuth } from '../middleware/auth';
 import { availabilityLimiter, bookingCreateLimiter, hotelWebhookLimiter, publicReadLimiter } from '../middleware/rateLimiters';
 import { isPrivilegedRole } from '../middleware/rbac';
@@ -68,44 +68,6 @@ const GUEST_STATUS_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> 
   requested: ['cancelled'],
   accepted: ['cancelled'],
 };
-
-/** Canonical discount reasons accepted by pricing. Aliases keep older clients working. */
-function normalizeDiscountReason(discountReason: string | undefined): 'pwd' | 'senior citizen' | undefined {
-  const normalized = discountReason?.trim().toLowerCase() ?? '';
-  if (!normalized || normalized === 'none') return undefined;
-  if (normalized === 'pwd' || normalized.includes('pwd')) return 'pwd';
-  if (
-    normalized === 'senior citizen'
-    || normalized === 'senior'
-    || normalized.includes('senior')
-  ) {
-    return 'senior citizen';
-  }
-  return undefined;
-}
-
-function resolveServerDiscount(
-  discountReason: string | undefined,
-  pricingTotal: number,
-  clientDiscountAmount?: number,
-): number {
-  const canonicalReason = normalizeDiscountReason(discountReason);
-
-  if (!canonicalReason) {
-    return 0;
-  }
-
-  const serverDiscount = Math.round(pricingTotal * 0.2);
-  // No client amount (e.g. /quote) → the full server-side 20%; a client amount can only lower it.
-  if (clientDiscountAmount === undefined) return serverDiscount;
-  const requested = Number(clientDiscountAmount);
-
-  if (!Number.isFinite(requested) || requested < 0) {
-    return serverDiscount;
-  }
-
-  return Math.min(serverDiscount, Math.round(requested));
-}
 
 /** Map legacy / display aliases onto the payment-method allowlist. */
 function normalizePaymentMethod(raw: string): string {
@@ -285,8 +247,6 @@ interface StayQuoteInput {
   adults: number;
   children: number;
   infants: number;
-  discountReason?: string;
-  discountAmount?: number;
   promoCode?: string;
   membershipId?: string;
 }
@@ -295,7 +255,7 @@ type StayQuote = Awaited<ReturnType<typeof priceStay>>;
 
 /**
  * The one place a stay is priced: room total, then the largest single discount among
- * PWD/senior, promo code and Madyaw member. Used by POST / (create) and POST /quote,
+ * promo code and Madyaw member. Used by POST / (create) and POST /quote,
  * so the price a guest sees at checkout is the price the booking is saved with.
  */
 async function priceStay(input: StayQuoteInput) {
@@ -322,18 +282,11 @@ async function priceStay(input: StayQuoteInput) {
 }
 
 /**
- * The largest single discount (PWD/senior, promo code, Madyaw member) on a stay total.
+ * The largest single discount (promo code, Madyaw member) on a stay total.
  * Split out of priceStay so a multi-category booking is discounted once on its combined
  * total, never once per room type.
  */
 async function resolveStayDiscount(totalPrice: number, input: StayQuoteInput) {
-  const canonicalDiscountReason = normalizeDiscountReason(input.discountReason);
-  const eligibilityDiscount = resolveServerDiscount(
-    canonicalDiscountReason,
-    totalPrice,
-    input.discountAmount,
-  );
-
   let promoDiscount = 0;
   let promoCode = '';
   try {
@@ -358,19 +311,19 @@ async function resolveStayDiscount(totalPrice: number, input: StayQuoteInput) {
     memberDiscountPercent = member.discountPercent;
   }
 
-  // Apply the largest single discount among PWD/senior, promo, and Madyaw member.
+  // Apply the largest single discount among promo and Madyaw member.
   const resolvedDiscount = Math.min(
     totalPrice,
-    Math.max(eligibilityDiscount, promoDiscount, memberDiscount),
+    Math.max(promoDiscount, memberDiscount),
   );
-  let finalDiscountReason = canonicalDiscountReason ?? '';
-  let finalDiscountType = canonicalDiscountReason ?? '';
-  let finalDiscountValue = canonicalDiscountReason ? 20 : 0;
-  if (memberDiscount >= eligibilityDiscount && memberDiscount >= promoDiscount && membershipId) {
+  let finalDiscountReason = '';
+  let finalDiscountType = '';
+  let finalDiscountValue = 0;
+  if (memberDiscount >= promoDiscount && membershipId) {
     finalDiscountReason = 'madyaw member';
     finalDiscountType = 'member';
     finalDiscountValue = memberDiscountPercent;
-  } else if (promoDiscount >= eligibilityDiscount && promoCode) {
+  } else if (promoCode) {
     finalDiscountReason = `promo:${promoCode}`;
     finalDiscountType = 'promo';
     finalDiscountValue = 0;
@@ -469,7 +422,7 @@ async function resolveBookingRoom(body: {
 bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   const body = pickFields(req.body ?? {}, [
     'categoryId', 'categoryIds', 'propertyId', 'checkInDate', 'checkOutDate', 'adults', 'children', 'infants',
-    'roomType', 'discountReason', 'promoCode', 'membershipId', 'arrivalTime', 'groupBooking',
+    'roomType', 'promoCode', 'membershipId', 'arrivalTime', 'groupBooking',
   ] as const);
   // Booking type (group = 50% down payment) only exists when booking 2+ room types;
   // a single room type is always an individual booking paying in full.
@@ -499,8 +452,6 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
   if (!infantsResult.ok) return res.status(400).json({ message: infantsResult.message });
   const roomTypeResult = validateString(body.roomType ?? 'standard-room', 'Room type', 1, 100);
   if (!roomTypeResult.ok) return res.status(400).json({ message: roomTypeResult.message });
-  const discountReasonResult = validateOptionalString(body.discountReason, 'Discount reason', 80);
-  if (!discountReasonResult.ok) return res.status(400).json({ message: discountReasonResult.message });
   const promoCodeResult = validateOptionalString(body.promoCode, 'Promo code', 50);
   if (!promoCodeResult.ok) return res.status(400).json({ message: promoCodeResult.message });
   const membershipIdResult = validateOptionalString(body.membershipId, 'Membership ID', 40);
@@ -556,7 +507,6 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
         adults: adultsResult.value,
         children: childrenResult.value,
         infants: infantsResult.value,
-        discountReason: discountReasonResult.value ?? undefined,
         promoCode: promoCodeResult.value ?? undefined,
         membershipId: membershipIdResult.value ?? undefined,
       });
@@ -613,7 +563,6 @@ bookingRoutes.post('/quote', availabilityLimiter, async (req, res) => {
       adults: adultsResult.value,
       children: childrenResult.value,
       infants: infantsResult.value,
-      discountReason: discountReasonResult.value ?? undefined,
       promoCode: promoCodeResult.value ?? undefined,
       membershipId: membershipIdResult.value ?? undefined,
     });
@@ -1006,22 +955,20 @@ bookingRoutes.post('/hotel-events', hotelWebhookLimiter, async (req, res) => {
 // ─── POST / ───────────────────────────────────────────────────────────────────
 // Public: unauthenticated guests submit their own name/email/phone in the form.
 // No session token required — this is a guest booking website with no login.
-// Accepts multipart/form-data with required Valid ID file.
+// Accepts multipart/form-data with the payment screenshot. No ID upload.
 
 // Guest checkout: no account or sign-in is required to book. A guest provides their
 // name plus an email address OR a mobile number (phone-only guests are confirmed by
-// an FO phone call instead of email). Signed-in guests keep their account email
-// locked to the session. Public endpoint — bookingCreateLimiter guards it (A04).
+// an FO phone call instead of email). Public endpoint — bookingCreateLimiter guards it (A04).
 bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => {
   const requester = await getRequestUser(req);
 
-  let validIdFile: UploadedBookingFile | undefined;
+  // No Valid ID is collected — guests only attach the payment screenshot.
   let paymentProofFile: UploadedBookingFile | undefined;
   const contentType = String(req.headers['content-type'] ?? '');
   if (contentType.includes('multipart/form-data')) {
     try {
       const uploads = await runBookingUploads(req, res);
-      validIdFile = uploads.validId;
       paymentProofFile = uploads.paymentProof;
     } catch (uploadError) {
       const message = uploadError instanceof Error ? uploadError.message : 'File upload failed.';
@@ -1030,10 +977,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
         message: isSize ? 'Each upload must be 5 MB or smaller.' : message,
       });
     }
-  }
-
-  if (!validIdFile) {
-    return res.status(400).json({ message: 'Please upload a valid ID (JPG, PNG, WEBP, or PDF, max 5 MB).' });
   }
 
   // Guests pay by the hotel's QR when they book and attach the screenshot (checked below).
@@ -1055,8 +998,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     'infants',
     'roomType',
     'paymentMethod',
-    'discountReason',
-    'discountAmount',
     'specialRequests',
     'promoCode',
     'membershipId',
@@ -1196,9 +1137,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   const propertyNameResult = validateOptionalString(body.propertyName, 'Property name', 120);
   if (!propertyNameResult.ok) return res.status(400).json({ message: propertyNameResult.message });
 
-  const discountReasonResult = validateOptionalString(body.discountReason, 'Discount reason', 80);
-  if (!discountReasonResult.ok) return res.status(400).json({ message: discountReasonResult.message });
-
   const specialRequestsResult = validateOptionalString(body.specialRequests, 'Special requests', 500);
   if (!specialRequestsResult.ok) return res.status(400).json({ message: specialRequestsResult.message });
 
@@ -1211,13 +1149,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     40,
   );
   if (!membershipIdResult.ok) return res.status(400).json({ message: membershipIdResult.message });
-
-  // Discount amount: non-negative, capped (server always recalculates, but reject clear garbage)
-  const rawDiscountAmount = body.discountAmount === undefined || body.discountAmount === ''
-    ? undefined
-    : Number(body.discountAmount);
-  const discountAmountResult = validatePositiveNumber(rawDiscountAmount, 'Discount amount', 1_000_000);
-  if (!discountAmountResult.ok) return res.status(400).json({ message: discountAmountResult.message });
 
   // ── Database operations ───────────────────────────────────────────────────
 
@@ -1282,8 +1213,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
         adults: adultsResult.value,
         children: childrenResult.value,
         infants: infantsResult.value,
-        discountReason: discountReasonResult.value ?? undefined,
-        discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
         promoCode: promoCodeResult.value ?? undefined,
         membershipId: membershipIdResult.value ?? undefined,
       });
@@ -1317,8 +1246,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
         adults: adultsResult.value,
         children: childrenResult.value,
         infants: infantsResult.value,
-        discountReason: discountReasonResult.value ?? undefined,
-        discountAmount: rawDiscountAmount === undefined ? undefined : discountAmountResult.value,
         promoCode: promoCodeResult.value ?? undefined,
         membershipId: membershipIdResult.value ?? undefined,
       });
@@ -1421,11 +1348,12 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     member_shid_id: membershipId,
     special_requests: specialRequestsResult.ok ? (specialRequestsResult.value ?? '') : '',
     promo_code: promoCode,
-    valid_id_filename: validIdFile.originalname.slice(0, 200),
-    valid_id_mime: validIdFile.mimetype,
-    valid_id_size: validIdFile.size,
-    valid_id_stored: true,
-    valid_id_uploaded_at: createdAt,
+    // No Valid ID is collected from website guests anymore.
+    valid_id_filename: '',
+    valid_id_mime: '',
+    valid_id_size: 0,
+    valid_id_stored: false,
+    valid_id_uploaded_at: null,
     payment_proof_filename: '',
     payment_proof_stored: false,
     hotel_ledger_synced: false,
@@ -1581,35 +1509,7 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   const paymentMethod = paymentMethodResult.value;
   const syncErrors = allSyncErrors;
 
-  // Stable token URLs (same fields hotel walk-ins use: guest_id_url / payment_proof_url).
-  const validIdToken = newBookingFileToken();
-  const guestIdUrl = bookingFileUrl(bookingId, 'valid-id', validIdToken);
   let paymentProofUrl = '';
-
-  // Store Valid ID binary off the booking document so hotel list/login queries stay lean.
-  try {
-    await withRetries(async () => {
-      await BookingValidIdModel.findOneAndUpdate(
-        { booking_id: bookingId },
-        {
-          $set: {
-            booking_id: bookingId,
-            booking_reference: String(booking.booking_reference),
-            hotel_id: String(booking.hotel_id ?? property.hotel_id ?? ''),
-            filename: validIdFile.originalname.slice(0, 200),
-            mime: validIdFile.mimetype,
-            size: validIdFile.size,
-            base64: validIdFile.buffer.toString('base64'),
-            uploaded_at: createdAt,
-            access_token: validIdToken,
-          },
-        },
-        { upsert: true, new: true },
-      );
-    }, { attempts: 3, delayMs: 200, label: 'booking_valid_ids store' });
-  } catch (idStoreError) {
-    console.error('[Bookings] Failed to store Valid ID in booking_valid_ids:', idStoreError);
-  }
 
   // Payment screenshot first — hotel Online Bookings row must include it at create time.
   try {
@@ -1633,7 +1533,7 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   }
 
   // Online Bookings queue = external_reservations with pending_approval (not reserved).
-  // Keep payment screenshot + ID links on the row so staff can open them from MADYAWPH.
+  // Keep the payment screenshot link on the row so staff can open it from MADYAWPH.
   // Do NOT write billing_charges yet — a room charge is an inventory hold and blocks approval.
   try {
     await withRetries(async () => {
@@ -1669,9 +1569,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
         adults: adultsResult.value,
         children: childrenResult.value,
         now: createdAt,
-        validIdUploaded: true,
-        validIdFilename: validIdFile.originalname.slice(0, 200),
-        guestIdUrl,
         checkInTime: stayWindow.checkInTime,
         checkOutTime: stayWindow.checkOutTime,
         billingMode: pricing.charge.billingMode,
@@ -1689,8 +1586,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
       });
       await ExternalReservationModel.create({
         ...externalDoc,
-        // Top-level aliases matching hotel booking fields.
-        guest_id_url: guestIdUrl,
         ...(proofOk
           ? {
             payment_proof_url: paymentProofUrl,
@@ -1714,17 +1609,18 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     console.error('[Bookings] Failed to create external_reservations Online Bookings row after retries:', externalError);
   }
 
-  // Hotel walk-ins store guest_id_url on the booking — mirror that for website stays.
-  await BookingModel.updateOne(
-    { _id: booking._id },
-    {
-      $set: {
-        guest_id_url: guestIdUrl,
-        guest_id_access_token: validIdToken,
-        ...(paymentProofUrl ? { payment_proof_url: paymentProofUrl, payment_screenshot_url: paymentProofUrl } : {}),
+  // Mirror the payment screenshot URL on the booking for the hotel app.
+  if (paymentProofUrl) {
+    await BookingModel.updateOne(
+      { _id: booking._id },
+      {
+        $set: {
+          payment_proof_url: paymentProofUrl,
+          payment_screenshot_url: paymentProofUrl,
+        },
       },
-    },
-  ).catch((error) => console.error('[Bookings] Failed to set guest/payment file URLs:', error));
+    ).catch((error) => console.error('[Bookings] Failed to set payment file URLs:', error));
+  }
 
   if (syncErrors.length > 0) {
     await BookingModel.updateOne(
@@ -1748,7 +1644,6 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     paymentStatus: 'unpaid',
     onlinePaymentMode,
     depositPercent,
-    validIdUploaded: true,
     hotelLedgerSynced: allSyncErrors.every((e) => !e.startsWith('ledger:')),
     hotelQueueSynced: allSyncErrors.every((e) => !e.startsWith('queue:')),
     receiptToken,

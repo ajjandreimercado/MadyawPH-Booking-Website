@@ -21,7 +21,8 @@ What protects the site today, and where it lives. Enforcement is on the API; the
   accounts on the website) behind the strict write limiter; the member response never
   includes the member's name or points balance, so a guessed ID leaks no member PII.
 - **Input**: field allowlists and validators (`utils/validators.ts`); JSON bodies capped at 10 KB.
-  Uploads (valid ID, payment proof) are type- and size-checked (`middleware/validIdUpload.ts`).
+  Uploads (payment proof screenshot) are type- and size-checked (`middleware/validIdUpload.ts`).
+  No ID document is collected from website guests.
 - **Prices** are calculated on the server from the room's stored rate; client totals are ignored.
 - **Hotel webhooks** (`/api/bookings/hotel-events`, QR/media cache) need `HOTEL_WEBHOOK_SECRET`.
   Meta Messenger webhooks verify `X-Hub-Signature-256` when `MESSENGER_APP_SECRET` is set — set it.
