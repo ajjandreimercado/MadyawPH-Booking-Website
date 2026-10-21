@@ -339,11 +339,13 @@ describe('POST /api/bookings', () => {
       adults: 2,
       children: 0,
       roomType: VALID_PAYLOAD.roomType,
+      // PWD/senior discounts were removed — a legacy reason is ignored, not discounted.
       discountReason: 'pwd',
     });
     expect(quote.status).toBe(200);
     expect(quote.body).toMatchObject({ available: true, nights: 4, dueAfterConfirmation: 0, taxesIncluded: true });
-    expect(quote.body.discountAmount).toBeGreaterThan(0);
+    expect(quote.body.discountAmount).toBe(0);
+    expect(quote.body.totalPrice).toBe(quote.body.stayPrice);
 
     const res = await postBooking({ ...VALID_PAYLOAD, discountReason: 'pwd' });
     expect(res.status).toBe(201);
@@ -470,8 +472,9 @@ describe('POST /api/bookings', () => {
       expect(created.deposit_amount).toBe(created.totalPrice);
       expect(created.balance_due).toBe(created.totalPrice);
       expect(created.serviceFee).toBe(0);
-      expect(created.valid_id_filename).toBe('id.png');
-      expect(created.valid_id_stored).toBe(true);
+      // No Valid ID is collected from website guests anymore.
+      expect(created.valid_id_filename).toBe('');
+      expect(created.valid_id_stored).toBe(false);
       // Policy acknowledgement is stored with the booking (false when not sent).
       expect(created.policy_acknowledged).toBe(false);
       expect(created.valid_id_base64).toBeUndefined();
@@ -482,7 +485,11 @@ describe('POST /api/bookings', () => {
         BookingValidIdModel: { findOneAndUpdate: jest.Mock };
       };
       expect(ExternalReservationModel.create).toHaveBeenCalled();
-      expect(BookingValidIdModel.findOneAndUpdate).toHaveBeenCalled();
+      // The shared booking_valid_ids doc now only ever receives the payment
+      // proof — no Valid ID binary (the `base64` field) is stored anymore.
+      const idBinaryStores = (BookingValidIdModel.findOneAndUpdate as jest.Mock).mock.calls
+        .filter((call) => call[1]?.$set && 'base64' in call[1].$set);
+      expect(idBinaryStores).toHaveLength(0);
       const externalDoc = ExternalReservationModel.create.mock.calls[0][0];
       // Online Bookings queue filters pending_approval — reserved hides the request.
       expect(externalDoc.status).toBe('pending_approval');
@@ -500,7 +507,7 @@ describe('POST /api/bookings', () => {
       expect(meta.total_amount).toBe(created.totalPrice);
       expect(meta.balance_due).toBe(0);
       expect(meta.payment_proof_amount_claimed).toBe(created.totalPrice);
-      expect(meta.valid_id_uploaded).toBe(true);
+      expect(meta.valid_id_uploaded).toBe(false);
       // Guest phone reflected on the hotel app (column + metadata mirrors).
       expect(externalDoc.guest_phone).toBe(VALID_PAYLOAD.guestPhone);
       expect(meta.guest_phone).toBe(VALID_PAYLOAD.guestPhone);
@@ -510,7 +517,8 @@ describe('POST /api/bookings', () => {
     // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
     expect(meta.payment_screenshot_url).toBe(meta.payment_proof_url);
       expect(externalDoc.payment_proof_url).toMatch(/payment-proof\?token=/);
-      expect(externalDoc.guest_id_url).toMatch(/valid-id\?token=/);
+      // No guest ID link is created or shared anymore.
+      expect(externalDoc.guest_id_url).toBeUndefined();
 
       // Ledger stays off until hotel approval (room charge would block the queue).
       expect(BillingChargeModel.insertMany).not.toHaveBeenCalled();
@@ -538,7 +546,7 @@ describe('POST /api/bookings', () => {
     expect(created.deposit_amount).toBe(quote.body.totalPrice);
   });
 
-  it('stores the payment screenshot, ID link and arrival time for the hotel app', async () => {
+  it('stores the payment screenshot and arrival time for the hotel app', async () => {
     const res = await postBooking({ ...VALID_PAYLOAD, arrivalTime: '15:00' });
     expect(res.status).toBe(201);
 
@@ -555,7 +563,9 @@ describe('POST /api/bookings', () => {
     expect(mocks.BookingPaymentProofModel.findOneAndUpdate).toHaveBeenCalled();
     const meta = JSON.parse(mocks.ExternalReservationModel.create.mock.calls[0][0].metadata);
     expect(meta.check_in_time).toBe('15:00');
-    expect(meta.guest_id_url).toMatch(/\/bookings\/.+\/files\/valid-id\?token=[0-9a-f]{64}$/);
+    // No Valid ID link is shared with the hotel app anymore.
+    expect(meta.guest_id_url).toBeUndefined();
+    expect(meta.valid_id_uploaded).toBe(false);
     expect(meta.payment_proof_uploaded).toBe(true);
     expect(meta.payment_proof_url).toMatch(/\/bookings\/.+\/files\/payment-proof\?token=[0-9a-f]{64}$/);
     // MADYAWPH's Guest documents screen reads the receipt from payment_screenshot_url.
@@ -600,10 +610,10 @@ describe('POST /api/bookings', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 400 when Valid ID is missing', async () => {
+  it('creates a booking with no Valid ID at all', async () => {
     const res = await postBooking(VALID_PAYLOAD, false);
-    expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/valid id/i);
+    expect(res.status).toBe(201);
+    expect(MockBookingModel.create).toHaveBeenCalled();
   });
 
   it('returns 400 when check-out is before check-in', async () => {

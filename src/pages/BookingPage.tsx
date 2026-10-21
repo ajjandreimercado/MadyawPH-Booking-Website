@@ -8,14 +8,13 @@ import { fetchPropertyById, createBookingRequestApi } from '../api/propertyServi
 import { fetchRoomCategory, quoteStay, validatePromoCode, validateMembershipId, type StayQuote } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import type { BookingPaymentMethod, BookingRoomType, RoomCategory } from '../types';
-import { DISCOUNT_OPTIONS } from '../lib/bookingFlow';
 import { BookingFormSkeleton } from '../components/ui/Skeleton';
 import { cacheKey, peekCache } from '../lib/queryCache';
 import { errorMessageFromUnknown } from '../lib/apiError';
 import { describeGuests, formatStayDate, peso, readStay, stayQuery } from '../lib/stayParams';
 import {
-  ARRIVAL_SLOTS, arrivalLabel, buildSpecialRequests, clearDraft, getPaymentProof, getValidId, loadDraft, saveDraft,
-  setPaymentProof, setValidId, type CheckoutDraft,
+  ARRIVAL_SLOTS, arrivalLabel, buildSpecialRequests, clearDraft, getPaymentProof, loadDraft, saveDraft,
+  setPaymentProof, type CheckoutDraft,
 } from '../lib/checkoutDraft';
 import PayByQr from '../components/booking/PayByQr';
 import CheckoutSummary, { CheckoutProgress, clockLabel } from '../components/booking/CheckoutSummary';
@@ -51,18 +50,9 @@ const NATIONALITIES = [
   'Uruguayan', 'Uzbek', 'Venezuelan', 'Vietnamese', 'Yemeni', 'Zambian', 'Zimbabwean',
 ];
 
-const BOOKING_DISCOUNT_OPTIONS = [
-  { value: '', label: 'No Discount' },
-  ...DISCOUNT_OPTIONS.filter((opt) => opt.value !== 'none').map((opt) => ({
-    value: opt.value,
-    label: opt.value === 'pwd' ? 'PWD — 20% off' : 'Senior Citizen — 20% off',
-  })),
-];
-
-const VALID_ID_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function missingDetails(draft: CheckoutDraft, validIdFile: File | null): string | null {
+function missingDetails(draft: CheckoutDraft): string | null {
   if (!draft.fullName.trim()) return 'Enter your full name.';
   // Quick booking: name plus an email OR a mobile number is enough — no account needed.
   const email = draft.email.trim();
@@ -71,7 +61,6 @@ function missingDetails(draft: CheckoutDraft, validIdFile: File | null): string 
   if (email && !EMAIL_RE.test(email)) return 'Enter a valid email address, or leave it blank and use your mobile number.';
   if (!email && phone.replace(/\D/g, '').length < 7) return 'Enter a valid mobile phone number.';
   if (draft.bookingForSomeoneElse && !draft.stayGuestName.trim()) return 'Enter the name of the guest who will stay.';
-  if (!validIdFile) return 'Upload your valid ID.';
   return null;
 }
 
@@ -117,11 +106,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     saveDraft(categoryId, next);
     return next;
   });
-  const [validIdFile, setValidIdFileState] = useState<File | null>(() => getValidId(categoryId));
-  const changeValidId = (file: File | null) => {
-    setValidId(categoryId, file);
-    setValidIdFileState(file);
-  };
   const [paymentProofFile, setPaymentProofState] = useState<File | null>(() => getPaymentProof(categoryId));
   const changePaymentProof = (file: File | null) => {
     setPaymentProof(categoryId, file);
@@ -141,7 +125,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [paymentMethod, setPaymentMethod] = useState<BookingPaymentMethod>('gcash');
   // The server prices and names room-type bookings from the room it assigns.
   const roomType = 'standard-room' as BookingRoomType;
-  const discountReason = draft.discountType === 'pwd' || draft.discountType === 'senior citizen' ? draft.discountType : undefined;
   // Only codes the server already accepted go into the price quote, so a typo can't block pricing.
   const appliedPromo = promoDiscountAmt > 0 ? draft.promoCode.trim() : undefined;
   const appliedMember = memberDiscountAmt > 0 ? draft.membershipId.trim() : undefined;
@@ -216,7 +199,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         checkOutDate: stay.checkOut,
         adults: stay.adults,
         children: stay.children,
-        discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
         groupBooking: effectiveGroupBooking,
@@ -233,7 +215,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         .finally(() => { if (!cancelled) setQuoteLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, discountReason, appliedPromo, appliedMember, draft.arrivalTime, effectiveGroupBooking, isMultiCategory, categoryIds.join(',')]);
+  }, [category, categoryId, stay.checkIn, stay.checkOut, stay.adults, stay.children, appliedPromo, appliedMember, draft.arrivalTime, effectiveGroupBooking, isMultiCategory, categoryIds.join(',')]);
 
   useEffect(() => {
     const code = draft.promoCode.trim();
@@ -279,7 +261,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
     return () => window.clearTimeout(timer);
   }, [draft.membershipId, stayPrice]);
 
-  const detailsProblem = missingDetails(draft, validIdFile);
+  const detailsProblem = missingDetails(draft);
   const detailsHref = `/booking/${categoryId}?${query}`;
   const changeSelectionHref = category?.hotelId ? `/hotels/${category.hotelId}?${query}#rooms` : '/search';
 
@@ -293,7 +275,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   };
 
   const completeBooking = async () => {
-    if (!category || detailsProblem || !validIdFile) {
+    if (!category || detailsProblem) {
       showToast({ title: detailsProblem ?? 'Please check your details', type: 'error' });
       return;
     }
@@ -334,16 +316,14 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         infants: 0,
         roomType,
         paymentMethod,
-        discountReason,
         promoCode: appliedPromo,
         membershipId: appliedMember,
         groupBooking: effectiveGroupBooking,
         categoryIds: isMultiCategory ? categoryIds : undefined,
         policyAcknowledged: agreed,
-        validIdFile,
         paymentProofFile,
         arrivalTime: /^\d{2}:\d{2}$/.test(draft.arrivalTime) ? draft.arrivalTime : undefined,
-        specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }, validIdFile.name),
+        specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }),
       });
       clearDraft(categoryId);
       const receiptToken = (booking as { receiptToken?: string }).receiptToken;
@@ -413,8 +393,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               <DetailsStep
                 draft={draft}
                 update={update}
-                validIdFile={validIdFile}
-                onValidId={changeValidId}
                 promoStatus={promoStatus}
                 promoAccepted={promoDiscountAmt > 0}
                 memberStatus={memberStatus}
@@ -426,7 +404,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               <Card>
                 <h1 className="text-xl font-bold text-brand-dark mb-2">A few details are missing</h1>
                 <p className="text-sm font-bold text-brand-dark/65 mb-4">
-                  {detailsProblem}{!validIdFile ? ' (For your security, an uploaded ID is not kept after the page reloads.)' : ''}
+                  {detailsProblem}
                 </p>
                 <Link to={detailsHref} className="btn-primary inline-block">Back to your details</Link>
               </Card>
@@ -440,10 +418,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     <ReviewItem label="Phone" value={draft.phone} />
                     <ReviewItem label="Nationality" value={draft.nationality} />
                     {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
-                    <ReviewItem label="Valid ID" value={validIdFile?.name ?? ''} />
                     {draft.arrivalTime && <ReviewItem label="Estimated arrival" value={arrivalLabel(draft.arrivalTime) || draft.arrivalTime} />}
                     {draft.specialRequests.trim() && <ReviewItem label="Special requests" value={draft.specialRequests.trim()} />}
-                    {discountReason && <ReviewItem label="Discount" value={discountReason === 'pwd' ? 'PWD (ID checked at check-in)' : 'Senior citizen (ID checked at check-in)'} />}
                     {appliedPromo && <ReviewItem label="Promo code" value={appliedPromo} />}
                     {appliedMember && <ReviewItem label="Membership ID" value={appliedMember} />}
                   </dl>
@@ -608,8 +584,6 @@ function ReviewItem({ label, value }: { label: string; value: string }) {
 function DetailsStep({
   draft,
   update,
-  validIdFile,
-  onValidId,
   promoStatus,
   promoAccepted,
   memberStatus,
@@ -619,8 +593,6 @@ function DetailsStep({
 }: {
   draft: CheckoutDraft;
   update: (patch: Partial<CheckoutDraft>) => void;
-  validIdFile: File | null;
-  onValidId: (file: File | null) => void;
   promoStatus: string | null;
   promoAccepted: boolean;
   memberStatus: string | null;
@@ -708,59 +680,6 @@ function DetailsStep({
               </div>
             )}
           </fieldset>
-
-          <div>
-            <label htmlFor="booking-valid-id" className="field-label flex items-center justify-between">
-              <span><ShieldCheck className="inline w-3.5 h-3.5 mr-1 text-brand-primary" />Valid ID <span className="text-red-400">*</span></span>
-              <span className="text-[10px] text-brand-dark/40 font-normal">Passport, driver's license, or government ID</span>
-            </label>
-            <label
-              htmlFor="booking-valid-id"
-              className={`mt-1 flex flex-col items-center justify-center w-full p-4 transition-colors border-2 border-dashed rounded-xl cursor-pointer ${
-                validIdFile
-                  ? 'border-brand-success bg-brand-success/5 text-brand-success'
-                  : 'border-brand-primary/25 bg-brand-background/40 hover:bg-brand-background/70 hover:border-brand-primary/50 text-brand-dark/60'
-              }`}
-            >
-              {validIdFile ? (
-                <span className="flex items-center justify-between w-full gap-2 text-sm font-bold">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <CheckCircle2 className="w-5 h-5 shrink-0" />
-                    <span className="truncate">{validIdFile.name}</span>
-                    <span className="text-xs font-normal text-brand-dark/50 shrink-0">({(validIdFile.size / 1024).toFixed(0)} KB)</span>
-                  </span>
-                  <span className="text-xs text-brand-primary underline shrink-0">Change ID</span>
-                </span>
-              ) : (
-                <span className="flex flex-col items-center text-center py-2">
-                  <Upload className="w-6 h-6 mb-2 text-brand-primary/60" />
-                  <span className="text-xs font-bold text-brand-dark">Click to upload your valid ID</span>
-                  <span className="text-[10px] text-brand-dark/50 mt-0.5">JPG, PNG, WEBP, or PDF (max 5 MB) — shared only with the hotel</span>
-                </span>
-              )}
-              <input
-                id="booking-valid-id"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                className="hidden"
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  if (!VALID_ID_TYPES.includes(file.type)) {
-                    onError('Valid ID must be a JPG, PNG, WEBP, or PDF');
-                    e.target.value = '';
-                    return;
-                  }
-                  if (file.size > 5 * 1024 * 1024) {
-                    onError('Valid ID must be 5 MB or smaller');
-                    e.target.value = '';
-                    return;
-                  }
-                  onValidId(file);
-                }}
-              />
-            </label>
-          </div>
         </div>
       </section>
 
@@ -803,16 +722,6 @@ function DetailsStep({
       <section>
         <h2 className={sectionTitle}><Tag className="w-4 h-4" /> Discounts</h2>
         <div className="space-y-4">
-          <div>
-            <label htmlFor="booking-discount" className="field-label">PWD / Senior citizen</label>
-            <div className="relative">
-              <select id="booking-discount" value={draft.discountType} onChange={e => update({ discountType: e.target.value })} className="input-field appearance-none pr-9">
-                {BOOKING_DISCOUNT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
-            </div>
-            {draft.discountType && <p className="mt-1.5 text-[11px] text-brand-dark/55 font-bold">Bring the matching ID — the hotel checks it at check-in.</p>}
-          </div>
           <div>
             <label htmlFor="booking-membership" className="field-label">Madyaw Membership ID</label>
             <input id="booking-membership" type="text" autoComplete="off" value={draft.membershipId}

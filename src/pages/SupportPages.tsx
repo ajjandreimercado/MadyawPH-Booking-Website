@@ -51,15 +51,15 @@ export function HelpCenterPage() {
       sections={[
         {
           heading: 'How booking works',
-          body: 'Search for a hotel, choose a room type, enter your details and Valid ID, then pay the full stay by scanning the hotel’s GCash or Maya QR and upload your receipt. The hotel verifies your payment and confirms your stay by email. The hotel assigns your room.',
+          body: 'Search for a hotel, choose a room type, enter your details, then pay the full stay by scanning the hotel’s GCash or Maya QR and upload your receipt. The hotel verifies your payment and confirms your stay by email. The hotel assigns your room.',
         },
         {
           heading: 'Online payment',
           body: 'You pay the full stay total when you book, using the hotel’s own GCash or Maya QR shown at the last step. Upload the receipt screenshot; the hotel verifies it in their system.',
         },
         {
-          heading: 'Valid ID',
-          body: 'Upload a clear photo or PDF of a government ID with your request. The hotel uses it to verify your reservation.',
+          heading: 'At check-in',
+          body: 'Bring a valid government ID — the hotel checks it when you arrive. You do not need to upload anything when you book.',
         },
         {
           heading: 'Need help with a stay?',
@@ -99,7 +99,7 @@ export function SafetyPage() {
       sections={[
         {
           heading: 'Your data',
-          body: 'Booking details and your Valid ID are stored for the hotel that will host you. Do not upload IDs that are not yours.',
+          body: 'Your booking details are stored for the hotel that will host you. We never ask you to upload an ID on this website.',
         },
         {
           heading: 'Payments',
@@ -143,7 +143,7 @@ export function PrivacyPolicyPage() {
       sections={[
         {
           heading: 'What we collect',
-          body: 'Name, email, phone, stay dates, guest counts, payment preference, optional notes, and a Valid ID file for hotel verification.',
+          body: 'Name, email, phone, stay dates, guest counts, payment preference, optional notes, and your payment screenshot for hotel verification.',
         },
         {
           heading: 'How it is used',
@@ -151,7 +151,7 @@ export function PrivacyPolicyPage() {
         },
         {
           heading: 'Sharing',
-          body: 'Your request (including Valid ID) is available to the hotel you selected through their management app connected to the same database.',
+          body: 'Your request is available to the hotel you selected through their management app connected to the same database.',
         },
         {
           heading: 'Retention',
@@ -175,7 +175,7 @@ export function TermsOfServicePage() {
         },
         {
           heading: 'Accuracy',
-          body: 'You are responsible for correct dates, guest counts, contact details, and a legitimate Valid ID upload.',
+          body: 'You are responsible for correct dates, guest counts, and contact details.',
         },
         {
           heading: 'Pricing',

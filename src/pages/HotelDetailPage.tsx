@@ -370,7 +370,7 @@ export default function HotelDetailPage() {
               </div>
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><IdCard className="w-4 h-4 text-brand-primary" aria-hidden />Valid ID</dt>
-                <dd className="text-brand-dark/70 font-bold">A valid government ID is required when you book and at check-in.</dd>
+                <dd className="text-brand-dark/70 font-bold">A valid government ID is required at check-in.</dd>
               </div>
               <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 py-3">
                 <dt className="flex items-center gap-2 sm:w-40 shrink-0 font-bold text-brand-dark"><Wallet className="w-4 h-4 text-brand-primary" aria-hidden />Payment</dt>

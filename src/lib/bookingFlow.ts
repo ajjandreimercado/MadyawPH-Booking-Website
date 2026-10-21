@@ -9,8 +9,6 @@ export interface BookingDraft {
   infants: number;
   roomType: BookingRoomType;
   paymentMethod: BookingPaymentMethod;
-  /** Optional discount reason (e.g. 'pwd', 'senior citizen') — mirrored from server allowlist */
-  discountReason?: string;
 }
 
 export const ROOM_TYPE_OPTIONS: Record<BookingRoomType, { label: string; description: string; multiplier: number }> = {
@@ -75,7 +73,7 @@ export interface BookingPricingBreakdown {
 
 export function calculateBookingPricing(
   property: Property,
-  draft: BookingDraft & { discountReason?: string },
+  draft: BookingDraft,
 ): BookingPricingBreakdown {
   const nights = Math.max(1, differenceInCalendarDays(parseISO(draft.checkOutDate), parseISO(draft.checkInDate)));
   const guestCount = Math.max(1, draft.adults + draft.children + draft.infants);
@@ -85,21 +83,14 @@ export function calculateBookingPricing(
   const serviceFee = 0;
   const subtotal = roomSubtotal + guestSupplement;
 
-  // Mirror the server-side discount logic so the UI shows an accurate price preview.
-  const normalizedDiscount = draft.discountReason?.trim().toLowerCase();
-  const eligibleReasons = new Set(['pwd', 'senior citizen']);
-  const discountAmount = (normalizedDiscount && eligibleReasons.has(normalizedDiscount))
-    ? Math.round(subtotal * 0.2)
-    : 0;
-
   return {
     nights,
     guestCount,
     roomRate,
     roomTotal: roomSubtotal + guestSupplement,
     serviceFee,
-    discountAmount,
-    totalPrice: Math.max(0, subtotal - discountAmount),
+    discountAmount: 0,
+    totalPrice: Math.max(0, subtotal),
   };
 }
 
@@ -126,22 +117,7 @@ export const BOOKING_REQUEST_EXPIRY_SECONDS = 90;
 export const BOOKING_RECHECK_DELAY_MS = 2600;
 export const BOOKING_PAYMENT_PROCESSING_MS = 1600;
 
-export const DISCOUNT_OPTIONS = [
-  { value: 'none', label: 'No discount' },
-  { value: 'pwd', label: 'PWD' },
-  { value: 'senior citizen', label: 'Senior Citizen' },
-] as const;
-
-export function discountLabel(discountReason?: string) {
-  if (!discountReason) {
-    return 'No discount';
-  }
-
-  const normalizedReason = discountReason.toLowerCase();
-  return DISCOUNT_OPTIONS.find((option) => option.value === normalizedReason)?.label ?? 'Discount';
-}
-
-export function createBookingRequest(property: Property, guestName: string, guestEmail: string, draft: BookingDraft & { discountReason?: string }): BookingRequest {
+export function createBookingRequest(property: Property, guestName: string, guestEmail: string, draft: BookingDraft): BookingRequest {
   const createdAt = Date.now();
   const pricing = calculateBookingPricing(property, draft);
 

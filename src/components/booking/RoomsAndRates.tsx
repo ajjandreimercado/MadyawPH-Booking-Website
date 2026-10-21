@@ -289,9 +289,6 @@ export default function RoomsAndRates({
                           {category.amenities.slice(0, 6).map((a) => a.replace(/-/g, ' ')).join(' · ')}
                         </p>
                       )}
-                      <p className="mt-1.5 text-[11px] font-bold text-brand-success">
-                        {category.availableRooms} room{category.availableRooms === 1 ? '' : 's'} available for your dates
-                      </p>
                       {(category.extraPersonCharge || category.extraBedCharge) && (
                         <p className="mt-0.5 text-[11px] font-bold text-brand-dark/55">
                           {category.extraPersonCharge ? `Extra person ${peso(category.extraPersonCharge)}` : ''}

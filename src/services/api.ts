@@ -86,8 +86,6 @@ export interface BookingCreatePayload {
   infants: number;
   roomType: BookingRoomType;
   paymentMethod: BookingPaymentMethod;
-  discountReason?: string;
-  discountAmount?: number;
   specialRequests?: string;
   promoCode?: string;
   /** Group booking: pay a 50% down payment now, balance at the hotel. */
@@ -96,8 +94,6 @@ export interface BookingCreatePayload {
   policyAcknowledged?: boolean;
   /** Madyaw Club membership ID (SHID-…) from the hotel app. */
   membershipId?: string;
-  /** Required on the live Booking Details page; optional only for unused legacy callers. */
-  validIdFile?: File;
   /** GCash/Maya/bank screenshot after scanning the hotel QR. */
   paymentProofFile?: File;
   /** Estimated arrival, HH:mm — saved to the hotel app's check-in time. */
@@ -292,15 +288,12 @@ export async function createBookingRequest(payload: BookingCreatePayload) {
   form.append('infants', String(payload.infants));
   form.append('roomType', payload.roomType);
   form.append('paymentMethod', payload.paymentMethod);
-  if (payload.discountReason) form.append('discountReason', payload.discountReason);
-  if (payload.discountAmount != null) form.append('discountAmount', String(payload.discountAmount));
   if (payload.specialRequests) form.append('specialRequests', payload.specialRequests);
   if (payload.arrivalTime) form.append('arrivalTime', payload.arrivalTime);
   if (payload.promoCode) form.append('promoCode', payload.promoCode);
   if (payload.groupBooking) form.append('groupBooking', 'true');
   if (payload.policyAcknowledged) form.append('policyAcknowledged', 'true');
   if (payload.membershipId) form.append('membershipId', payload.membershipId);
-  if (payload.validIdFile) form.append('validId', payload.validIdFile);
   if (payload.paymentProofFile) form.append('paymentProof', payload.paymentProofFile);
 
   const response = await api.post<BookingRequest>('/bookings', form);
@@ -670,7 +663,6 @@ export async function quoteStay(payload: {
   checkOutDate: string;
   adults: number;
   children: number;
-  discountReason?: string;
   promoCode?: string;
   membershipId?: string;
   /** Group booking: quote a 50% down payment as dueNow. */
