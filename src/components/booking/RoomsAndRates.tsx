@@ -200,7 +200,7 @@ export default function RoomsAndRates({
                 <div
                   key={category.id}
                   onClick={() => { if (bookable && !isSelected) applySelection(category, 'stay'); }}
-                  title={bookable && !isSelected ? 'Click to select this room and see its price' : undefined}
+                  title={bookable && !isSelected ? 'Click to select this room' : undefined}
                   className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
                 >
                   {/* Room type — photo is the same large size as the hotel gallery image */}
@@ -269,8 +269,7 @@ export default function RoomsAndRates({
                       {category.hasPromo ? (
                         <p className="mt-1 text-xs font-bold text-brand-danger">
                           <span className="uppercase tracking-wider">Promo</span>
-                          {/* Price stays hidden until the guest picks this room type. */}
-                          {isSelected && category.promoPrice ? (
+                          {category.promoPrice ? (
                             <>
                               {' '}· Starts from {peso(category.promoPrice)}
                               {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
@@ -299,24 +298,18 @@ export default function RoomsAndRates({
                     </div>
                   </div>
 
-                  {/* Price — revealed only after the guest picks this room type */}
+                  {/* Price — always shown so guests can compare room types before selecting */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10">
-                    {isSelected ? (
-                      <>
-                        <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
-                        {/* Room facts come from the category itself, not the searched dates/guests. */}
-                        {category.description
-                          ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
-                          : null}
-                        <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
-                        {category.hourly && (
-                          <p className="mt-1 text-[11px] font-bold text-brand-primary">
-                            Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm font-bold text-brand-primary">Select this room to see its price</p>
+                    <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
+                    {/* Room facts come from the category itself, not the searched dates/guests. */}
+                    {category.description
+                      ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
+                      : null}
+                    <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
+                    {category.hourly && (
+                      <p className="mt-1 text-[11px] font-bold text-brand-primary">
+                        Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
+                      </p>
                     )}
                   </div>
 
