@@ -52,7 +52,7 @@ export type ReserveItem = { category: HotelDetailCategory; mode: ReserveMode };
 
 /**
  * Booking.com-style "Rooms & Rates" (steps 2–3): filters and sort, then one row per room type
- * with Room type | Price for the stay | Your choices | Select rooms, and a sticky reserve panel.
+ * with Room type | Price for the stay | Your choices, and a sticky reserve panel.
  * Guests may select several room types (one room each) and book them together in one
  * checkout with one payment; the hourly "block" option stays a single-type booking.
  */
@@ -186,22 +186,20 @@ export default function RoomsAndRates({
         ) : (
           <div className="rounded-xl border border-brand-primary/15 overflow-hidden">
             {/* Column headings (desktop) */}
-            <div className="hidden md:grid grid-cols-[1.6fr_1fr_1.2fr_0.7fr] bg-brand-primary text-white text-[11px] font-bold uppercase tracking-wider">
+            <div className="hidden md:grid grid-cols-[1.6fr_1fr_1.2fr] bg-brand-primary text-white text-[11px] font-bold uppercase tracking-wider">
               <div className="px-4 py-2.5">Room type</div>
               <div className="px-4 py-2.5">Price</div>
               <div className="px-4 py-2.5">Your choices</div>
-              <div className="px-4 py-2.5">Select rooms</div>
             </div>
             {visible.map((category) => {
               const bookable = isBookable(category, stay);
               const isSelected = selectedIds.has(category.id);
-              const selectionMode = selections.find((s) => s.id === category.id)?.mode;
               return (
                 <div
                   key={category.id}
-                  onClick={() => { if (bookable && !isSelected) applySelection(category, 'stay'); }}
-                  title={bookable && !isSelected ? 'Click to select this room' : undefined}
-                  className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr_0.7fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
+                  onClick={() => { if (bookable) applySelection(category, isSelected ? null : 'stay'); }}
+                  title={bookable ? (isSelected ? 'Click to remove this room' : 'Click to select this room') : undefined}
+                  className={`grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.2fr] border-t border-brand-primary/10 first:border-t-0 md:first:border-t ${isSelected ? 'bg-brand-primary/5' : 'bg-white'} ${bookable ? 'cursor-pointer' : 'opacity-70'}`}
                 >
                   {/* Room type — photo is the same large size as the hotel gallery image */}
                   <div className="p-4 flex flex-col gap-3">
@@ -314,28 +312,10 @@ export default function RoomsAndRates({
                   </div>
 
                   {/* Your choices */}
-                  <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
+                  <div className="px-4 pb-4 md:p-4 md:border-l border-brand-primary/10 text-xs font-bold space-y-1">
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
-                  </div>
-
-                  {/* Select rooms */}
-                  <div className="px-4 pb-4 md:p-4 md:border-l border-brand-primary/10">
-                    {bookable ? (
-                      <select
-                        aria-label={`Rooms of ${category.name}`}
-                        value={isSelected && selectionMode ? selectionMode : ''}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => applySelection(category, e.target.value ? e.target.value as ReserveMode : null)}
-                        className="w-full md:w-auto px-3 py-2 rounded-lg border border-brand-primary/30 text-sm font-bold bg-white"
-                      >
-                        <option value="">0</option>
-                        <option value="stay">1</option>
-                        {category.hourly && (
-                          <option value="block">1 × {category.hourly.blockHours} h on {formatStayDate(stay.checkIn)}</option>
-                        )}
-                      </select>
-                    ) : (
-                      <p className="text-xs font-bold text-brand-danger">
+                    {!bookable && (
+                      <p className="text-brand-danger">
                         {!fitsParty(category, stay) ? `Fits up to ${category.maxGuests} guests` : 'Price unavailable'}
                       </p>
                     )}
