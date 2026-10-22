@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { HotelModel, PropertyModel, RoomCategoryModel, ReviewModel } from '../data/mongoModels';
-import { serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
+import { resolveRecordImages, serializeHotel, serializeProperty, serializeRoomCategory } from '../utils/serialize';
 import { resolveHotelImageUrlFromRecord, decodeHotelMediaBase64, extractStoragePath } from '../utils/hotelImageUrl';
 import {
   buildMediaCacheKey,
@@ -200,11 +200,11 @@ async function categoryImagesByHotel(hotelIds: string[]): Promise<Map<string, st
   const gallery = new Map<string, string[]>();
   for (const category of categories) {
     const hid = String(category.hotel_id ?? '');
-    const url = resolveHotelImageUrlFromRecord(category);
-    if (!url) continue;
     const list = gallery.get(hid) ?? [];
-    if (!list.includes(url) && list.length < 6) list.push(url);
-    gallery.set(hid, list);
+    for (const url of resolveRecordImages(category)) {
+      if (!list.includes(url) && list.length < 6) list.push(url);
+    }
+    if (list.length) gallery.set(hid, list);
   }
   return gallery;
 }
@@ -483,7 +483,7 @@ hotelRoutes.get('/search', publicReadLimiter, async (req, res) => {
       existing.promoPrice = promo.promoPrice;
       existing.promoRegularPrice = promo.regularPrice;
     }
-    if (room.image_url && existing.images.length < 3) {
+    if (existing.images.length < 3) {
       const resolved = resolveHotelImageUrlFromRecord(room);
       if (resolved) existing.images.push(resolved);
     }
@@ -979,7 +979,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
     const categoryImages = [...new Set([
       ...(category.images ?? []),
       category.imageUrl,
-      ...roomsInCategory.map((room) => room.image),
+      ...roomsInCategory.flatMap((room) => (room.images?.length ? room.images : [room.image])),
     ].filter(Boolean) as string[])].slice(0, 8);
     // Extra-person / extra-bed charges, only when the hotel actually set them.
     const chargeOf = (...keys: string[]) => {

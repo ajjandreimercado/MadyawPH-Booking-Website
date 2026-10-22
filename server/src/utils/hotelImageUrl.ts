@@ -13,6 +13,8 @@ export function pickImageSource(record: unknown): string | undefined {
     source.imageUrl,
     source.image,
     Array.isArray(source.images) ? source.images[0] : undefined,
+    // MADYAWPH keeps a room's / room type's photo list here (image_url holds only one of them).
+    Array.isArray(source.image_urls) ? source.image_urls[0] : undefined,
   ];
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();

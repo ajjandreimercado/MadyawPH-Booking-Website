@@ -17,6 +17,7 @@ export function resolveRecordImages(record: unknown, limit = 8): string[] {
     if (url && !urls.includes(url)) urls.push(url);
   };
   if (Array.isArray(source.images)) source.images.forEach(push);
+  if (Array.isArray(source.image_urls)) source.image_urls.forEach(push);
   push(source.image_url);
   push(source.imageUrl);
   push(source.image);
@@ -75,6 +76,8 @@ export function serializeProperty(property: AnyDocument) {
     reviews: Number(source.reviews ?? source.review_count ?? 0),
     price: Number(source.price_per_night ?? source.price ?? 0),
     image: resolveHotelImageUrlFromRecord(source) ?? '',
+    // Every photo the hotel attached to this room (hotel app image_urls).
+    images: resolveRecordImages(source),
     amenities: toStringArray(source.amenities),
     type: String(source.room_type ?? source.type ?? ''),
     featured: roomStatus ? String(roomStatus) === 'available' : Boolean(source.featured),

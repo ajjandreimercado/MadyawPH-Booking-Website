@@ -384,6 +384,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               quoteError={quoteError}
               freeCancellation={quote?.freeCancellation}
               showCancellation={step === 'finish'}
+              large={step === 'finish' && !detailsProblem}
               roomsLabel={roomsLabel}
             />
           </div>
@@ -393,10 +394,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               <DetailsStep
                 draft={draft}
                 update={update}
-                promoStatus={promoStatus}
-                promoAccepted={promoDiscountAmt > 0}
-                memberStatus={memberStatus}
-                memberAccepted={memberDiscountAmt > 0}
                 onError={(title) => showToast({ title, type: 'error' })}
                 onNext={goToFinish}
               />
@@ -419,9 +416,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     <ReviewItem label="Nationality" value={draft.nationality} />
                     {draft.bookingForSomeoneElse && <ReviewItem label="Guest staying" value={draft.stayGuestName} />}
                     {draft.arrivalTime && <ReviewItem label="Estimated arrival" value={arrivalLabel(draft.arrivalTime) || draft.arrivalTime} />}
-                    {draft.specialRequests.trim() && <ReviewItem label="Special requests" value={draft.specialRequests.trim()} />}
-                    {appliedPromo && <ReviewItem label="Promo code" value={appliedPromo} />}
-                    {appliedMember && <ReviewItem label="Membership ID" value={appliedMember} />}
                   </dl>
                 </Card>
 
@@ -494,6 +488,49 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                     onError={(title) => showToast({ title, type: 'error' })}
                     onMethodChange={setPaymentMethod}
                   />
+                </Card>
+
+                <Card>
+                  <h2 className="text-lg font-bold text-brand-dark mb-4 flex items-center gap-2"><Tag className="w-5 h-5 text-brand-primary" aria-hidden />Discounts</h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="booking-membership" className="field-label">Madyaw Membership ID</label>
+                      <input id="booking-membership" type="text" autoComplete="off" value={draft.membershipId}
+                        onChange={e => update({ membershipId: e.target.value.toUpperCase() })} placeholder="e.g. SHID-XXXXXXXX" className="input-field uppercase" />
+                      <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
+                        Points wallet discount, once per day. <Link to="/become-a-member" className="text-brand-primary underline">Be a member</Link>
+                      </p>
+                      {memberStatus && <p className={`mt-1 text-xs font-bold ${memberDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>{memberDiscountAmt > 0 ? '✓ ' : ''}{memberStatus}</p>}
+                    </div>
+                    <div>
+                      <label htmlFor="booking-promo" className="field-label">Promo code</label>
+                      <input id="booking-promo" type="text" value={draft.promoCode}
+                        onChange={e => update({ promoCode: e.target.value.toUpperCase() })} placeholder="Optional" className="input-field uppercase" />
+                      {promoStatus && <p className={`mt-1 text-xs font-bold ${promoDiscountAmt > 0 ? 'text-brand-success' : 'text-brand-dark/55'}`}>{promoDiscountAmt > 0 ? '✓ ' : ''}{promoStatus}</p>}
+                    </div>
+                    <p className="text-[11px] text-brand-dark/45 font-bold">
+                      If more than one discount applies, the largest one is used. The amount to pay in your booking summary updates when a discount is accepted.
+                    </p>
+                  </div>
+                </Card>
+
+                <Card>
+                  <h2 className="text-lg font-bold text-brand-dark mb-4 flex items-center gap-2"><MessageSquare className="w-5 h-5 text-brand-primary" aria-hidden />Special requests</h2>
+                  <label htmlFor="booking-requests" className="field-label">Anything the hotel should know? (optional)</label>
+                  <textarea id="booking-requests" rows={3} maxLength={300} value={draft.specialRequests}
+                    onChange={e => update({ specialRequests: e.target.value })} className="input-field" />
+                  <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Requests depend on availability and aren't guaranteed.</p>
+                  <div className="mt-4">
+                    <span className="field-label">Head count by sex (optional, for the hotel's records)</span>
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="text-[10px] text-brand-dark/50 font-bold">Male
+                        <input type="number" min={0} value={draft.malePax} onChange={e => update({ malePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
+                      </label>
+                      <label className="text-[10px] text-brand-dark/50 font-bold">Female
+                        <input type="number" min={0} value={draft.femalePax} onChange={e => update({ femalePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
+                      </label>
+                    </div>
+                  </div>
                 </Card>
 
                 <Card>
@@ -584,19 +621,11 @@ function ReviewItem({ label, value }: { label: string; value: string }) {
 function DetailsStep({
   draft,
   update,
-  promoStatus,
-  promoAccepted,
-  memberStatus,
-  memberAccepted,
   onError,
   onNext,
 }: {
   draft: CheckoutDraft;
   update: (patch: Partial<CheckoutDraft>) => void;
-  promoStatus: string | null;
-  promoAccepted: boolean;
-  memberStatus: string | null;
-  memberAccepted: boolean;
   onError: (title: string) => void;
   onNext: () => void;
 }) {
@@ -696,49 +725,6 @@ function DetailsStep({
           <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40 pointer-events-none" />
         </div>
         <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Check-in is from 2:00 PM (hourly rooms start at this time). The hotel sees this time with your booking.</p>
-      </section>
-
-      <section>
-        <h2 className={sectionTitle}><MessageSquare className="w-4 h-4" /> Special requests</h2>
-        <label htmlFor="booking-requests" className="field-label">Anything the hotel should know? (optional)</label>
-        <textarea id="booking-requests" rows={3} maxLength={300} value={draft.specialRequests}
-          onChange={e => update({ specialRequests: e.target.value })} className="input-field" />
-        <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">Requests depend on availability and aren't guaranteed.</p>
-        <div className="mt-4">
-          <span className="field-label">Head count by sex (optional, for the hotel's records)</span>
-          <div className="grid grid-cols-2 gap-4">
-            <label className="text-[10px] text-brand-dark/50 font-bold">Male
-              <input type="number" min={0} value={draft.malePax} onChange={e => update({ malePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
-            </label>
-            <label className="text-[10px] text-brand-dark/50 font-bold">Female
-              <input type="number" min={0} value={draft.femalePax} onChange={e => update({ femalePax: Math.max(0, Number(e.target.value)) })} className="input-field mt-1" />
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <div className="h-px bg-brand-primary/10" />
-
-      <section>
-        <h2 className={sectionTitle}><Tag className="w-4 h-4" /> Discounts</h2>
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="booking-membership" className="field-label">Madyaw Membership ID</label>
-            <input id="booking-membership" type="text" autoComplete="off" value={draft.membershipId}
-              onChange={e => update({ membershipId: e.target.value.toUpperCase() })} placeholder="e.g. SHID-XXXXXXXX" className="input-field uppercase" />
-            <p className="mt-1.5 text-[11px] text-brand-dark/45 font-bold">
-              Points wallet discount, once per day. <Link to="/become-a-member" className="text-brand-primary underline">Be a member</Link>
-            </p>
-            {memberStatus && <p className={`mt-1 text-xs font-bold ${memberAccepted ? 'text-brand-success' : 'text-brand-dark/55'}`}>{memberAccepted ? '✓ ' : ''}{memberStatus}</p>}
-          </div>
-          <div>
-            <label htmlFor="booking-promo" className="field-label">Promo code</label>
-            <input id="booking-promo" type="text" value={draft.promoCode}
-              onChange={e => update({ promoCode: e.target.value.toUpperCase() })} placeholder="Optional" className="input-field uppercase" />
-            {promoStatus && <p className={`mt-1 text-xs font-bold ${promoAccepted ? 'text-brand-success' : 'text-brand-dark/55'}`}>{promoAccepted ? '✓ ' : ''}{promoStatus}</p>}
-          </div>
-          <p className="text-[11px] text-brand-dark/45 font-bold">If more than one discount applies, the largest one is used. Your total updates on the right.</p>
-        </div>
       </section>
 
       <button type="submit" className="btn-primary w-full py-4 text-base">Next: Final details</button>
