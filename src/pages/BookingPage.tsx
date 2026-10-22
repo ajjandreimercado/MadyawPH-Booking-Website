@@ -390,7 +390,19 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
           </div>
 
           <div className="min-w-0 lg:order-1 space-y-5">
-            {step === 'details' ? (
+            {submitted ? (
+              <Card>
+                <div className="text-center py-4">
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-brand-success" aria-hidden />
+                  <h1 className="mt-3 text-xl font-bold text-brand-dark">Booking request sent</h1>
+                  <p className="mt-2 text-sm font-bold text-brand-dark/70">
+                    {submitted.email
+                      ? <>The hotel will contact you at {draft.phone.trim() ? <>{draft.phone.trim()} or </> : null}your email ({submitted.email}) once they confirm your booking.</>
+                      : <>The hotel will call you at {draft.phone.trim()} once they confirm your booking.</>}
+                  </p>
+                </div>
+              </Card>
+            ) : step === 'details' ? (
               <DetailsStep
                 draft={draft}
                 update={update}
@@ -563,33 +575,6 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         </div>
       </div>
 
-      {submitted && (
-        <div className="fixed inset-0 z-[100] bg-brand-dark/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Processing payment">
-          <div className="w-full max-w-md rounded-2xl bg-brand-cream p-6 text-center shadow-xl">
-            <Loader2 className="mx-auto h-10 w-10 animate-spin text-brand-primary" aria-hidden />
-            <h2 className="mt-4 text-xl font-bold text-brand-dark">Processing Payment...</h2>
-            <p className="mt-1 text-sm font-bold text-brand-dark/65">Your booking will be confirmed shortly.</p>
-            <p className="mt-3 text-xs font-bold text-brand-dark/55">
-              {submitted.email
-                ? <>The Front Office is verifying your payment. Once confirmed, a <span className="text-brand-dark">"Booking Successful!"</span> email with your booking details and reservation QR code will be sent to {submitted.email}.</>
-                : <>The Front Office is verifying your payment. Once confirmed, staff will call you at {draft.phone.trim()} to let you know your room is booked.</>}
-            </p>
-            <button
-              type="button"
-              className="btn-primary mt-5 w-full py-3"
-              onClick={() => {
-                const params = new URLSearchParams();
-                if (submitted.email) params.set('email', submitted.email);
-                if (submitted.receiptToken) params.set('token', submitted.receiptToken);
-                const qs = params.toString();
-                navigate(`/booking/confirm/${submitted.bookingId}${qs ? `?${qs}` : ''}`);
-              }}
-            >
-              View my booking
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
