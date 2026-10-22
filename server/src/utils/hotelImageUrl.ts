@@ -5,6 +5,15 @@ const EXTERNAL_IMAGE_PATTERN = /unsplash\.com|googleusercontent|gravatar|cloudin
 
 type AnyRecord = Record<string, unknown>;
 
+function firstOfJsonList(raw: string): unknown {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed[0] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function pickImageSource(record: unknown): string | undefined {
   if (!record || typeof record !== 'object') return undefined;
   const source = record as AnyRecord;
@@ -15,6 +24,9 @@ export function pickImageSource(record: unknown): string | undefined {
     Array.isArray(source.images) ? source.images[0] : undefined,
     // MADYAWPH keeps a room's / room type's photo list here (image_url holds only one of them).
     Array.isArray(source.image_urls) ? source.image_urls[0] : undefined,
+    typeof source.image_urls === 'string' && source.image_urls.trim().startsWith('[')
+      ? firstOfJsonList(source.image_urls)
+      : undefined,
   ];
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();

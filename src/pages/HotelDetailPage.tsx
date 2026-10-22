@@ -32,7 +32,7 @@ const SECTIONS = [
 ] as const;
 
 function ImageGallery({
-  images,
+  images: allImages,
   hotelName,
   rating,
   reviewCount,
@@ -44,6 +44,14 @@ function ImageGallery({
 }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+  // Photos that fail to load (dead files on the hotel app) are dropped instead of shown blank.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
+  const images = allImages.filter((src) => !broken.has(src));
+  const dropBroken = (event: { currentTarget: HTMLImageElement }) => {
+    const src = event.currentTarget.getAttribute('src') ?? '';
+    if (src && src !== NO_PHOTO_SRC) setBroken((prev) => (prev.has(src) ? prev : new Set(prev).add(src)));
+    showNoPhoto(event);
+  };
 
   if (images.length === 0) {
     return (
@@ -60,7 +68,7 @@ function ImageGallery({
             className="md:col-span-2 md:row-span-2 relative cursor-pointer group overflow-hidden h-56 sm:h-72 md:h-auto"
             onClick={() => setLightbox(true)}
           >
-            <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={showNoPhoto} />
+            <img src={images[0]} alt={hotelName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={dropBroken} />
             <div className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/10 transition-colors" />
             <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-brand-dark/80 backdrop-blur-sm text-white font-bold px-3.5 py-2 rounded-xl shadow-lg">
               <Star className="w-5 h-5 fill-brand-star text-brand-star" />
@@ -82,7 +90,7 @@ function ImageGallery({
           {/* Thumbnails — desktop/tablet only to avoid crushed mobile grid */}
           {images.slice(1, 5).map((img, i) => (
             <div key={i} className="relative cursor-pointer group overflow-hidden hidden md:block" onClick={() => { setActiveIdx(i + 1); setLightbox(true); }}>
-              <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={showNoPhoto} />
+              <img src={img} alt={`${hotelName} ${i + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={dropBroken} />
               {i === 3 && images.length > 5 && (
                 <div className="absolute inset-0 bg-brand-dark/50 flex items-center justify-center">
                   <span className="text-brand-cream font-bold text-lg">+{images.length - 5}</span>
@@ -102,7 +110,7 @@ function ImageGallery({
           <button type="button" className="absolute left-4 text-brand-cream hover:text-brand-primary" onClick={e => { e.stopPropagation(); setActiveIdx(p => (p - 1 + images.length) % images.length); }}>
             <ChevronLeft className="w-10 h-10" />
           </button>
-          <img src={images[activeIdx]} alt="" className="max-h-[85vh] max-w-[85vw] object-contain rounded-xl" onClick={e => e.stopPropagation()} />
+          <img src={images[activeIdx % images.length]} alt="" className="max-h-[85vh] max-w-[85vw] object-contain rounded-xl" onError={dropBroken} onClick={e => e.stopPropagation()} />
           <button type="button" className="absolute right-4 text-brand-cream hover:text-brand-primary" onClick={e => { e.stopPropagation(); setActiveIdx(p => (p + 1) % images.length); }}>
             <ChevronRight className="w-10 h-10" />
           </button>
@@ -146,10 +154,10 @@ export default function HotelDetailPage() {
   const [isOpeningMaps, setIsOpeningMaps] = useState(false);
 
   // Collect all images across room categories
-  const allImages = [
+  const allImages = [...new Set([
     ...(hotel?.imageUrl ? [hotel.imageUrl] : []),
-    ...categories.map(c => c.imageUrl).filter(Boolean)
-  ];
+    ...categories.flatMap(c => [c.imageUrl, ...(c.images ?? [])]),
+  ].filter((src): src is string => Boolean(src)))];
   const avgRating = reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) : 0;
 
   useEffect(() => {
