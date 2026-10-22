@@ -41,6 +41,8 @@ export interface HotelDetailCategory extends RoomCategory {
     nights: number;
     nightlyRate: number;
     total: number;
+    /** Regular (rack) stay total when a promo rate applies — shown crossed out. */
+    regularTotal?: number;
     billingMode?: 'nightly' | 'hourly';
     stayHours?: number | null;
     blockHours?: number | null;

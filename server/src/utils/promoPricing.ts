@@ -50,7 +50,9 @@ function pathsFor(names: string[]): string[][] {
 
 const PROMO_PRICE_PATHS = pathsFor([
   'promo_price', 'promoPrice',
+  // Hotel app (MADYAWPH RoomBillingSupport::listedRates) dual-rate fields.
   'promo_price_per_night', 'promoPricePerNight',
+  'promo_price_per_block', 'promoPricePerBlock',
   'promotional_price', 'promotionalPrice',
   'promo_rate', 'promoRate',
   'sale_price', 'salePrice',
@@ -60,6 +62,9 @@ const PROMO_PRICE_PATHS = pathsFor([
 
 const REGULAR_PRICE_PATHS = pathsFor([
   'regular_price', 'regularPrice',
+  // Hotel app rack rate shown beside the promo rate.
+  'regular_price_per_night', 'regularPricePerNight',
+  'regular_price_per_block', 'regularPricePerBlock',
   'original_price', 'originalPrice',
   'normal_price', 'normalPrice',
   'price_before_promo', 'priceBeforePromo',

@@ -6,6 +6,18 @@ describe('resolvePromoPricing', () => {
       .toEqual({ hasPromo: true, promoPrice: 900, regularPrice: 1400 });
   });
 
+  it('reads the hotel app dual-rate fields (promo is the listed selling price)', () => {
+    // MADYAWPH stores promo_price_per_night as the selling rate (= price_per_night)
+    // and regular_price_per_night as the rack rate shown crossed out.
+    expect(resolvePromoPricing({ promo_price_per_night: 800, regular_price_per_night: 2000 }, 800))
+      .toEqual({ hasPromo: true, promoPrice: 800, regularPrice: 2000 });
+    expect(resolvePromoPricing({ promo_price_per_block: 500, regular_price_per_block: 1000 }, 500))
+      .toEqual({ hasPromo: true, promoPrice: 500, regularPrice: 1000 });
+    // No promo set in the hotel app: both rates are the same, so nothing to cross out.
+    expect(resolvePromoPricing({ promo_price_per_night: 800, regular_price_per_night: 800 }, 800).hasPromo)
+      .toBe(false);
+  });
+
   it('applies a promo percent', () => {
     expect(resolvePromoPricing({ promo_percent: 20 }, 1000))
       .toEqual({ hasPromo: true, promoPrice: 800, regularPrice: 1000 });
