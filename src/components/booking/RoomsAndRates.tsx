@@ -271,20 +271,17 @@ export default function RoomsAndRates({
                       {category.description && (
                         <p className="mt-0.5 text-xs font-bold text-brand-dark/60 line-clamp-2">{category.description}</p>
                       )}
-                      {category.hasPromo ? (
-                        <p className="mt-1 text-xs font-bold text-brand-danger">
-                          <span className="uppercase tracking-wider">Promo</span>
-                          {/* When the stay promo total is shown in the Price column, the
-                              per-night "starts from" numbers would only duplicate it. */}
-                          {promoOffPercent === 0 && category.promoPrice ? (
-                            <>
-                              {' '}· Starts from {peso(category.promoPrice)}
-                              {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
-                                ? <span className="ml-1.5 text-brand-dark/45 line-through">{peso(category.promoRegularPrice)}</span>
-                                : null}
-                            </>
+                      {/* Labeled per-rate prices; hidden when the Price column already
+                          shows the labeled stay totals for the chosen dates. */}
+                      {category.hasPromo && promoOffPercent === 0 && category.promoPrice ? (
+                        <div className="mt-1 space-y-0.5 text-xs font-bold">
+                          <p className="text-brand-danger">Promo: <span className="tabular-nums">{peso(category.promoPrice)}</span></p>
+                          {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice ? (
+                            <p className="text-brand-dark/50">
+                              Regular Rate: <span className="line-through tabular-nums">{peso(category.promoRegularPrice)}</span>
+                            </p>
                           ) : null}
-                        </p>
+                        </div>
                       ) : null}
                       <ul className="mt-1 space-y-0.5 text-xs font-bold text-brand-dark/65">
                         {category.bedConfiguration && <li className="flex items-center gap-1.5"><BedDouble className="w-3.5 h-3.5" aria-hidden />{category.bedConfiguration}</li>}
@@ -306,15 +303,24 @@ export default function RoomsAndRates({
                   </div>
 
                   {/* Price — always shown so guests can compare room types before selecting.
-                      Promo: -% badge + crossed-out regular total above the selling total. */}
+                      Promo: labeled selling total with the -% badge, regular total crossed out below. */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10">
                     {promoOffPercent > 0 && stayRegularTotal ? (
-                      <p className="mb-1 flex items-center gap-2">
-                        <span className="rounded bg-brand-success/10 px-1.5 py-0.5 text-xs font-bold text-brand-success">-{promoOffPercent}%</span>
-                        <span className="text-sm font-bold text-brand-dark/45 line-through tabular-nums">{peso(stayRegularTotal)}</span>
-                      </p>
-                    ) : null}
-                    <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
+                      <>
+                        <p className="flex flex-wrap items-center gap-2">
+                          <span className="text-xl font-bold text-brand-dark">
+                            <span className="text-brand-danger">Promo:</span>{' '}
+                            <span className="tabular-nums">{priceLabel(category)}</span>
+                          </span>
+                          <span className="rounded bg-brand-success/10 px-1.5 py-0.5 text-xs font-bold text-brand-success">-{promoOffPercent}%</span>
+                        </p>
+                        <p className="mt-0.5 text-xs font-bold text-brand-dark/50">
+                          Regular Rate: <span className="line-through tabular-nums">{peso(stayRegularTotal)}</span>
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
+                    )}
                     {/* Room facts come from the category itself, not the searched dates/guests. */}
                     {category.description
                       ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>

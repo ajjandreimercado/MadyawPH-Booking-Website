@@ -171,15 +171,16 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
             <p className={`text-[10px] font-bold uppercase tracking-widest ${hasPromo ? 'text-brand-danger' : 'text-brand-dark/45'}`}>
-              {hasPromo ? 'Promo · Starts from' : 'Starts from'}
+              Starts from
             </p>
             <p className={`font-bold text-brand-dark tabular-nums leading-none ${hasPromo ? 'text-3xl' : 'text-2xl'}`}>
+              {hasPromo ? <span className="text-base text-brand-danger">Promo: </span> : null}
               <span className="text-sm align-top pr-0.5">₱</span>{(startsFrom ?? 0).toLocaleString()}
               <span className="text-xs font-bold text-brand-dark/50"> /night</span>
             </p>
             {hasPromo && hotel.promoRegularPrice && hotel.promoRegularPrice > (hotel.promoPrice ?? 0) && (
               <p className="mt-1 text-xs font-bold text-brand-dark/45 tabular-nums">
-                Regular <span className="line-through">₱{hotel.promoRegularPrice.toLocaleString()}</span>
+                Regular Rate: <span className="line-through">₱{hotel.promoRegularPrice.toLocaleString()}</span>
               </p>
             )}
           </div>
