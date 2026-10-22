@@ -161,15 +161,16 @@ function HotelCard({
         <div className="flex items-end justify-between gap-3 pt-3 border-t border-brand-primary/8">
           <div>
             <p className={`text-[10px] font-bold uppercase tracking-widest ${hotel.hasPromo && hotel.promoPrice ? 'text-brand-danger' : 'text-brand-dark/40'}`}>
-              {hotel.hasPromo && hotel.promoPrice ? 'Promo · Starts from' : 'Starts from'}
+              Starts from
             </p>
             <p className="price-tag">
+              {hotel.hasPromo && hotel.promoPrice ? <span className="text-brand-danger">Promo: </span> : null}
               ₱{(hotel.hasPromo && hotel.promoPrice ? hotel.promoPrice : hotel.minPrice).toLocaleString()}
               <span className="text-xs font-sans font-bold text-brand-dark/50">/night</span>
             </p>
             {hotel.hasPromo && hotel.promoRegularPrice && hotel.promoPrice && hotel.promoRegularPrice > hotel.promoPrice && (
               <p className="text-[10px] font-bold text-brand-dark/45">
-                Regular <span className="line-through">₱{hotel.promoRegularPrice.toLocaleString()}</span>
+                Regular Rate: <span className="line-through">₱{hotel.promoRegularPrice.toLocaleString()}</span>
               </p>
             )}
             <p className="text-[10px] font-bold text-brand-dark/45">Taxes and charges included</p>
