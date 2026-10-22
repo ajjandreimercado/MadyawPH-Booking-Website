@@ -27,8 +27,8 @@ function stayTotal(category: HotelDetailCategory): number | null {
 }
 
 /** All photos the hotel uploaded for this room type (its own gallery, deduped). */
-function photosOf(category: HotelDetailCategory): string[] {
-  const photos = [...new Set([category.imageUrl, ...(category.images ?? [])].filter(Boolean) as string[])];
+function photosOf(category: HotelDetailCategory, broken: ReadonlySet<string>): string[] {
+  const photos = [...new Set([category.imageUrl, ...(category.images ?? [])].filter((src): src is string => Boolean(src) && !broken.has(src as string)))];
   return photos.length > 0 ? photos : [NO_PHOTO_SRC];
 }
 
@@ -66,8 +66,14 @@ export default function RoomsAndRates({
   onReserve: (items: ReserveItem[]) => void;
 }) {
   const nights = stayNights(stay);
-  // Client rule: fully booked room types are hidden until a room frees up for these dates.
-  const categories = useMemo(() => allCategories.filter((c) => c.availableRooms > 0), [allCategories]);
+  const categories = allCategories;
+  // Photos that failed to load (dead files on the hotel app) are dropped from the galleries.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
+  const markBroken = (event: { currentTarget: HTMLImageElement }) => {
+    const src = event.currentTarget.getAttribute('src') ?? '';
+    if (src && src !== NO_PHOTO_SRC) setBroken((prev) => (prev.has(src) ? prev : new Set(prev).add(src)));
+    showNoPhoto(event);
+  };
   const [selections, setSelections] = useState<Selection[]>([]);
 
   /** Add/replace one room type in the selection; hourly blocks always book on their own. */
@@ -90,7 +96,7 @@ export default function RoomsAndRates({
 
   useEffect(() => {
     if (!viewing) return;
-    const count = photosOf(viewing.category).length;
+    const count = photosOf(viewing.category, broken).length;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setViewing(null);
       if (e.key === 'ArrowRight') setViewing((v) => (v ? { ...v, index: (v.index + 1) % count } : v));
@@ -98,7 +104,7 @@ export default function RoomsAndRates({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [viewing]);
+  }, [viewing, broken]);
 
   const bedTypes = useMemo(
     () => [...new Set(categories.map((c) => c.bedConfiguration).filter((b): b is string => Boolean(b)))],
@@ -210,7 +216,7 @@ export default function RoomsAndRates({
                 >
                   {/* Room type — photo is the same large size as the hotel gallery image */}
                   <div className="p-4 flex flex-col gap-3">
-                    {category.imageUrl ? (
+                    {photosOf(category, broken)[0] !== NO_PHOTO_SRC ? (
                       <div className="relative">
                         {/* Tapping the photo books this room type directly (single-type shortcut);
                             the expand button and thumbnails below open the photo gallery. */}
@@ -225,7 +231,7 @@ export default function RoomsAndRates({
                           title={bookable ? 'Tap to book this room type' : 'View photos'}
                           className="group relative block w-full h-56 sm:h-72 rounded-xl overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                         >
-                          <img src={category.imageUrl} alt={category.name} onError={showNoPhoto}
+                          <img src={photosOf(category, broken)[0]} alt={category.name} onError={markBroken}
                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                           <span className="absolute inset-0 bg-brand-dark/0 group-hover:bg-brand-dark/25 transition-colors" />
                           {bookable && (
@@ -248,9 +254,9 @@ export default function RoomsAndRates({
                       <img src={NO_PHOTO_SRC} alt={category.name} onError={showNoPhoto}
                         className="block w-full h-56 sm:h-72 rounded-xl object-cover" loading="lazy" />
                     )}
-                    {photosOf(category).length > 1 && (
+                    {photosOf(category, broken).length > 1 && (
                       <div className="flex gap-2 overflow-x-auto pb-1" aria-label={`More photos of ${category.name}`}>
-                        {photosOf(category).slice(0, 6).map((src, photoIndex) => (
+                        {photosOf(category, broken).map((src, photoIndex) => (
                           <button
                             key={`${src}-${photoIndex}`}
                             type="button"
@@ -258,11 +264,11 @@ export default function RoomsAndRates({
                             aria-label={`View photo ${photoIndex + 1} of ${category.name}`}
                             className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                           >
-                            <img src={src} alt="" onError={showNoPhoto} className="h-full w-full object-cover" loading="lazy" />
+                            <img src={src} alt="" onError={markBroken} className="h-full w-full object-cover" loading="lazy" />
                           </button>
                         ))}
                         <span className="self-center text-[11px] font-bold text-brand-dark/50 shrink-0">
-                          {photosOf(category).length} photos
+                          {photosOf(category, broken).length} photos
                         </span>
                       </div>
                     )}
@@ -343,7 +349,7 @@ export default function RoomsAndRates({
                     {category.breakfastIncluded && <p className="flex items-center gap-1.5 text-brand-success"><Coffee className="w-3.5 h-3.5" aria-hidden />Breakfast included</p>}
                     {!bookable && (
                       <p className="text-brand-danger">
-                        {!fitsParty(category, stay) ? `Fits up to ${category.maxGuests} guests` : 'Price unavailable'}
+                        {category.availableRooms === 0 ? 'Sold out for these dates' : !fitsParty(category, stay) ? `Fits up to ${category.maxGuests} guests` : 'Price unavailable'}
                       </p>
                     )}
                   </div>
@@ -366,7 +372,7 @@ export default function RoomsAndRates({
 
       {/* Room photo gallery — every photo the hotel uploaded for this room type */}
       {viewing && (() => {
-        const photos = photosOf(viewing.category);
+        const photos = photosOf(viewing.category, broken);
         const index = Math.min(viewing.index, photos.length - 1);
         const go = (next: number) => setViewing({ category: viewing.category, index: ((next % photos.length) + photos.length) % photos.length });
         return (
@@ -400,7 +406,7 @@ export default function RoomsAndRates({
                 <img
                   src={photos[index]}
                   alt={viewing.category.name}
-                  onError={showNoPhoto}
+                  onError={markBroken}
                   draggable={false}
                   className="max-h-[72vh] w-full object-contain rounded-xl"
                 />
@@ -435,7 +441,7 @@ export default function RoomsAndRates({
                       aria-current={photoIndex === index}
                       className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg focus:outline-none ${photoIndex === index ? 'ring-2 ring-brand-cream' : 'opacity-60 hover:opacity-100'}`}
                     >
-                      <img src={src} alt="" onError={showNoPhoto} className="h-full w-full object-cover" loading="lazy" />
+                      <img src={src} alt="" onError={markBroken} className="h-full w-full object-cover" loading="lazy" />
                     </button>
                   ))}
                 </div>

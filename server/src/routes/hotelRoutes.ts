@@ -821,6 +821,37 @@ hotelRoutes.get('/media', publicReadLimiter, async (req, res) => {
   return res.send(image.body);
 });
 
+// Hotel-app photo files that no longer exist (e.g. lost on its disk) 404 in the proxy above.
+// Remember which paths are dead so galleries stop listing them; unknown paths are probed in
+// the background, so a dead photo disappears from the next page load on.
+const PHOTO_STATUS_TTL_MS = 30 * 60_000;
+const photoStatus = new Map<string, { alive: boolean; at: number }>();
+const photoProbes = new Set<string>();
+
+function liveHotelPhotos(urls: string[]): string[] {
+  const now = Date.now();
+  return urls.filter((url) => {
+    if (!url.includes('/hotels/media?')) return true;
+    let path: string | null = null;
+    try { path = new URL(url).searchParams.get('f'); } catch { /* keep the url */ }
+    if (!path) return true;
+    const known = photoStatus.get(path);
+    if (known && now - known.at < PHOTO_STATUS_TTL_MS) return known.alive;
+    if (!photoProbes.has(path) && photoProbes.size < 12) {
+      const probePath = path;
+      photoProbes.add(probePath);
+      void fetchHotelPaymentQrImage(probePath)
+        .then((image) => {
+          if (photoStatus.size > 2000) photoStatus.clear(); // bound memory
+          photoStatus.set(probePath, { alive: Boolean(image), at: Date.now() });
+        })
+        .catch(() => undefined)
+        .finally(() => photoProbes.delete(probePath));
+    }
+    return true;
+  });
+}
+
 // ─── GET /:hotelId/detail ─────────────────────────────────────────────────────
 
 hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
@@ -976,11 +1007,11 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
       ?? resolvePromoPricing(rawCategory, Number(category.defaultPrice ?? 0));
     // Gallery for this room type: its own uploaded photos first, then photos of the
     // actual rooms in this type — never another type's or stock photos.
-    const categoryImages = [...new Set([
+    const categoryImages = liveHotelPhotos([...new Set([
       ...(category.images ?? []),
       category.imageUrl,
       ...roomsInCategory.flatMap((room) => (room.images?.length ? room.images : [room.image])),
-    ].filter(Boolean) as string[])].slice(0, 8);
+    ].filter(Boolean) as string[])].slice(0, 16));
     // Extra-person / extra-bed charges, only when the hotel actually set them.
     const chargeOf = (...keys: string[]) => {
       for (const room of roomsInCategory) {

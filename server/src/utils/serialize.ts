@@ -6,7 +6,7 @@ import { imageRevisionToken, resolveHotelImageUrl, resolveHotelImageUrlFromRecor
  * Every photo attached to a record: the `images` array (hotel app uploads) plus the
  * single image fields, resolved to browser-loadable URLs and deduped.
  */
-export function resolveRecordImages(record: unknown, limit = 8): string[] {
+export function resolveRecordImages(record: unknown, limit = 16): string[] {
   if (!record || typeof record !== 'object') return [];
   const source = record as Record<string, unknown>;
   const version = imageRevisionToken(record);
@@ -17,7 +17,12 @@ export function resolveRecordImages(record: unknown, limit = 8): string[] {
     if (url && !urls.includes(url)) urls.push(url);
   };
   if (Array.isArray(source.images)) source.images.forEach(push);
-  if (Array.isArray(source.image_urls)) source.image_urls.forEach(push);
+  // The hotel app may store the list as a JSON string.
+  let imageUrls: unknown = source.image_urls;
+  if (typeof imageUrls === 'string' && imageUrls.trim().startsWith('[')) {
+    try { imageUrls = JSON.parse(imageUrls); } catch { imageUrls = undefined; }
+  }
+  if (Array.isArray(imageUrls)) imageUrls.forEach(push);
   push(source.image_url);
   push(source.imageUrl);
   push(source.image);
