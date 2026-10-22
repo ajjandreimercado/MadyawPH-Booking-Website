@@ -194,6 +194,13 @@ export default function RoomsAndRates({
             {visible.map((category) => {
               const bookable = isBookable(category, stay);
               const isSelected = selectedIds.has(category.id);
+              // Promo display (hotel app promo rate is the selling price): crossed-out
+              // regular stay total + % off, only when the server sent a higher regular total.
+              const stayTotalPrice = stayTotal(category);
+              const stayRegularTotal = category.stayPrice?.regularTotal ?? null;
+              const promoOffPercent = stayTotalPrice && stayRegularTotal && stayRegularTotal > stayTotalPrice
+                ? Math.round((1 - stayTotalPrice / stayRegularTotal) * 100)
+                : 0;
               return (
                 <div
                   key={category.id}
@@ -267,7 +274,9 @@ export default function RoomsAndRates({
                       {category.hasPromo ? (
                         <p className="mt-1 text-xs font-bold text-brand-danger">
                           <span className="uppercase tracking-wider">Promo</span>
-                          {category.promoPrice ? (
+                          {/* When the stay promo total is shown in the Price column, the
+                              per-night "starts from" numbers would only duplicate it. */}
+                          {promoOffPercent === 0 && category.promoPrice ? (
                             <>
                               {' '}· Starts from {peso(category.promoPrice)}
                               {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice
@@ -296,13 +305,25 @@ export default function RoomsAndRates({
                     </div>
                   </div>
 
-                  {/* Price — always shown so guests can compare room types before selecting */}
+                  {/* Price — always shown so guests can compare room types before selecting.
+                      Promo: -% badge + crossed-out regular total above the selling total. */}
                   <div className="px-4 pb-2 md:p-4 md:border-l border-brand-primary/10">
+                    {promoOffPercent > 0 && stayRegularTotal ? (
+                      <p className="mb-1 flex items-center gap-2">
+                        <span className="rounded bg-brand-success/10 px-1.5 py-0.5 text-xs font-bold text-brand-success">-{promoOffPercent}%</span>
+                        <span className="text-sm font-bold text-brand-dark/45 line-through tabular-nums">{peso(stayRegularTotal)}</span>
+                      </p>
+                    ) : null}
                     <p className="text-xl font-bold text-brand-dark tabular-nums">{priceLabel(category)}</p>
                     {/* Room facts come from the category itself, not the searched dates/guests. */}
                     {category.description
                       ? <p className="text-[11px] font-bold text-brand-dark/55 line-clamp-2">{category.description}</p>
                       : null}
+                    {category.stayPrice && category.stayPrice.billingMode !== 'hourly' ? (
+                      <p className="text-[11px] font-bold text-brand-dark/45">
+                        ({nights} night{nights === 1 ? '' : 's'} and 1 room)
+                      </p>
+                    ) : null}
                     <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
                     {category.hourly && (
                       <p className="mt-1 text-[11px] font-bold text-brand-primary">

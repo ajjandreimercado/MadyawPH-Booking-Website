@@ -915,7 +915,7 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
       ))[0];
     const rawRoom = bookRoom ? rawOf(bookRoom) : null;
     const rawCategory = rawCategoryById.get(category.id) ?? null;
-    let stayPrice: { nights: number; nightlyRate: number; total: number; billingMode: string; stayHours: number | null; blockHours: number | null } | null = null;
+    let stayPrice: { nights: number; nightlyRate: number; total: number; regularTotal?: number; billingMode: string; stayHours: number | null; blockHours: number | null } | null = null;
     let hourly: { blockHours: number; blockPrice: number } | null = null;
     if (stay && rawRoom) {
       try {
@@ -941,6 +941,30 @@ hotelRoutes.get('/:hotelId/detail', publicReadLimiter, async (req, res) => {
         }
       } catch {
         stayPrice = null;
+      }
+    }
+    // Regular (rack) stay total at the hotel app's regular rate, for the crossed-out
+    // price beside the promo selling total — only when regular is actually higher.
+    if (stayPrice && rawRoom) {
+      const regularNight = Number(rawRoom.regular_price_per_night ?? rawCategory?.regular_price_per_night ?? 0);
+      const regularBlock = Number(rawRoom.regular_price_per_block ?? rawCategory?.regular_price_per_block ?? 0);
+      if (regularNight > 0 || regularBlock > 0) {
+        try {
+          const regularRoom = {
+            ...rawRoom,
+            ...(regularNight > 0 ? { price_per_night: regularNight } : {}),
+            ...(regularBlock > 0 ? { price_per_block: regularBlock } : {}),
+          };
+          const regularCharge = computeStayCharge(
+            regularRoom,
+            rawCategory,
+            resolveStayWindow(rawRoom, rawCategory, String(req.query.checkIn), String(req.query.checkOut)),
+            surge,
+          );
+          if (regularCharge.amount > stayPrice.total) stayPrice.regularTotal = regularCharge.amount;
+        } catch {
+          // No regular total — the promo price simply shows without a strikethrough.
+        }
       }
     }
     // Promo pricing for this room type (category record first, then its rooms).
