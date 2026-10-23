@@ -20,9 +20,9 @@ const db = mongoose.connection;
 const bookings = db.collection('bookings');
 
 // Website references only: "BK…" rows with source "web" are the hotel app's own bookings (with billing).
-const websiteOnly = { source: 'web', booking_reference: /^(BR-|M-)/ };
+const websiteOnly = { source: 'web', booking_reference: /^(BR-|M-|[A-Z]{2}-[A-Z]{2}-O-\d{6}-\d{4}$)/ };
 const docs = await bookings.find(refs.length
-  ? { ...websiteOnly, booking_reference: { $in: refs.filter((r) => /^(BR-|M-)/.test(r)) } }
+  ? { ...websiteOnly, booking_reference: { $in: refs.filter((r) => /^(BR-|M-|[A-Z]{2}-[A-Z]{2}-O-\d{6}-\d{4}$)/.test(r)) } }
   : websiteOnly)
   .project({ booking_reference: 1, status: 1, guestName: 1, guestEmail: 1, checkInDate: 1, totalPrice: 1, created_at: 1, createdAt: 1 })
   .sort({ _id: -1 })
