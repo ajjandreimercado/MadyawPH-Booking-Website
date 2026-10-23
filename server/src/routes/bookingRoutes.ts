@@ -1321,8 +1321,8 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   const hotelIdForBooking = String(property.hotel_id ?? '');
   const hotelNameForEmail = await hotelNameOf(property as never);
 
-  // Guest-facing booking numbers like M-GL-00890 (Madyaw + hotel initials + running number).
-  const bookingRefs = await nextBookingReferences(hotelNameForEmail, units.length);
+  // Booking numbers CC-HH-O-YYMMDD-HHMM (city code, hotel code, online, creation time).
+  const bookingRefs = await nextBookingReferences(hotelIdForBooking, units.length, 'online');
 
   const buildBookingDoc = (unit: BookingUnit, unitIndex: number) => {
     const pricing = unit.pricing;
