@@ -1,11 +1,11 @@
 import mongoose from 'mongoose';
 
-/** "Gloreto Luxury Hotel" → "GL"; a one-word name uses its first two letters. */
+/** "Gloreto Luxury Hotel" → "GLH" (first letter of each word, up to 4); a one-word name uses its first 3 letters. */
 export function hotelInitials(hotelName: string): string {
   const words = hotelName.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   const letters = words.length >= 2
-    ? words.slice(0, 2).map((word) => word[0]).join('')
-    : (words[0] ?? '').slice(0, 2);
+    ? words.slice(0, 4).map((word) => word[0]).join('')
+    : (words[0] ?? '').slice(0, 3);
   return letters.toUpperCase().padEnd(2, 'X');
 }
 
@@ -14,7 +14,7 @@ export function formatBookingReference(initials: string, sequence: number): stri
 }
 
 /**
- * Reserve `count` consecutive guest-facing booking numbers (M-GL-00890). The counter is kept
+ * Reserve `count` consecutive guest-facing booking numbers (M-GLH-00890). The counter is kept
  * per initials, not per hotel, so two hotels with the same initials never share a number.
  */
 export async function nextBookingReferences(hotelName: string, count: number): Promise<string[]> {
