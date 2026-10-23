@@ -281,7 +281,7 @@ export default function RoomsAndRates({
                           shows the labeled stay totals for the chosen dates. */}
                       {category.hasPromo && promoOffPercent === 0 && category.promoPrice ? (
                         <div className="mt-1 space-y-0.5 text-xs font-bold">
-                          <p className="text-brand-danger">Promo: <span className="tabular-nums">{peso(category.promoPrice)}</span></p>
+                          <p className="text-brand-primary">Promo: <span className="tabular-nums">{peso(category.promoPrice)}</span></p>
                           {category.promoRegularPrice && category.promoRegularPrice > category.promoPrice ? (
                             <p className="text-brand-dark/50">
                               Regular Rate: <span className="line-through tabular-nums">{peso(category.promoRegularPrice)}</span>
@@ -315,7 +315,7 @@ export default function RoomsAndRates({
                       <>
                         <p className="flex flex-wrap items-center gap-2">
                           <span className="text-xl font-bold text-brand-dark">
-                            <span className="text-brand-danger">Promo:</span>{' '}
+                            <span className="text-brand-primary">Promo:</span>{' '}
                             <span className="tabular-nums">{priceLabel(category)}</span>
                           </span>
                           <span className="rounded bg-brand-success/10 px-1.5 py-0.5 text-xs font-bold text-brand-success">-{promoOffPercent}%</span>

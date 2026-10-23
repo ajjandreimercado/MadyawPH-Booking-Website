@@ -118,7 +118,7 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
           />
         ))}
         {hasPromo && (
-          <span className="absolute top-3 left-3 bg-brand-danger text-white text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg shadow-md">
+          <span className="absolute top-3 left-3 bg-brand-primary text-white text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg shadow-md">
             Promo
           </span>
         )}
@@ -170,11 +170,11 @@ function FeaturedHotelCard({ hotel, priority = false }: { hotel: SearchResultHot
         {/* Price: big promo "starts from" when the hotel turned promo on, else regular starts-from. */}
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className={`text-[10px] font-bold uppercase tracking-widest ${hasPromo ? 'text-brand-danger' : 'text-brand-dark/45'}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${hasPromo ? 'text-brand-primary' : 'text-brand-dark/45'}`}>
               Starts from
             </p>
             <p className={`font-bold text-brand-dark tabular-nums leading-none ${hasPromo ? 'text-3xl' : 'text-2xl'}`}>
-              {hasPromo ? <span className="text-base text-brand-danger">Promo: </span> : null}
+              {hasPromo ? <span className="text-base text-brand-primary">Promo: </span> : null}
               <span className="text-sm align-top pr-0.5">₱</span>{(startsFrom ?? 0).toLocaleString()}
               <span className="text-xs font-bold text-brand-dark/50"> /night</span>
             </p>
