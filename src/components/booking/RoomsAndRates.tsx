@@ -337,6 +337,7 @@ export default function RoomsAndRates({
                       </p>
                     ) : null}
                     <p className="text-[11px] font-bold text-brand-dark/45">Taxes and charges included</p>
+                    <p className="text-[11px] font-bold text-brand-success">Member discount available — enter your Madyaw Membership ID at checkout</p>
                     {category.hourly && (
                       <p className="mt-1 text-[11px] font-bold text-brand-primary">
                         Hourly room · {peso(category.hourly.blockPrice)} per {category.hourly.blockHours} hours
