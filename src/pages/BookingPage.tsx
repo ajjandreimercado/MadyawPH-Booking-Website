@@ -393,7 +393,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                 <div className="text-center py-4">
                   <CheckCircle2 className="mx-auto h-12 w-12 text-brand-success" aria-hidden />
                   <h1 className="mt-3 text-xl font-bold text-brand-dark">Booking Successful!</h1>
-                  <p className="mt-2 text-sm font-bold text-brand-dark/70">
+                  <p className="mt-2 text-sm font-bold italic text-brand-dark/70">
                     We will notify you once your payment has been confirmed by our front desk.
                   </p>
                   {submitted.references.length > 0 && (
