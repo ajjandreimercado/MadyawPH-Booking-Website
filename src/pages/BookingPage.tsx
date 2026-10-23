@@ -97,7 +97,7 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreed, setAgreed] = useState(false);
   /** Set right after a successful submission — shows the "Processing Payment…" popup. */
-  const [submitted, setSubmitted] = useState<{ bookingId: string; receiptToken?: string; email: string } | null>(null);
+  const [submitted, setSubmitted] = useState<{ references: string[] } | null>(null);
   const [, startTransition] = useTransition();
 
   const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(categoryId));
@@ -326,10 +326,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
         specialRequests: buildSpecialRequests({ ...draft, groupBooking: effectiveGroupBooking }),
       });
       clearDraft(categoryId);
-      const receiptToken = (booking as { receiptToken?: string }).receiptToken;
-      const contactEmail = draft.email.trim();
-      // Popup first ("Processing Payment…"), then the guest opens the confirmation page.
-      setSubmitted({ bookingId: booking.id, receiptToken, email: contactEmail });
+      const references = (booking as { bookingReferences?: string[] }).bookingReferences ?? [];
+      setSubmitted({ references: references.length > 0 ? references : [booking.bookingReference ?? ''].filter(Boolean) });
       window.scrollTo({ top: 0 });
     } catch (err) {
       showToast({ title: 'Booking failed', description: errorMessageFromUnknown(err, 'Please try again.'), type: 'error' });
@@ -394,12 +392,13 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
               <Card>
                 <div className="text-center py-4">
                   <CheckCircle2 className="mx-auto h-12 w-12 text-brand-success" aria-hidden />
-                  <h1 className="mt-3 text-xl font-bold text-brand-dark">Booking request sent</h1>
+                  <h1 className="mt-3 text-xl font-bold text-brand-dark">Booking Successful!</h1>
                   <p className="mt-2 text-sm font-bold text-brand-dark/70">
-                    {submitted.email
-                      ? <>The hotel will contact you at {draft.phone.trim() ? <>{draft.phone.trim()} or </> : null}your email ({submitted.email}) once they confirm your booking.</>
-                      : <>The hotel will call you at {draft.phone.trim()} once they confirm your booking.</>}
+                    We will notify you once your payment has been confirmed by our front desk.
                   </p>
+                  {submitted.references.length > 0 && (
+                    <p className="mt-4 text-base font-bold text-brand-dark">Booking #- {submitted.references.join(', ')}</p>
+                  )}
                 </div>
               </Card>
             ) : step === 'details' ? (

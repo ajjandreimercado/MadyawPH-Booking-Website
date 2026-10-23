@@ -22,6 +22,7 @@ import {
 } from '../utils/halfPayment';
 import { withRetries } from '../utils/withRetries';
 import { DEFAULT_CHECK_IN, DEFAULT_CHECK_OUT, findBookedRoomIds, hotelTime, pickRoomForCategory, stayDateOf } from '../utils/roomAvailability';
+import { nextBookingReferences } from '../utils/bookingReference';
 import { syncPaymentProofToHotelApp, finalizeDepositAfterHotelVerification } from '../utils/syncPaymentProofToHotel';
 import { runBookingUploads, type UploadedBookingFile } from '../middleware/validIdUpload';
 import { CLIENT_ORIGINS, getHotelWebhookSecret } from '../config/env';
@@ -1320,11 +1321,14 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
   const hotelIdForBooking = String(property.hotel_id ?? '');
   const hotelNameForEmail = await hotelNameOf(property as never);
 
+  // Guest-facing booking numbers like M-GL-00890 (Madyaw + hotel initials + running number).
+  const bookingRefs = await nextBookingReferences(hotelNameForEmail, units.length);
+
   const buildBookingDoc = (unit: BookingUnit, unitIndex: number) => {
     const pricing = unit.pricing;
     const stayWindow = pricing.charge.window;
     return {
-    booking_reference: isMultiCategory ? `BR-${Date.now()}-${unitIndex + 1}` : `BR-${Date.now()}`,
+    booking_reference: bookingRefs[unitIndex],
     hotel_id: hotelIdForBooking,
     // Used so guest emails say "Welcome to {hotel}" even if HotelModel lookup fails.
     ...(hotelNameForEmail ? { hotel_name: hotelNameForEmail } : {}),
@@ -1650,6 +1654,7 @@ bookingRoutes.post('/', optionalAuth, bookingCreateLimiter, async (req, res) => 
     // Multi-category: one reservation per room type under this one payment.
     categoryCount: createdBookings.length,
     bookingIds: createdBookings.map((entry) => String(entry._id)),
+    bookingReferences: createdBookings.map((entry) => String(entry.booking_reference ?? '')),
     bookings: createdBookings.map((entry, index) => ({
       id: String(entry._id),
       roomName: String(entry.propertyName ?? units[index]?.property.category_name ?? ''),
