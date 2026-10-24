@@ -1,7 +1,7 @@
 import { useEffect, useState, useTransition, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Globe,
+  Loader2, CheckCircle2, ShieldCheck, ChevronDown, Globe, Download, Printer,
   Phone, Mail, User, Tag, Upload, Clock, MessageSquare, Wallet, Pencil,
 } from 'lucide-react';
 import { fetchPropertyById, createBookingRequestApi } from '../api/propertyService';
@@ -17,7 +17,8 @@ import {
   setPaymentProof, type CheckoutDraft,
 } from '../lib/checkoutDraft';
 import PayByQr from '../components/booking/PayByQr';
-import CheckoutSummary, { CheckoutProgress, clockLabel } from '../components/booking/CheckoutSummary';
+import CheckoutSummary, { CheckoutProgress, clockLabel, stayLengthLabel } from '../components/booking/CheckoutSummary';
+import type { ReceiptData } from '../lib/receiptPdf';
 
 // ── Nationality List ──────────────────────────────────────────────────────────
 const NATIONALITIES = [
@@ -71,6 +72,8 @@ function missingDetails(draft: CheckoutDraft): string | null {
  * Guests book a room type; the server assigns a free room of that type (never shown to them).
  * Dates and guests come from the URL; typed details persist in sessionStorage.
  */
+const PAYMENT_METHOD_LABELS: Record<string, string> = { gcash: 'GCash', maya: 'Maya', qrph: 'QR Ph', 'bank-transfer': 'Bank transfer' };
+
 export default function BookingPage({ step = 'details' }: { step?: 'details' | 'finish' }) {
   const { categoryId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -97,7 +100,8 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreed, setAgreed] = useState(false);
   /** Set right after a successful submission — shows the "Processing Payment…" popup. */
-  const [submitted, setSubmitted] = useState<{ references: string[] } | null>(null);
+  const [submitted, setSubmitted] = useState<{ references: string[]; receipt: ReceiptData } | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState<'download' | 'print' | null>(null);
   const [, startTransition] = useTransition();
 
   const [draft, setDraft] = useState<CheckoutDraft>(() => loadDraft(categoryId));
@@ -327,12 +331,58 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
       });
       clearDraft(categoryId);
       const references = (booking as { bookingReferences?: string[] }).bookingReferences ?? [];
-      setSubmitted({ references: references.length > 0 ? references : [booking.bookingReference ?? ''].filter(Boolean) });
+      const allReferences = references.length > 0 ? references : [booking.bookingReference ?? ''].filter(Boolean);
+      // Snapshot for the receipt: what the guest saw and paid at the moment of booking.
+      const paid = quote.dueNow;
+      setSubmitted({
+        references: allReferences,
+        receipt: {
+          references: allReferences,
+          status: 'Pending hotel confirmation',
+          bookedAt: new Date(),
+          hotelName: quote.hotelName || category.name,
+          hotelLocation: quote.hotelLocation || undefined,
+          roomName: roomLabel,
+          checkIn: stay.checkIn,
+          checkInTime: quote.checkInTime ?? '14:00',
+          checkOut: quote.checkOutDate ?? stay.checkOut,
+          checkOutTime: quote.checkOutTime ?? '11:00',
+          stayLength: stayLengthLabel(quote) ?? '',
+          guests: describeGuests(stay),
+          rooms: isMultiCategory ? roomsLabel : undefined,
+          guestName: draft.fullName.trim(),
+          stayGuestName: draft.bookingForSomeoneElse ? draft.stayGuestName.trim() : undefined,
+          guestPhone: draft.phone.trim() || undefined,
+          guestEmail: draft.email.trim() || undefined,
+          specialRequests: draft.specialRequests.trim() || undefined,
+          stayPrice: quote.stayPrice,
+          discountLabel: quote.discountType ? `Discount (${quote.discountType})` : undefined,
+          discountAmount: quote.discountAmount,
+          total: quote.totalPrice,
+          amountPaid: paid,
+          balanceDue: quote.dueAfterConfirmation,
+          paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
+        },
+      });
       window.scrollTo({ top: 0 });
     } catch (err) {
       showToast({ title: 'Booking failed', description: errorMessageFromUnknown(err, 'Please try again.'), type: 'error' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const runReceipt = async (action: 'download' | 'print') => {
+    if (!submitted || receiptBusy) return;
+    setReceiptBusy(action);
+    try {
+      // The PDF library is ~400 KB, so it only loads when a guest asks for a receipt.
+      const { downloadReceipt, printReceipt } = await import('../lib/receiptPdf');
+      await (action === 'print' ? printReceipt(submitted.receipt) : downloadReceipt(submitted.receipt));
+    } catch {
+      showToast({ title: 'Could not create the receipt', description: 'Please try again.', type: 'error' });
+    } finally {
+      setReceiptBusy(null);
     }
   };
 
@@ -399,6 +449,18 @@ export default function BookingPage({ step = 'details' }: { step?: 'details' | '
                   {submitted.references.length > 0 && (
                     <p className="mt-4 text-base font-bold text-brand-dark">Booking #- {submitted.references.join(', ')}</p>
                   )}
+                  <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
+                    <button type="button" disabled={receiptBusy !== null} onClick={() => void runReceipt('download')}
+                      className="btn-primary inline-flex items-center justify-center gap-2 px-5 py-3 disabled:opacity-60">
+                      {receiptBusy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Download className="w-4 h-4" aria-hidden />}
+                      Download receipt
+                    </button>
+                    <button type="button" disabled={receiptBusy !== null} onClick={() => void runReceipt('print')}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-primary/40 bg-white px-5 py-3 text-sm font-bold text-brand-primary hover:bg-brand-primary/5 disabled:opacity-60">
+                      {receiptBusy === 'print' ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Printer className="w-4 h-4" aria-hidden />}
+                      Print receipt
+                    </button>
+                  </div>
                 </div>
               </Card>
             ) : step === 'details' ? (
