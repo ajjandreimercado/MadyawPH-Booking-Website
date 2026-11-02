@@ -59,3 +59,5 @@ npm run lint                 # frontend type check
 
 Pushing to `main` redeploys both Render services. The API's `/api/health` is pinged every 5 minutes by
 UptimeRobot so the free instance does not sleep.
+
+Last updated: 2026-11-02
