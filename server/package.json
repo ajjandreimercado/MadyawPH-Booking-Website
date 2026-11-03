@@ -24,7 +24,7 @@
     "geolib": "^3.3.14",
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^9.6.3",
+    "mongoose": "^9.11.4",
     "multer": "^2.2.0",
     "qrcode": "^1.5.4",
     "typescript": "^5.8.2"
